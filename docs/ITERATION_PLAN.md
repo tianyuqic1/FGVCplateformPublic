@@ -1,0 +1,320 @@
+# FineVision Iteration Plan
+
+This plan turns the current FineVision documents and HTML workbench prototype into a staged implementation path. The guiding principle is to deliver a working vertical slice at each checkpoint, not to build every module in isolation before integration.
+
+## Version Control Policy
+
+FineVision should use git from the start of implementation.
+
+- Initialize the repository before Iteration 0 implementation begins.
+- Push every completed, reviewed checkpoint to the remote repository.
+- Prefer one commit per coherent checkpoint, with tests or smoke verification noted in the commit message or PR description.
+- Do not wait until a full iteration is finished if a smaller checkpoint is already independently useful and verified.
+- Avoid pushing broken mainline work; use feature branches for in-progress implementation.
+- Tag or mark important milestones such as `iteration-0-shell`, `iteration-0.5-toolkit`, and `iteration-1-dataset-assets` once they are verified.
+
+Recommended branch pattern:
+
+```text
+main
+feature/iteration-0-shell
+feature/iteration-0-5-ml-toolkit
+feature/iteration-1-dataset-assets
+```
+
+## Iteration 0: Project Skeleton And Workbench Shell
+
+Objective: turn the document-only workspace into a runnable project and preserve the HTML prototype as the product reference.
+
+Scope:
+
+- Initialize git and configure the remote repository.
+- Create the frontend application skeleton.
+- Convert the HTML prototype direction into React/Vite routes for dashboard, datasets, training, inference, review, models, and pipelines.
+- Keep the current HTML prototype under `frontend/prototypes/` as the reference artifact.
+- Use mock data first.
+- Create a minimal backend skeleton if the implementation will use FastAPI or a similar API layer.
+
+Deliverables:
+
+- Runnable frontend workbench shell.
+- Routes matching the HTML prototype page set.
+- Shared navigation, shell layout, cards, metrics, tables, forms, status chips, and toast patterns.
+- Initial mock data shaped close to future API responses.
+
+Acceptance:
+
+- The workbench opens locally.
+- All prototype-level pages and detail pages are reachable.
+- The UI is recognizably derived from `frontend/prototypes/fine-grained-vision-platform.html`.
+- A first push exists for the project skeleton.
+
+Suggested checkpoint pushes:
+
+- `chore: initialize finevision repository`
+- `feat: add workbench frontend shell`
+- `feat: port prototype routes with mock data`
+
+## Iteration 0.5: ML/Data Toolkit Prototype
+
+Objective: create a small, testable toolkit layer for dataset processing, feature extraction, training, evaluation, threshold sweep, and inference before building higher-level APIs around it.
+
+This is a platform-kernel spike, not a full algorithm research phase. The goal is stable callable boundaries and artifact contracts.
+
+Scope:
+
+- Scan ImageFolder-style datasets into a dataset manifest.
+- Preserve existing `train`/`val`/`test` splits when provided.
+- Create stratified splits when explicit splits are absent.
+- Generate taxonomy and low-sample readiness diagnostics.
+- Wrap frozen-backbone feature extraction behind a generic interface such as `backbone_id` plus `extractor_config`.
+- Persist feature artifacts with sample ids, labels, dimensions, backbone metadata, and dataset-version binding.
+- Train at least one lightweight classifier head, starting with a linear head.
+- Produce evaluation reports with accuracy, macro F1, per-class metrics, confusion data, and run configuration.
+- Produce threshold sweep output with coverage, selective risk, abstention rate, and estimated review cost.
+- Return inference results with top-k candidates, confidence, margin, and a first abstention decision.
+
+Preferred artifact flow:
+
+```text
+DatasetManifest -> FeatureArtifact -> TrainingRunReport -> ModelArtifact -> InferenceResult
+```
+
+Deliverables:
+
+- Toolkit modules or scripts with clear input/output contracts.
+- A smoke command or test that runs the full local flow on a small dataset.
+- Example artifacts saved under a predictable runtime location.
+
+Acceptance:
+
+- A small ImageFolder dataset can produce a manifest, feature artifact, trained head, evaluation report, and inference result.
+- Artifacts include stable ids and metadata.
+- The implementation does not hard-code DINOv3 into business logic; DINOv3-style extraction is one configured backbone option.
+- A checkpoint push records the working toolkit spike.
+
+Suggested checkpoint pushes:
+
+- `feat: add dataset manifest toolkit`
+- `feat: add feature extraction artifact contract`
+- `feat: add linear head training smoke flow`
+- `feat: add evaluation and threshold sweep outputs`
+
+## Iteration 1: Dataset Assets And Metadata APIs
+
+Objective: make datasets, dataset versions, taxonomy, sample quality, and readiness first-class platform concepts.
+
+Scope:
+
+- Define dataset version metadata.
+- Define class taxonomy metadata.
+- Define sample quality and feedback outcome enums.
+- Add dataset list API.
+- Add dataset detail API.
+- Add readiness diagnostics for ImageFolder imports.
+- Wire the dataset list and dataset detail pages to API data.
+
+Deliverables:
+
+- Dataset metadata schemas.
+- Dataset list/detail API responses.
+- Dataset detail views for overview, class governance, samples, feature index, and OOD/abstention sections.
+
+Acceptance:
+
+- Multiple datasets can be listed.
+- Each dataset has a version, class count, sample count, readiness state, quality summary, and artifact references.
+- Dataset detail exposes taxonomy and readiness diagnostics.
+- Tests cover dataset version creation, split preservation, low-sample diagnostics, and taxonomy updates.
+
+Suggested checkpoint pushes:
+
+- `feat: add dataset metadata schemas`
+- `feat: add dataset asset APIs`
+- `feat: wire dataset workbench views`
+
+## Iteration 2: Training And Evaluation Services
+
+Objective: turn the toolkit training flow into tracked platform operations.
+
+Scope:
+
+- Bind feature extraction to dataset versions.
+- Reuse feature artifacts for unchanged dataset/backbone combinations.
+- Generalize classifier-head training inputs.
+- Create training run records.
+- Link training outputs to candidate model versions.
+- Serve training queue and training detail APIs.
+- Show progress, run configuration, metrics, reports, and artifact links in the UI.
+
+Deliverables:
+
+- Training run API.
+- Evaluation report model.
+- Candidate model version creation.
+- Frontend training queue and training detail views connected to real or fallback API data.
+
+Acceptance:
+
+- A training run has a dataset version, feature artifact, backbone, head config, report, and status.
+- Completed runs produce candidate model versions.
+- Reports include accuracy, macro F1, top-k/candidate recall, per-class metrics, confusion information, and run configuration.
+- Tests cover feature reuse, training metadata, report content, and threshold sweep outputs.
+
+Suggested checkpoint pushes:
+
+- `feat: add training run model and APIs`
+- `feat: connect training workbench views`
+- `test: cover training artifacts and reports`
+
+## Iteration 3: Scoped Inference And Abstention
+
+Objective: make inference dataset-scoped and return decisions, not just labels.
+
+Scope:
+
+- Require dataset version and model version for inference.
+- Return top-k candidates capped by dataset class count.
+- Return calibrated scores where available.
+- Return an abstention decision object with decision, reasons, thresholds, margin, confidence, and OOD/domain signal.
+- Add nearest-neighbor evidence lookup from the feature index metadata.
+- Connect the inference lab UI to the API.
+
+Deliverables:
+
+- Inference API.
+- Abstention decision contract.
+- Nearest-neighbor evidence response shape.
+- Inference lab showing top-k, decision, reasons, and evidence.
+
+Acceptance:
+
+- High-confidence in-domain samples can return `accept`.
+- Low-confidence or low-margin samples return `abstain`.
+- Out-of-domain samples can return `reject_ood`.
+- Tests cover accept, abstain, low-margin abstain, OOD reject, and nearest-neighbor response shape.
+
+Suggested checkpoint pushes:
+
+- `feat: add scoped inference contract`
+- `feat: add abstention decision output`
+- `feat: connect inference lab`
+
+## Iteration 4: Human Review And Typed Feedback
+
+Objective: complete the human-in-the-loop feedback path.
+
+Scope:
+
+- Create review items automatically for `abstain` and `reject_ood` decisions when routing is enabled.
+- Store review items with dataset id, sample id, priority, reason, model context, nearest neighbors, and assistance metadata.
+- Add optional LLM/VLM assistance adapter interface, but keep it advisory only.
+- Add review detail API.
+- Add review completion API requiring human final outcome, feedback destination, reviewer note, and completion metadata.
+- Route completed outcomes into training candidate, OOD/stress, bad-image, dispute, or ignore pools.
+- Connect review queue and detail UI.
+
+Deliverables:
+
+- Review queue API.
+- Review detail API.
+- Review completion API.
+- Feedback pool storage.
+- UI for final label, feedback destination, reviewer note, and submission.
+
+Acceptance:
+
+- Review items are ordered by risk priority.
+- A review cannot complete without a human final outcome.
+- LLM/VLM assistance is visibly separate from the final label.
+- Completed outcomes enter the correct typed feedback pool.
+- Tests cover queue ordering, completion, typed routing, and audit trail retention.
+
+Suggested checkpoint pushes:
+
+- `feat: add review queue and detail APIs`
+- `feat: add typed feedback routing`
+- `feat: connect review workflow`
+- `test: cover review completion audit trail`
+
+## Iteration 5: Model Registry And Release Gates
+
+Objective: make model promotion auditable and safe.
+
+Scope:
+
+- Add model registry API for experiment, staging, production, archived, and failed states.
+- Add model detail API with metadata, metrics, threshold strategy, artifacts, and production comparison.
+- Evaluate release gates for offline metrics, calibration, OOD/stress performance, review pressure, and rollback availability.
+- Add promotion and rollback service functions.
+- Connect model registry and detail UI.
+
+Deliverables:
+
+- Model version registry.
+- Release gate evaluator.
+- Promotion and rollback operations.
+- Model version UI with gates and comparison.
+
+Acceptance:
+
+- Every model version is traceable to dataset version, feature artifact, backbone, head, threshold strategy, report, and artifact location.
+- Production promotion is blocked when required gates fail.
+- Rollback metadata is stored when a new production model is promoted.
+- Tests cover registration, gate failure, promotion, and rollback metadata.
+
+Suggested checkpoint pushes:
+
+- `feat: add model registry APIs`
+- `feat: add release gate evaluation`
+- `feat: connect model registry views`
+- `test: cover promotion and rollback`
+
+## Iteration 6: Dashboard, Pipelines, And End-To-End Validation
+
+Objective: connect the workbench into one operational system.
+
+Scope:
+
+- Add dashboard summary API.
+- Add pipeline template and pipeline run views backed by real run state or a durable fallback.
+- Show priority tasks, review backlog, training status, production coverage, OOD alerts, dataset status, and release gates.
+- Update README and architecture documentation.
+- Add end-to-end API tests for the main dataset-to-feedback loop.
+- Add frontend build verification and smoke interaction checks for key routes.
+
+Deliverables:
+
+- Operational dashboard using real platform state.
+- Pipeline run view with progress, logs, artifacts, and retry/pause affordances.
+- Updated documentation.
+- End-to-end validation suite.
+
+Acceptance:
+
+- The primary loop is demonstrable:
+
+```text
+dataset import -> feature extraction -> training -> evaluation -> inference -> abstention -> review -> feedback pool -> candidate model -> release gates
+```
+
+- `uv run pytest` passes if a Python backend exists.
+- `cd frontend && npm run build` passes if the frontend is present.
+- A final milestone push marks the MVP workflow as verified.
+
+Suggested checkpoint pushes:
+
+- `feat: add operational dashboard summaries`
+- `feat: add pipeline run views`
+- `test: add end-to-end MVP flow coverage`
+- `docs: document MVP workflow`
+
+## Current Corrections To The Existing Plan
+
+- The current `fineVision` folder contains documents and an HTML prototype, not a fully migrated implementation. Implementation planning should start from that reality.
+- The HTML prototype is the UI source of truth for the workbench shape.
+- The toolkit prototype should happen before durable dataset APIs, so backend contracts can wrap real callable functionality instead of imagined behavior.
+- DINOv3 should be a configured backbone option behind an extractor interface, not a hard-coded platform assumption.
+- OOD behavior should be treated as risk scoring and abstention support in the MVP, not as a guaranteed open-set classifier.
+- LLM/VLM assistance should remain advisory and can be integrated after the review data model is stable.
+- Model version metadata and threshold strategy should be introduced early, even if promotion and rollback are implemented later.
