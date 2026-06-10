@@ -30,6 +30,42 @@ Useful routes:
 ?page=pipelines
 ```
 
+## Workbench App
+
+The Iteration 0 React/Vite workbench lives under `frontend/`.
+
+Run locally:
+
+```text
+cd frontend
+npm install
+npm run dev
+```
+
+Verify the production build:
+
+```text
+cd frontend
+npm run build
+```
+
+Main routes:
+
+```text
+/
+/datasets
+/datasets/bird?tab=classes
+/training
+/training/run-042
+/inference
+/review
+/review/sample-0817
+/models
+/models/bird-cls-v4
+/pipelines
+/pipelines/pipe-014
+```
+
 ## Next Step
 
 Start implementation from:

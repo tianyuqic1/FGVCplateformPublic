@@ -1,0 +1,584 @@
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { datasets, modelVersions, pipelineNodes, reviewItems, trainingRuns } from "../data/mockData.js";
+import { Icon } from "../components/icons.jsx";
+import {
+  CandidateBar,
+  CurveRow,
+  GateRow,
+  MetricCard,
+  Panel,
+  ProgressBar,
+  StatusChip,
+  TaskItem,
+  VisualCard,
+  VisualPlaceholder,
+} from "../components/ui.jsx";
+import { PageHero } from "../components/AppShell.jsx";
+
+function datasetStatus(dataset) {
+  if (dataset.status === "production") return { label: "生产可推理", tone: "default" };
+  if (dataset.status === "calibrating") return { label: "待校准", tone: "warn" };
+  return { label: "训练中", tone: "info" };
+}
+
+function riskTone(route) {
+  if (route === "ood") return "risk";
+  if (route === "bad-image") return "neutral";
+  return "warn";
+}
+
+function ReviewCard({ item }) {
+  return (
+    <Link className="sample-card clickable" to={`/review/${item.id}`}>
+      <VisualPlaceholder type={item.visualType} label={item.id} low={item.route !== "ood"} />
+      <div>
+        <div className="chips">
+          <StatusChip tone={riskTone(item.route)}>{item.risk}</StatusChip>
+          <StatusChip tone="info">{item.datasetName}</StatusChip>
+        </div>
+        <h3>{item.title}</h3>
+        <p className="small">
+          {item.modelCandidate.label} {item.modelCandidate.score.toFixed(2)} · {item.secondCandidate.label}{" "}
+          {item.secondCandidate.score.toFixed(2)}
+        </p>
+        <p className="small">{item.assistance}</p>
+      </div>
+    </Link>
+  );
+}
+
+function DatasetTable() {
+  return (
+    <div className="data-table">
+      <div className="data-row head">
+        <div>数据集</div>
+        <div>类别</div>
+        <div>样本</div>
+        <div>版本</div>
+        <div>状态</div>
+        <div />
+      </div>
+      {datasets.map((dataset) => {
+        const state = datasetStatus(dataset);
+        return (
+          <Link className="data-row clickable" key={dataset.id} to={`/datasets/${dataset.id}`}>
+            <div>
+              <strong>{dataset.name}</strong>
+              <div className="row-meta">{dataset.description}</div>
+            </div>
+            <div>{dataset.classes} 类</div>
+            <div>{dataset.images.toLocaleString()}</div>
+            <div>{dataset.version}</div>
+            <div>
+              <StatusChip tone={state.tone}>{state.label}</StatusChip>
+            </div>
+            <span className="icon-button">
+              <Icon name="ChevronRight" size={16} />
+            </span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function RunRow({ run }) {
+  const done = run.status === "done";
+  return (
+    <Link className="timeline-item clickable" to={`/training/${run.id}`}>
+      <div className="timeline-icon">
+        <Icon name={done ? "Check" : "LoaderCircle"} size={18} />
+      </div>
+      <div>
+        <strong>{run.name}</strong>
+        <div className="row-meta">
+          {run.datasetName} · {run.metric}
+        </div>
+        <ProgressBar value={run.progress} fill={done ? "#0f766e" : "#a15c07"} shimmer={!done} />
+      </div>
+      <StatusChip tone={done ? "default" : "warn"}>{done ? "完成" : "运行中"}</StatusChip>
+    </Link>
+  );
+}
+
+function ModelCard({ model }) {
+  const tone = model.state === "production" ? "default" : model.state === "staging" ? "info" : "warn";
+  return (
+    <Link className="card clickable" to={`/models/${model.id}`}>
+      <StatusChip tone={tone}>{model.state}</StatusChip>
+      <h3>{model.id}</h3>
+      <p>{model.description}</p>
+      <ProgressBar value={model.state === "production" ? 91 : model.state === "staging" ? 86 : 48} fill={model.state === "experiment" ? "#a15c07" : "#0f766e"} />
+    </Link>
+  );
+}
+
+function PipelineNode({ node }) {
+  return (
+    <Link className={`pipeline-node ${node.running ? "running" : ""}`} to="/pipelines/pipe-014">
+      <Icon name={node.icon} size={20} />
+      <h3>{node.title}</h3>
+      <p className="small">{node.description}</p>
+      <ProgressBar value={node.progress} fill={node.running ? "#a15c07" : "#0f766e"} />
+      <div className="row-meta">{node.progress}%</div>
+    </Link>
+  );
+}
+
+export function DashboardPage({ showToast }) {
+  return (
+    <>
+      <PageHero
+        title="先处理风险，再发布模型。"
+        description="这里不再是展示页，而是每天打开后能行动的算法平台工作台：看待处理队列、训练状态、数据风险、模型发布门禁和 OOD 告警。"
+        actions={
+          <>
+            <button className="ghost-button" onClick={() => showToast("已刷新生产状态")}>
+              <Icon name="RefreshCw" size={16} />
+              刷新
+            </button>
+            <Link className="primary-button" to="/review">
+              <Icon name="UserCheck" size={16} />
+              处理复核
+            </Link>
+          </>
+        }
+      />
+      <div className="grid metrics">
+        <MetricCard title="待复核样本" value="128" caption="高风险 17 · LLM 已读 63" fill="#a15c07" percent={48} icon="UserCheck" to="/review" />
+        <MetricCard title="运行中训练" value="2" caption="1 个候选版本可灰度" fill="#315fbd" percent={72} icon="FlaskConical" to="/training" />
+        <MetricCard title="生产覆盖率" value="82%" caption="阈值策略 selective-v4" fill="#0f766e" percent={82} icon="Gauge" to="/models" />
+        <MetricCard title="OOD 告警" value="3" caption="工业零件数据集漂移" fill="#b4233c" percent={34} icon="ShieldAlert" to="/review" />
+      </div>
+      <div className="grid two section-gap">
+        <Panel
+          title="优先任务"
+          caption="按风险和阻塞程度排序。"
+          action={
+            <Link className="ghost-button" to="/pipelines">
+              <Icon name="Route" size={16} />
+              查看流水线
+            </Link>
+          }
+        >
+          <div className="timeline">
+            <TaskItem icon="AlertTriangle" title="处理 17 条高风险复核样本" description="其中 5 条疑似 OOD，可能影响生产指标。" action="现在处理" to="/review" tone="risk" />
+            <TaskItem icon="CircleGauge" title="确认 bird-cls-v5 阈值策略" description="候选模型准确率略升，但复核压力增加 4%。" action="打开训练" to="/training/run-042" tone="warn" />
+            <TaskItem icon="DatabaseZap" title="工业零件数据集特征漂移" description="近 24 小时 embedding 分布偏离训练集。" action="看数据集" to="/datasets/defect" tone="info" />
+          </div>
+        </Panel>
+        <Panel
+          title="最近低置信样本"
+          caption="点击进入审核详情。"
+          action={
+            <Link className="ghost-button" to="/review">
+              <Icon name="ListFilter" size={16} />
+              全部
+            </Link>
+          }
+        >
+          <div className="grid">{reviewItems.map((item) => <ReviewCard item={item} key={item.id} />)}</div>
+        </Panel>
+      </div>
+      <div className="grid two section-gap">
+        <Panel title="数据集状态" caption="当前系统支持多数据集持续接入。">
+          <DatasetTable />
+        </Panel>
+        <Panel title="模型发布门禁" caption="上线前必须通过的检查。">
+          <div className="grid">
+            <GateRow title="离线评估" description="top-1 91.9%，macro F1 88.4%" />
+            <GateRow title="OOD 压力集" description="拦截率 96.3%，误拒 6.2%" />
+            <GateRow title="人工抽检" description="还剩 34 条长尾类样本" result="pending" />
+            <GateRow title="回滚配置" description="已保留 bird-cls-v4" />
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+export function DatasetsPage({ showToast }) {
+  return (
+    <>
+      <PageHero
+        title="每个分类任务都是一个独立资产。"
+        description="数据集不仅是图片目录，还包括类别体系、样本质量、特征索引、OOD 压力集、阈值策略和模型版本绑定。"
+        actions={
+          <button className="primary-button" onClick={() => showToast("打开数据集导入向导")}>
+            <Icon name="FolderInput" size={16} />
+            导入数据集
+          </button>
+        }
+      />
+      <Panel
+        title="数据集列表"
+        caption="点击行进入数据集详情。"
+        action={
+          <div className="tabs">
+            <button className="tab-button active">全部</button>
+            <button className="tab-button">生产</button>
+            <button className="tab-button">待训练</button>
+          </div>
+        }
+      >
+        <DatasetTable />
+      </Panel>
+    </>
+  );
+}
+
+export function DatasetDetailPage({ showToast }) {
+  const { datasetId = "bird" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const dataset = datasets.find((item) => item.id === datasetId) ?? datasets[0];
+  const tab = searchParams.get("tab") ?? "overview";
+  const tabs = [
+    ["overview", "概览"],
+    ["classes", "类别治理"],
+    ["samples", "样本"],
+    ["features", "特征库"],
+    ["ood", "OOD/弃权"],
+  ];
+
+  return (
+    <>
+      <PageHero
+        title={dataset.name}
+        description={dataset.description}
+        actions={
+          <>
+            <Link className="ghost-button" to="/datasets">
+              <Icon name="ArrowLeft" size={16} />
+              返回
+            </Link>
+            <Link className="secondary-button" to="/training">
+              <Icon name="FlaskConical" size={16} />
+              训练
+            </Link>
+            <Link className="primary-button" to="/inference">
+              <Icon name="ImageUp" size={16} />
+              推理测试
+            </Link>
+          </>
+        }
+      />
+      <Panel>
+        <div className="tabs">
+          {tabs.map(([id, label]) => (
+            <button className={`tab-button ${tab === id ? "active" : ""}`} key={id} onClick={() => setSearchParams(id === "overview" ? {} : { tab: id })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <DatasetTab dataset={dataset} tab={tab} showToast={showToast} />
+    </>
+  );
+}
+
+function DatasetTab({ dataset, tab, showToast }) {
+  if (tab === "classes") {
+    return (
+      <div className="grid two section-gap">
+        <Panel title="类别治理" caption="细粒度任务里类别边界比模型更重要。">
+          <div className="timeline">
+            <ClassRow title="黑喉石鵖" description="易混：普通石鵖 · 样本 84 · 准确率 86%" label="需补样" tone="warn" />
+            <ClassRow title="普通石鵖" description="易混：黑喉石鵖 · 样本 102 · 准确率 88%" label="正常" />
+            <ClassRow title="赭红尾鸲" description="长尾类 · 样本 23 · 准确率 61%" label="高风险" tone="risk" />
+            <ClassRow title="未确认类别" description="12 张样本存在标签争议" label="争议池" tone="info" />
+          </div>
+        </Panel>
+        <Panel title="类别定义" caption="给人工和 LLM 使用的判别说明。">
+          <div className="field">
+            <label>判别规则</label>
+            <textarea defaultValue="关注喉部色块、胸侧颜色、尾羽形状；不要把背景或拍摄地点作为类别依据。" />
+          </div>
+          <div className="toolbar section-gap-small">
+            <button className="primary-button" onClick={() => showToast("类别定义已保存")}>
+              <Icon name="Save" size={16} />
+              保存定义
+            </button>
+            <button className="ghost-button">
+              <Icon name="Wand2" size={16} />
+              让 LLM 生成差异点
+            </button>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  if (tab === "samples") {
+    return (
+      <Panel
+        className="section-gap"
+        title="样本浏览"
+        caption="支持按类别、质量、预测错误、近邻距离筛选。"
+        action={
+          <div className="segmented">
+            <button className="seg-button active">全部</button>
+            <button className="seg-button">错标疑似</button>
+            <button className="seg-button">长尾</button>
+            <button className="seg-button">坏图</button>
+          </div>
+        }
+      >
+        <div className="image-grid">
+          <VisualCard type="bird" label="黑喉石鵖" />
+          <VisualCard type="bird" label="普通石鵖" />
+          <VisualCard type="bird" label="低光照" low />
+          <VisualCard type="ood" label="疑似 OOD" />
+          <VisualCard type="defect" label="遮挡坏图" low />
+        </div>
+      </Panel>
+    );
+  }
+
+  if (tab === "features") {
+    return (
+      <div className="grid two section-gap">
+        <Panel title="特征索引" caption="DINOv3 embedding、类别原型和近邻索引。">
+          <MetricCard title="特征向量" value={dataset.images.toLocaleString()} caption="embedding@014" fill="#0891b2" percent={100} icon="DatabaseZap" />
+          <div className="code-panel section-gap-small">index: hnsw://bird/dataset@014<br />dimension: 1024<br />backbone: dinov3_vitl<br />prototype_strategy: class_centroid + hard_negative_bank</div>
+        </Panel>
+        <Panel title="最近邻检查" caption="用于解释预测和发现离群样本。">
+          <div className="image-grid compact">
+            <VisualCard type="bird" label="query" />
+            <VisualCard type="bird" label="nn-1" />
+            <VisualCard type="ood" label="far" />
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  if (tab === "ood") {
+    return (
+      <div className="grid two section-gap">
+        <Panel title="弃权策略" caption="把“不知道”作为正式输出。">
+          <div className="field-grid">
+            <div className="field"><label>最低置信度</label><input defaultValue="0.78" /></div>
+            <div className="field"><label>Top-1 / Top-2 Margin</label><input defaultValue="0.12" /></div>
+            <div className="field"><label>Embedding Distance</label><input defaultValue="0.42" /></div>
+            <div className="field"><label>OOD 压力集</label><select defaultValue="stress@002"><option>stress@002</option></select></div>
+          </div>
+          <button className="primary-button section-gap-small" onClick={() => showToast("阈值策略已保存为 selective-v5")}>
+            <Icon name="Save" size={16} />
+            保存策略
+          </button>
+        </Panel>
+        <Panel title="Coverage / Risk" caption="阈值越严格，复核越多，但错误越少。">
+          <CurveRow label="coverage 92%" value="risk 8.6%" percent={92} fill="#b4233c" />
+          <CurveRow label="coverage 82%" value="risk 4.1%" percent={82} fill="#0f766e" />
+          <CurveRow label="coverage 70%" value="risk 2.8%" percent={70} fill="#315fbd" />
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid metrics section-gap">
+        <MetricCard title="样本质量" value={`${dataset.quality}%`} caption="坏图、错标、重复图综合" fill="#0f766e" percent={dataset.quality} icon="BadgeCheck" />
+        <MetricCard title="自动覆盖率" value={`${dataset.coverage}%`} caption="当前生产阈值" fill="#315fbd" percent={dataset.coverage || 12} icon="Gauge" />
+        <MetricCard title="OOD 拦截" value={dataset.oodRecall ? `${dataset.oodRecall}%` : "--"} caption="压力集表现" fill="#26804f" percent={dataset.oodRecall || 0} icon="ShieldAlert" />
+        <MetricCard title="类别数量" value={dataset.classes} caption="可训练类别" fill="#6750a4" percent={Math.min(100, dataset.classes / 2)} icon="Tags" />
+      </div>
+      <div className="grid two section-gap">
+        <Panel title="训练准备" caption="数据集能否进入训练流水线。">
+          <div className="timeline">
+            <GateRow title="类别体系" description="易混类别已标注，长尾类仍需补样" result="pending" />
+            <GateRow title="特征缓存" description="embedding@014 已完成" />
+            <GateRow title="验证集" description="val/test/stress 已划分" />
+          </div>
+        </Panel>
+        <Panel title="样本预览" caption="真实实现应替换为图片和 mask 对比。">
+          <div className="image-grid compact">
+            <VisualCard type="bird" label="高置信" />
+            <VisualCard type="bird" label="低置信" low />
+            <VisualCard type="ood" label="OOD" />
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+function ClassRow({ title, description, label, tone = "default" }) {
+  return (
+    <div className="timeline-item">
+      <div className="timeline-icon"><Icon name="Tags" size={18} /></div>
+      <div><strong>{title}</strong><div className="row-meta">{description}</div></div>
+      <StatusChip tone={tone}>{label}</StatusChip>
+    </div>
+  );
+}
+
+export function TrainingPage() {
+  return (
+    <>
+      <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<Link className="primary-button" to="/training/run-042"><Icon name="Plus" size={16} />新建训练</Link>} />
+      <div className="grid two">
+        <Panel title="训练队列" caption="点击进入运行详情。">
+          <div className="timeline">{trainingRuns.map((run) => <RunRow run={run} key={run.id} />)}</div>
+        </Panel>
+        <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
+          <div className="code-panel">backbone: dinov3_vitl<br />feature_cache: true<br />head: linear<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+export function TrainingDetailPage({ showToast }) {
+  const { runId = "run-042" } = useParams();
+  const run = trainingRuns.find((item) => item.id === runId) ?? trainingRuns[0];
+  return (
+    <>
+      <PageHero title={run.name} description={`${run.datasetName} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已打开 TensorBoard 日志")}><Icon name="ExternalLink" size={16} />日志</button></>} />
+      <div className="grid metrics">
+        <MetricCard title="进度" value={`${run.progress}%`} caption="epoch 13 / 18" fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
+        <MetricCard title="Val Acc" value="91.9%" caption="比 v4 +0.3%" fill="#0f766e" percent={91} icon="Target" />
+        <MetricCard title="Macro F1" value="88.4%" caption="长尾类仍偏低" fill="#315fbd" percent={88} icon="BarChart3" />
+        <MetricCard title="复核压力" value="+4%" caption="覆盖率提高带来的成本" fill="#b4233c" percent={44} icon="UserCheck" />
+      </div>
+      <div className="grid two section-gap">
+        <Panel title="运行步骤" caption="每一步都应有产物和失败恢复点。">
+          <div className="timeline"><GateRow title="数据快照" description="dataset@014 locked" /><GateRow title="特征缓存" description="embedding@014 loaded" /><GateRow title="分类头训练" description="epoch 13 / 18 running" result="pending" /><GateRow title="阈值扫描" description="等待训练完成" result="pending" /></div>
+        </Panel>
+        <Panel title="候选发布判断" caption="不要只看 accuracy。">
+          <CurveRow label="accuracy" value="91.9%" percent={91} fill="#0f766e" />
+          <CurveRow label="coverage" value="86%" percent={86} fill="#315fbd" />
+          <CurveRow label="review cost" value="预计 +¥32/day" percent={54} fill="#a15c07" />
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+export function InferencePage({ showToast }) {
+  return (
+    <div className="grid detail">
+      <Panel title="输入样本" caption="支持单图、批量和 API 回放。" action={<button className="ghost-button" onClick={() => showToast("已模拟上传样本")}><Icon name="Upload" size={16} />上传</button>}>
+        <VisualPlaceholder type="bird" label="query image" low />
+        <div className="field-grid section-gap-small">
+          <div className="field"><label>数据集</label><select><option>鸟类细粒度分类</option><option>工业零件缺陷</option></select></div>
+          <div className="field"><label>模型版本</label><select><option>bird-cls-v4 production</option><option>bird-cls-v5 staging</option></select></div>
+        </div>
+        <div className="toolbar section-gap-small">
+          <button className="primary-button" onClick={() => showToast("推理完成，结果进入右侧面板")}><Icon name="Play" size={16} />运行推理</button>
+          <button className="ghost-button"><Icon name="ScissorsLineDashed" size={16} />启用 SAM3</button>
+        </div>
+      </Panel>
+      <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone="warn">进入复核</StatusChip>}>
+        <div className="grid two">
+          <div>
+            <CandidateBar label="黑喉石鵖" score={0.52} />
+            <CandidateBar label="普通石鵖" score={0.49} fill="#a15c07" />
+            <CandidateBar label="赭红尾鸲" score={0.21} fill="#315fbd" />
+            <div className="chips section-gap-small"><StatusChip tone="warn">margin 0.03</StatusChip><StatusChip tone="info">同域</StatusChip><StatusChip tone="risk">不直出</StatusChip></div>
+          </div>
+          <div className="code-panel">decision: abstain<br />reason: top1_top2_margin_below_threshold<br />next: create_review_item<br />llm_budget: low<br />sam3: optional</div>
+        </div>
+        <div className="panel-title embedded"><div><h2>近邻样本</h2><span>辅助解释，不作为真值。</span></div></div>
+        <div className="image-grid compact"><VisualCard type="bird" label="nn-1" /><VisualCard type="bird" label="nn-2" /><VisualCard type="ood" label="hard negative" /></div>
+      </Panel>
+    </div>
+  );
+}
+
+export function ReviewPage() {
+  return (
+    <>
+      <PageHero title="让人工只处理模型真正不确定的样本。" description="复核页是这个系统的产品核心：模型弃权、LLM 预读、人工确认、标签回流都发生在这里。" actions={<div className="segmented"><button className="seg-button active">高风险</button><button className="seg-button">OOD</button><button className="seg-button">坏图</button><button className="seg-button">争议</button></div>} />
+      <div className="grid review">
+        <Panel title="队列" caption="点击样本进入复核详情。"><div className="grid">{reviewItems.map((item) => <ReviewCard item={item} key={item.id} />)}</div></Panel>
+        <Panel title="批量处理建议" caption="适合审核主管查看。">
+          <div className="timeline">
+            <TaskItem icon="Ban" title="5 条疑似 OOD" description="建议统一标记后进入压力集。" action="查看" to="/review/sample-0820" tone="risk" />
+            <TaskItem icon="ImageOff" title="12 条坏图" description="遮挡、低光照、主体不完整。" action="查看" to="/review/sample-0831" tone="warn" />
+            <TaskItem icon="Tags" title="8 条类别争议" description="需要更新类别定义和 LLM 提示。" action="查看" to="/datasets/bird?tab=classes" tone="info" />
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+export function ReviewDetailPage({ showToast }) {
+  const { reviewItemId = "sample-0817" } = useParams();
+  const item = reviewItems.find((row) => row.id === reviewItemId) ?? reviewItems[0];
+  return (
+    <>
+      <PageHero title={item.title} description={item.assistance} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><button className="primary-button" onClick={() => showToast("复核结果已提交并进入回流池")}><Icon name="Check" size={16} />提交复核</button></>} />
+      <div className="grid detail">
+        <Panel title="图像对比" caption="原图、主体裁剪、SAM3 mask 和近邻。">
+          <VisualPlaceholder type={item.visualType} label="原图" low={item.route !== "ood"} />
+          <div className="image-grid compact section-gap-small"><VisualCard type={item.visualType} label="SAM3 mask" /><VisualCard type="bird" label="近邻正例" /><VisualCard type="ood" label="hard negative" /></div>
+        </Panel>
+        <Panel title="审核表单" caption="人工标签是唯一可回流真值。" action={<StatusChip tone={riskTone(item.route)}>{item.risk}</StatusChip>}>
+          <div className="grid">
+            <div className="card"><h3>模型候选</h3><CandidateBar label={item.modelCandidate.label} score={item.modelCandidate.score} /><CandidateBar label={item.secondCandidate.label} score={item.secondCandidate.score} fill="#a15c07" /></div>
+            <div className="card"><h3>LLM 建议</h3><p>{item.assistance}</p><StatusChip tone="info">辅助判断，不写入真值</StatusChip></div>
+            <div className="field-grid"><div className="field"><label>最终标签</label><select><option>普通石鵖</option><option>黑喉石鵖</option><option>OOD</option><option>坏图</option></select></div><div className="field"><label>回流目标</label><select><option>训练候选池</option><option>压力集</option><option>坏图池</option><option>争议池</option></select></div></div>
+            <div className="field"><label>审核备注</label><textarea defaultValue="喉部色块不明显，建议保留到争议池二审。" /></div>
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+export function ModelsPage() {
+  return (
+    <>
+      <div className="grid metrics">
+        <MetricCard title="线上版本" value="v4" caption="bird-cls-v4" fill="#0f766e" percent={88} icon="Rocket" to="/models/bird-cls-v4" />
+        <MetricCard title="候选版本" value="v5" caption="等待人工抽检" fill="#315fbd" percent={64} icon="GitCompare" to="/models/bird-cls-v5" />
+        <MetricCard title="校准误差" value="2.8%" caption="ECE after scaling" fill="#26804f" percent={72} icon="Thermometer" to="/models/bird-cls-v4" />
+        <MetricCard title="LLM 成本" value="¥126" caption="今日复核辅助" fill="#a15c07" percent={44} icon="WalletCards" to="/models/bird-cls-v5" />
+      </div>
+      <div className="grid two section-gap">
+        <Panel title="版本注册表" caption="点击版本查看发布门禁。"><div className="grid three">{modelVersions.map((model) => <ModelCard model={model} key={model.id} />)}</div></Panel>
+        <Panel title="发布门禁" caption="生产系统不允许只凭 accuracy 上线。"><div className="timeline"><GateRow title="离线评估" description="top-1、macro F1、混淆矩阵" /><GateRow title="OOD 压力集" description="拦截率和误拒率" /><GateRow title="人工抽检" description="长尾、易混、低置信" result="pending" /><GateRow title="回滚策略" description="保留上一生产模型" /></div></Panel>
+      </div>
+    </>
+  );
+}
+
+export function ModelDetailPage({ showToast }) {
+  const { modelId = "bird-cls-v4" } = useParams();
+  const model = modelVersions.find((item) => item.id === modelId) ?? modelVersions[0];
+  return (
+    <>
+      <PageHero title={model.id} description="模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。" actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已提交灰度发布申请")}><Icon name="Rocket" size={16} />灰度发布</button></>} />
+      <div className="grid two">
+        <Panel title="版本元数据" caption="可追溯是算法平台的底线。"><div className="code-panel">model: {model.id}<br />dataset: bird/dataset@014<br />features: embedding@014<br />backbone: dinov3_vitl<br />head: linear<br />threshold: selective-v4<br />artifact: weights/{model.id}.safetensors</div></Panel>
+        <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率。"><CurveRow label="top-1 accuracy" value={`${model.accuracy}%`} percent={Math.round(model.accuracy)} fill="#0f766e" /><CurveRow label="coverage" value={`${model.coverage}%`} percent={model.coverage} fill="#315fbd" /><CurveRow label="selective risk" value={`${model.selectiveRisk}%`} percent={41} fill="#a15c07" /></Panel>
+      </div>
+    </>
+  );
+}
+
+export function PipelinesPage() {
+  return (
+    <>
+      <PageHero title="把数据、训练、弃权和发布串成可重跑流程。" description="流水线视图面向工程实现：每个节点都有输入产物、输出产物、日志和失败恢复点。" actions={<Link className="primary-button" to="/pipelines/pipe-014"><Icon name="Play" size={16} />运行流水线</Link>} />
+      <Panel title="模板：DINOv3 分类头训练" caption="点击节点查看运行样式。">
+        <div className="pipeline">{pipelineNodes.map((node) => <PipelineNode node={node} key={node.id} />)}</div>
+      </Panel>
+    </>
+  );
+}
+
+export function PipelineRunPage({ showToast }) {
+  return (
+    <>
+      <PageHero title="DINOv3 分类头训练运行中" description="当前卡在分类头训练和阈值扫描。正式实现里这里会显示日志、产物链接和失败重试。" actions={<><Link className="ghost-button" to="/pipelines"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已暂停流水线")}><Icon name="Pause" size={16} />暂停</button></>} />
+      <div className="grid two">
+        <Panel title="运行节点" caption="正在持续更新。"><div className="timeline"><GateRow title="数据导入" description="dataset@014" /><GateRow title="特征提取" description="embedding@014" /><GateRow title="分类头训练" description="epoch 13 / 18" result="pending" /><GateRow title="阈值扫描" description="等待模型权重" result="pending" /></div></Panel>
+        <Panel title="日志预览" caption="保留给后端任务系统。"><div className="code-panel">[12:41:03] load feature cache embedding@014<br />[12:41:18] start linear head training<br />[12:46:55] epoch 13 val_acc=0.919 macro_f1=0.884<br />[12:47:02] waiting for calibration sweep...</div></Panel>
+      </div>
+    </>
+  );
+}

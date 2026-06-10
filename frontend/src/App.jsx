@@ -1,0 +1,151 @@
+import { useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { AppShell } from "./components/AppShell.jsx";
+import { Icon } from "./components/icons.jsx";
+import { datasets, reviewItems, trainingRuns } from "./data/mockData.js";
+import {
+  DashboardPage,
+  DatasetDetailPage,
+  DatasetsPage,
+  InferencePage,
+  ModelDetailPage,
+  ModelsPage,
+  PipelineRunPage,
+  PipelinesPage,
+  ReviewDetailPage,
+  ReviewPage,
+  TrainingDetailPage,
+  TrainingPage,
+} from "./pages/pages.jsx";
+
+const legacyPageMap = {
+  dashboard: "/",
+  datasets: "/datasets",
+  "dataset-detail": ({ id = "bird", tab }) => `/datasets/${id}${tab ? `?tab=${tab}` : ""}`,
+  training: "/training",
+  "training-detail": ({ id = "run-042" }) => `/training/${id}`,
+  inference: "/inference",
+  review: "/review",
+  "review-detail": ({ id = "sample-0817" }) => `/review/${id}`,
+  models: "/models",
+  "model-detail": ({ id = "bird-cls-v4" }) => `/models/${id}`,
+  pipelines: "/pipelines",
+  "pipeline-run": ({ id = "pipe-014" }) => `/pipelines/${id}`,
+};
+
+const legacyAliases = {
+  command: "dashboard",
+  dataset: "datasets",
+  modelops: "models",
+  pipeline: "pipelines",
+};
+
+function titleForPath(pathname) {
+  if (pathname.startsWith("/datasets/")) return "数据集详情";
+  if (pathname === "/datasets") return "数据集";
+  if (pathname.startsWith("/training/")) return "训练详情";
+  if (pathname === "/training") return "训练任务";
+  if (pathname === "/inference") return "推理实验室";
+  if (pathname.startsWith("/review/")) return "复核详情";
+  if (pathname === "/review") return "人工复核";
+  if (pathname.startsWith("/models/")) return "模型详情";
+  if (pathname === "/models") return "模型版本";
+  if (pathname.startsWith("/pipelines/")) return "流水线运行";
+  if (pathname === "/pipelines") return "流水线";
+  return "今日工作台";
+}
+
+function crumbForPath(pathname) {
+  if (pathname.startsWith("/datasets/")) return "数据集 / 版本详情";
+  if (pathname === "/datasets") return "数据资产";
+  if (pathname.startsWith("/training/")) return "训练 / 运行详情";
+  if (pathname === "/training") return "训练";
+  if (pathname === "/inference") return "推理";
+  if (pathname.startsWith("/review/")) return "复核 / 样本详情";
+  if (pathname === "/review") return "复核队列";
+  if (pathname.startsWith("/models/")) return "模型 / 版本详情";
+  if (pathname === "/models") return "模型注册表";
+  if (pathname.startsWith("/pipelines/")) return "流水线 / 运行详情";
+  if (pathname === "/pipelines") return "编排";
+  return "首页 / 生产概览";
+}
+
+function LegacyRouteBridge() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const pageParam = params.get("page") ?? legacyAliases[params.get("v")] ?? params.get("v");
+    if (!pageParam) return;
+
+    const target = legacyPageMap[pageParam];
+    if (!target) return;
+    const next = typeof target === "function" ? target({ id: params.get("id"), tab: params.get("tab") }) : target;
+    navigate(next, { replace: true });
+  }, [location.search, navigate]);
+
+  return null;
+}
+
+function Toast({ message }) {
+  return (
+    <div className={`toast ${message ? "visible" : ""}`}>
+      <Icon name="CheckCircle2" size={18} />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function DatasetTitleRoute({ showToast }) {
+  const { datasetId } = useParams();
+  const dataset = datasets.find((item) => item.id === datasetId);
+  return <DatasetDetailPage showToast={showToast} datasetName={dataset?.name} />;
+}
+
+export default function App() {
+  const location = useLocation();
+  const [toast, setToast] = useState("");
+  const title = titleForPath(location.pathname);
+  const crumb = crumbForPath(location.pathname);
+
+  function showToast(message) {
+    setToast(message);
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => setToast(""), 2200);
+  }
+
+  const routeCounts = useMemo(
+    () => ({
+      datasets: datasets.length,
+      reviews: reviewItems.length,
+      runs: trainingRuns.length,
+    }),
+    [],
+  );
+
+  return (
+    <>
+      <LegacyRouteBridge />
+      <AppShell title={title} crumb={crumb} onToast={showToast} routeCounts={routeCounts}>
+        <Routes>
+          <Route path="/" element={<DashboardPage showToast={showToast} />} />
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
+          <Route path="/datasets/:datasetId" element={<DatasetTitleRoute showToast={showToast} />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
+          <Route path="/inference" element={<InferencePage showToast={showToast} />} />
+          <Route path="/review" element={<ReviewPage />} />
+          <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
+          <Route path="/models" element={<ModelsPage />} />
+          <Route path="/models/:modelId" element={<ModelDetailPage showToast={showToast} />} />
+          <Route path="/pipelines" element={<PipelinesPage />} />
+          <Route path="/pipelines/:pipelineRunId" element={<PipelineRunPage showToast={showToast} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppShell>
+      <Toast message={toast} />
+    </>
+  );
+}
