@@ -22,6 +22,29 @@ feature/iteration-0-5-ml-toolkit
 feature/iteration-1-dataset-assets
 ```
 
+## Service Boundary Strategy
+
+FineVision should not jump directly from a document/prototype workspace into many independent microservices. The safer path is:
+
+```text
+Iteration 0.5: module boundaries
+Iteration 1: control-plane API
+Iteration 1.5: process/container boundaries
+MVP later: split true microservices only when scaling or ownership requires it
+```
+
+The important architectural split is not "CRUD service versus model service" as separate products. It is:
+
+- **Control plane API**: ordinary product and metadata operations that should stay lightweight and responsive.
+- **Compute plane worker**: heavy ML/data work that may need PyTorch, FAISS, CUDA/GPU, long runtimes, retries, and artifact writes.
+- **Shared contracts**: schemas, artifact ids, path conventions, job lifecycle states, and validation rules used by both.
+
+The control-plane API can own CRUD-like operations for datasets, taxonomy, training runs, review items, feedback pools, model registry, dashboard summaries, and job creation. It should not execute long-running training, feature extraction, threshold sweeps, or batch inference inside request handlers.
+
+The ML worker should execute queued jobs and update run/artifact metadata. It can live in the same repository and share schema code with the API at first. Docker should isolate it as a separate process/container once job execution begins, primarily to separate heavy dependencies and runtime behavior from the API.
+
+This means FineVision should start as a **modular monolith with a separated worker process**, not a fully distributed microservice system. A true microservice split can happen later if there is a clear need for independent deployment, separate scaling, separate ownership, or stricter reliability boundaries.
+
 ## Iteration 0: Project Skeleton And Workbench Shell
 
 Objective: turn the document-only workspace into a runnable project and preserve the HTML prototype as the product reference.
@@ -102,13 +125,14 @@ Suggested checkpoint pushes:
 
 ## Iteration 1: Dataset Assets And Metadata APIs
 
-Objective: make datasets, dataset versions, taxonomy, sample quality, and readiness first-class platform concepts.
+Objective: make datasets, dataset versions, taxonomy, sample quality, and readiness first-class platform concepts in the control-plane API.
 
 Scope:
 
 - Define dataset version metadata.
 - Define class taxonomy metadata.
 - Define sample quality and feedback outcome enums.
+- Create the first backend control-plane API skeleton if it does not already exist.
 - Add dataset list API.
 - Add dataset detail API.
 - Add readiness diagnostics for ImageFolder imports.
@@ -133,18 +157,67 @@ Suggested checkpoint pushes:
 - `feat: add dataset asset APIs`
 - `feat: wire dataset workbench views`
 
+## Iteration 1.5: API/Worker Process Boundary
+
+Objective: introduce the runtime boundary between lightweight API operations and heavy ML/data jobs without prematurely splitting the codebase into independent microservices.
+
+Scope:
+
+- Keep one repository and shared schema/artifact contracts.
+- Run the control-plane API and ML worker as separate processes.
+- Add a job lifecycle for long-running tasks such as dataset import, feature extraction, training, evaluation, threshold sweep, nearest-neighbor index build, and batch inference.
+- Add Docker Compose for local development with:
+  - frontend
+  - api
+  - ml-worker
+  - database or durable local metadata store
+  - artifact volume
+- Keep CRUD-like operations in the API:
+  - dataset metadata
+  - taxonomy updates
+  - review queue and completion
+  - feedback pools
+  - model registry metadata
+  - dashboard summaries
+  - job creation and status reads
+- Keep heavy compute out of API request handlers.
+
+Deliverables:
+
+- API process entrypoint.
+- ML worker process entrypoint.
+- Job table or queue abstraction.
+- Docker Compose configuration.
+- Shared schema package/module for API and worker.
+- Artifact volume/path conventions.
+
+Acceptance:
+
+- The API can create a job and return a job id immediately.
+- The worker can pick up a pending job, mark it running, write or simulate artifacts, and mark it completed or failed.
+- The frontend can query job status through the API.
+- API dependencies remain lightweight and do not require the ML runtime stack.
+- Worker dependencies can include heavy ML packages without polluting the API container.
+
+Suggested checkpoint pushes:
+
+- `feat: add api and worker entrypoints`
+- `feat: add job lifecycle abstraction`
+- `chore: add docker compose service boundary`
+
 ## Iteration 2: Training And Evaluation Services
 
-Objective: turn the toolkit training flow into tracked platform operations.
+Objective: turn the toolkit training flow into tracked platform operations executed by the worker and observed through the API.
 
 Scope:
 
 - Bind feature extraction to dataset versions.
 - Reuse feature artifacts for unchanged dataset/backbone combinations.
 - Generalize classifier-head training inputs.
-- Create training run records.
+- Create training run records through the API.
 - Link training outputs to candidate model versions.
-- Serve training queue and training detail APIs.
+- Serve training queue and training detail APIs from control-plane metadata.
+- Execute feature extraction, training, evaluation, and threshold sweep in the worker.
 - Show progress, run configuration, metrics, reports, and artifact links in the UI.
 
 Deliverables:
