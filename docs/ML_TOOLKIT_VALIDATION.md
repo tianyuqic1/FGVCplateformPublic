@@ -128,7 +128,7 @@ uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke \
   --dataset-dir data/test/cifar10-mini-imagefolder \
   --dataset-id cifar10-mini \
   --dataset-version-id dataset@cifar10-mini-001 \
-  --work-dir .finevision-cifar10-dinov3-calibrated \
+  --work-dir .finevision-cifar10-dinov3 \
   --extractor dinov3_vitl \
   --device cuda \
   --batch-size 4
@@ -163,48 +163,54 @@ Interpretation:
 
 The first uncalibrated sweep exposed an important calibration issue: thresholds starting at `0.5` produced zero coverage because the ridge linear head logits were not calibrated. This historical sweep is kept here to show why calibration became part of the toolkit contract.
 
-Final sweep:
+Final calibrated validation sweep:
 
 | Threshold | Coverage | Selective Risk | Abstention Rate | Review Cost |
 | --- | ---: | ---: | ---: | ---: |
-| 0.10 | 1.0000 | 0.0043 | 0.0000 | 0 |
-| 0.15 | 0.9870 | 0.0000 | 0.0130 | 6 |
-| 0.20 | 0.9000 | 0.0000 | 0.1000 | 46 |
-| 0.30 | 0.0130 | 0.0000 | 0.9870 | 454 |
-| 0.50 | 0.0000 | 0.0000 | 1.0000 | 460 |
-| 0.70 | 0.0000 | 0.0000 | 1.0000 | 460 |
-| 0.90 | 0.0000 | 0.0000 | 1.0000 | 460 |
+| 0.335617 | 1.0000 | 0.0125 | 0.0000 | 0 |
+| 0.998412 | 0.9500 | 0.0000 | 0.0500 | 4 |
+| 0.999323 | 0.9000 | 0.0000 | 0.1000 | 8 |
+| 0.999882 | 0.8500 | 0.0000 | 0.1500 | 12 |
+| 0.999962 | 0.8000 | 0.0000 | 0.2000 | 16 |
+| 0.999983 | 0.7500 | 0.0000 | 0.2500 | 20 |
+| 0.999989 | 0.6875 | 0.0000 | 0.3125 | 25 |
+| 0.999994 | 0.6375 | 0.0000 | 0.3625 | 29 |
+| 0.999996 | 0.5875 | 0.0000 | 0.4125 | 33 |
+| 0.999999 | 0.5250 | 0.0000 | 0.4750 | 38 |
+| 1.000000 | 0.1875 | 0.0000 | 0.8125 | 65 |
 
 Interpretation:
 
 - DINOv3 features plus a simple linear head rank the classes well.
-- Raw softmax confidence from the current ridge head is not calibrated.
-- Production threshold decisions should use the persisted calibrated `ThresholdStrategy`, not raw softmax confidence.
+- The first threshold has full validation coverage but keeps the one validation error, so it misses the `1%` selective-risk target.
+- The selected strategy chooses threshold `0.998412`, which is the maximum-coverage point under the target selective risk.
+- Production threshold decisions should use the persisted calibrated `ThresholdStrategy`, not raw softmax confidence or a caller-provided constant.
 
 ## Inference Result
 
 The smoke inference picked one test sample.
 
-Top-k:
+Calibrated top-k:
 
 ```text
-airplane: 0.1636459231376648
-dog: 0.10387708991765976
-truck: 0.09793300181627274
+airplane: 0.9993278980255127
+dog: 0.0002942189166788012
+truck: 0.00010253614891553298
 ```
 
 Decision:
 
 ```text
-decision: abstain
-reason: confidence_below_threshold
-confidence threshold: 0.55
-margin threshold: 0.05
-margin: 0.059768833220005035
-confidence: 0.1636459231376648
+decision: accept
+reason: meets_acceptance_thresholds
+threshold_strategy_id: dataset@cifar10-mini-001-linear-head-selective-v1
+confidence threshold: 0.998412
+margin threshold: 0.9981164336204529
+margin: 0.9990336791088339
+confidence: 0.9993278980255127
 ```
 
-The abstention is correct under the current uncalibrated threshold settings. It does not mean the model ranked the wrong class; it means the confidence scale is not yet calibrated.
+This decision is backed by the persisted `ThresholdStrategy`. The older uncalibrated run correctly abstained under fixed thresholds, but that was a symptom of an unusable confidence scale rather than a ranking failure.
 
 ## Findings
 

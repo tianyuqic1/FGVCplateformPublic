@@ -80,7 +80,7 @@ uv run --group dev pytest
 The smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
 
 ```text
-DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> ThresholdSweep -> InferenceResult
+DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> CalibrationReport -> ThresholdStrategy -> InferenceResult
 ```
 
 DINOv3 ViT-L is wired through `timm` as an optional extractor. It may download large weights, so it is not used by the default smoke test:
