@@ -95,6 +95,27 @@ The first real-data DINOv3 validation is documented in:
 docs/ML_TOOLKIT_VALIDATION.md
 ```
 
+## Control-plane API
+
+Iteration 1 starts the FastAPI control plane under `backend/src/finevision/api/`.
+It stores lightweight JSON metadata locally and exposes dataset asset endpoints without
+running DINOv3, training, or inference jobs.
+
+Run the API locally:
+
+```text
+uv run uvicorn finevision.api:app --reload
+```
+
+Dataset endpoints:
+
+```text
+GET  /api/datasets
+GET  /api/datasets/{dataset_id}
+POST /api/datasets/import-imagefolder
+GET  /api/dataset-versions/{dataset_version_id}/readiness
+```
+
 ## Next Step
 
 Start implementation from:
