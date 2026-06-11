@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from finevision.api.store import MetadataStore
@@ -19,6 +20,13 @@ class ImportImageFolderRequest(BaseModel):
 def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
     store = MetadataStore(metadata_dir or os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata"))
     api = FastAPI(title="FineVision Control Plane API", version="0.1.0")
+    api.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     api.state.metadata_store = store
 
     @api.get("/api/health")

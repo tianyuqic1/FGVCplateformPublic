@@ -1,5 +1,6 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems, trainingRuns } from "../data/mockData.js";
+import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { Icon } from "../components/icons.jsx";
 import {
   CandidateBar,
@@ -47,7 +48,7 @@ function ReviewCard({ item }) {
   );
 }
 
-function DatasetTable() {
+function DatasetTable({ items = datasets }) {
   return (
     <div className="data-table">
       <div className="data-row head">
@@ -58,7 +59,7 @@ function DatasetTable() {
         <div>状态</div>
         <div />
       </div>
-      {datasets.map((dataset) => {
+      {items.map((dataset) => {
         const state = datasetStatus(dataset);
         return (
           <Link className="data-row clickable" key={dataset.id} to={`/datasets/${dataset.id}`}>
@@ -126,6 +127,8 @@ function PipelineNode({ node }) {
 }
 
 export function DashboardPage({ showToast }) {
+  const { datasets: datasetItems } = useDatasets();
+
   return (
     <>
       <PageHero
@@ -182,7 +185,7 @@ export function DashboardPage({ showToast }) {
       </div>
       <div className="grid two section-gap">
         <Panel title="数据集状态" caption="当前系统支持多数据集持续接入。">
-          <DatasetTable />
+          <DatasetTable items={datasetItems} />
         </Panel>
         <Panel title="模型发布门禁" caption="上线前必须通过的检查。">
           <div className="grid">
@@ -198,6 +201,9 @@ export function DashboardPage({ showToast }) {
 }
 
 export function DatasetsPage({ showToast }) {
+  const { datasets: datasetItems, source, loading } = useDatasets();
+  const sourceLabel = source === "api" ? "Control-plane API" : "本地预览数据";
+
   return (
     <>
       <PageHero
@@ -212,7 +218,7 @@ export function DatasetsPage({ showToast }) {
       />
       <Panel
         title="数据集列表"
-        caption="点击行进入数据集详情。"
+        caption={`${loading ? "正在连接 Control-plane API" : sourceLabel} · 点击行进入数据集详情。`}
         action={
           <div className="tabs">
             <button className="tab-button active">全部</button>
@@ -221,7 +227,7 @@ export function DatasetsPage({ showToast }) {
           </div>
         }
       >
-        <DatasetTable />
+        <DatasetTable items={datasetItems} />
       </Panel>
     </>
   );
@@ -230,7 +236,7 @@ export function DatasetsPage({ showToast }) {
 export function DatasetDetailPage({ showToast }) {
   const { datasetId = "bird" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const dataset = datasets.find((item) => item.id === datasetId) ?? datasets[0];
+  const { dataset, source, loading } = useDataset(datasetId);
   const tab = searchParams.get("tab") ?? "overview";
   const tabs = [
     ["overview", "概览"],
@@ -244,7 +250,7 @@ export function DatasetDetailPage({ showToast }) {
     <>
       <PageHero
         title={dataset.name}
-        description={dataset.description}
+        description={`${dataset.description} · ${loading ? "正在连接 Control-plane API" : source === "api" ? "来自 Control-plane API" : "本地预览数据"}`}
         actions={
           <>
             <Link className="ghost-button" to="/datasets">

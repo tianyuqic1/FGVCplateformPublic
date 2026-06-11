@@ -38,9 +38,12 @@ def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> N
         {
             "dataset_id": "toy-shapes",
             "latest_version_id": "dataset@toy-001",
+            "dataset_version_id": "dataset@toy-001",
             "version_count": 1,
             "classes": ["blue_triangle", "green_circle", "red_square"],
+            "class_count": 3,
             "sample_count": 18,
+            "status": "ready",
             "readiness": imported["version"]["readiness"],
         }
     ]
@@ -49,10 +52,16 @@ def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> N
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["dataset_id"] == "toy-shapes"
+    assert detail["latest_version_id"] == "dataset@toy-001"
+    assert detail["dataset_version_id"] == "dataset@toy-001"
     assert detail["classes"] == ["blue_triangle", "green_circle", "red_square"]
+    assert detail["class_count"] == 3
     assert detail["sample_count"] == 18
+    assert detail["status"] == "ready"
     assert detail["readiness"]["ready"] is True
     assert detail["versions"][0]["dataset_version_id"] == "dataset@toy-001"
+    assert detail["versions"][0]["status"] == "ready"
+    assert detail["versions"][0]["class_count"] == 3
     assert detail["versions"][0]["split_totals"] == {"test": 3, "train": 12, "val": 3}
     assert set(detail["split_counts"]) == {"train", "val", "test"}
 

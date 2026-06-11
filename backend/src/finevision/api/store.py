@@ -13,9 +13,12 @@ from finevision.schemas.artifacts import DatasetManifest
 class DatasetSummary:
     dataset_id: str
     latest_version_id: str
+    dataset_version_id: str
     version_count: int
     classes: list[str]
+    class_count: int
     sample_count: int
+    status: str
     readiness: dict[str, Any]
 
 
@@ -55,9 +58,12 @@ class MetadataStore:
                 DatasetSummary(
                     dataset_id=dataset_id,
                     latest_version_id=latest.dataset_version_id,
+                    dataset_version_id=latest.dataset_version_id,
                     version_count=len(ordered),
                     classes=latest.classes,
+                    class_count=len(latest.classes),
                     sample_count=len(latest.samples),
+                    status=self.readiness_status(latest),
                     readiness=latest.readiness,
                 )
             )
@@ -72,12 +78,20 @@ class MetadataStore:
         latest = ordered[-1]
         return {
             "dataset_id": dataset_id,
+            "latest_version_id": latest.dataset_version_id,
+            "dataset_version_id": latest.dataset_version_id,
             "versions": [self.version_summary(manifest) for manifest in ordered],
             "classes": latest.classes,
+            "class_count": len(latest.classes),
             "sample_count": len(latest.samples),
             "split_counts": latest.split_counts,
+            "status": self.readiness_status(latest),
             "readiness": latest.readiness,
         }
+
+    @staticmethod
+    def readiness_status(manifest: DatasetManifest) -> str:
+        return "ready" if manifest.readiness.get("ready") is True else "needs_attention"
 
     @staticmethod
     def version_summary(manifest: DatasetManifest) -> dict[str, Any]:
@@ -86,9 +100,11 @@ class MetadataStore:
             "dataset_version_id": manifest.dataset_version_id,
             "root": manifest.root,
             "classes": manifest.classes,
+            "class_count": len(manifest.classes),
             "sample_count": len(manifest.samples),
             "split_totals": dict(sorted(split_totals.items())),
             "split_counts": manifest.split_counts,
+            "status": MetadataStore.readiness_status(manifest),
             "readiness": manifest.readiness,
             "artifact_refs": manifest.artifact_refs,
         }

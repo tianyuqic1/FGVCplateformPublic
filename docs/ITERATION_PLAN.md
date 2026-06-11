@@ -169,6 +169,8 @@ Suggested checkpoint pushes:
 
 Objective: make datasets, dataset versions, taxonomy, sample quality, and readiness first-class platform concepts in the control-plane API.
 
+Status: implemented as the first control-plane vertical slice on branch `codex/iteration-1-control-plane`.
+
 Scope:
 
 - Define dataset version metadata.
@@ -185,6 +187,9 @@ Deliverables:
 - Dataset metadata schemas.
 - Dataset list/detail API responses.
 - Dataset detail views for overview, class governance, samples, feature index, and OOD/abstention sections.
+- Local JSON metadata store for Iteration 1 development.
+- Workbench dataset pages that use the API when available and fall back to mock data when the API is offline.
+- API documentation in `docs/CONTROL_PLANE_API.md`.
 
 Acceptance:
 
@@ -192,6 +197,22 @@ Acceptance:
 - Each dataset has a version, class count, sample count, readiness state, quality summary, and artifact references.
 - Dataset detail exposes taxonomy and readiness diagnostics.
 - Tests cover dataset version creation, split preservation, low-sample diagnostics, and taxonomy updates.
+
+Implemented acceptance:
+
+- `POST /api/datasets/import-imagefolder` scans an ImageFolder dataset and persists a manifest.
+- `GET /api/datasets` returns dataset summaries with latest version, class count, sample count, readiness, and status.
+- `GET /api/datasets/{dataset_id}` returns versions, classes, split counts, and readiness.
+- `GET /api/dataset-versions/{dataset_version_id}/readiness` returns readiness diagnostics.
+- Frontend dataset list/detail pages consume the API through a fallback-safe client.
+- Tests cover import/list/detail/readiness and missing-resource errors.
+
+Deferred to later iterations:
+
+- Editable taxonomy governance APIs.
+- Sample-level quality state mutation APIs.
+- Durable database schema.
+- Job queue and worker execution for heavy ML/data operations.
 
 Suggested checkpoint pushes:
 

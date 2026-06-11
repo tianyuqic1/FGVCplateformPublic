@@ -107,6 +107,9 @@ Run the API locally:
 uv run uvicorn finevision.api:app --reload
 ```
 
+When the workbench runs through Vite, `/api` is proxied to `http://localhost:8000`.
+For other environments or a different API port, set `VITE_API_BASE_URL`.
+
 Dataset endpoints:
 
 ```text
@@ -114,6 +117,12 @@ GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
+```
+
+More detail:
+
+```text
+docs/CONTROL_PLANE_API.md
 ```
 
 ## Next Step
