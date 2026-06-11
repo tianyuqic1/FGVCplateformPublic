@@ -13,7 +13,7 @@ Purpose:
 - Verify the artifact flow:
 
 ```text
-DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> ThresholdSweep -> InferenceResult
+DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> CalibrationReport -> ThresholdStrategy -> InferenceResult
 ```
 
 ## Inputs
@@ -87,7 +87,9 @@ features/dataset@cifar10-mini-001-dinov3_vitl16/features.npz
 models/dataset@cifar10-mini-001-linear-head/model_artifact.json
 models/dataset@cifar10-mini-001-linear-head/linear_head.npz
 models/dataset@cifar10-mini-001-linear-head/training_report.json
+models/dataset@cifar10-mini-001-linear-head/calibration_report.json
 models/dataset@cifar10-mini-001-linear-head/threshold_sweep.json
+models/dataset@cifar10-mini-001-linear-head/threshold_strategy.json
 inference_result.json
 smoke_summary.json
 ```
@@ -109,9 +111,57 @@ macro_f1: 0.987450980392157
 
 The score is expected to be strong because CIFAR-10 mini is visually simple and DINOv3 ViT-L features separate the classes well.
 
+## Calibrated Validation Run
+
+After the first validation exposed low raw softmax confidence, the toolkit added:
+
+- temperature scaling on the validation split
+- calibration metrics: ECE, NLL, and Brier score
+- confidence-threshold candidates generated from validation confidence quantiles
+- a persisted `ThresholdStrategy`
+- inference that consumes the persisted strategy instead of hard-coded confidence and margin defaults
+
+Command:
+
+```bash
+uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke \
+  --dataset-dir data/test/cifar10-mini-imagefolder \
+  --dataset-id cifar10-mini \
+  --dataset-version-id dataset@cifar10-mini-001 \
+  --work-dir .finevision-cifar10-dinov3-calibrated \
+  --extractor dinov3_vitl \
+  --device cuda \
+  --batch-size 4
+```
+
+Result:
+
+```text
+accuracy: 0.9875
+macro_f1: 0.987450980392157
+calibration_temperature: 0.055900120116560266
+calibration_ece_before: 0.7681884661316871
+calibration_ece_after: 0.0053471561521291735
+threshold_points: 11
+accept_threshold: 0.998412
+margin_threshold: 0.9981164336204529
+expected_coverage: 0.95
+expected_selective_risk: 0.0
+inference_decision: accept
+inference_top1: airplane, 0.9993278980255127
+```
+
+Interpretation:
+
+- The linear head was under-confident before calibration.
+- Temperature scaling sharpened the probability distribution for this validation split.
+- ECE dropped from roughly `0.768` to `0.0053`, so the calibrated confidence is much more usable for automated accept/abstain decisions.
+- The selected threshold strategy expects `95%` coverage at `0%` selective risk on the validation split used by this mini dataset.
+- The inference path now loads `ThresholdStrategy`, so thresholds are tied to the model artifact instead of scattered through the caller.
+
 ## Threshold Sweep
 
-The first sweep exposed an important calibration issue: thresholds starting at `0.5` produced zero coverage because the ridge linear head logits are not calibrated. The default sweep was widened to include lower confidence thresholds.
+The first uncalibrated sweep exposed an important calibration issue: thresholds starting at `0.5` produced zero coverage because the ridge linear head logits were not calibrated. This historical sweep is kept here to show why calibration became part of the toolkit contract.
 
 Final sweep:
 
@@ -129,7 +179,7 @@ Interpretation:
 
 - DINOv3 features plus a simple linear head rank the classes well.
 - Raw softmax confidence from the current ridge head is not calibrated.
-- Iteration 2 should add explicit calibration, such as temperature scaling or validation-set calibration, before production threshold decisions.
+- Production threshold decisions should use the persisted calibrated `ThresholdStrategy`, not raw softmax confidence.
 
 ## Inference Result
 
@@ -160,13 +210,14 @@ The abstention is correct under the current uncalibrated threshold settings. It 
 
 - The DINOv3 ViT-L timm extractor works with the current toolkit.
 - The ImageFolder scanner correctly preserves explicit `train` / `val` / `test` splits.
-- Feature artifacts, model artifacts, evaluation reports, threshold sweeps, and inference results are written with stable ids.
+- Feature artifacts, model artifacts, evaluation reports, calibration reports, threshold sweeps, threshold strategies, and inference results are written with stable ids.
 - The toolkit can run on a real dataset with GPU acceleration.
-- Calibration is now a real requirement, not just a future nice-to-have.
+- Calibration is now implemented as part of the toolkit decision contract.
 
 ## Follow-Up
 
 - Keep the lightweight `color_stats` smoke test as the default test path.
 - Use the DINOv3 CIFAR-10 mini run as a manual validation path because it requires heavy optional dependencies and model weights.
-- Add calibration in the training/evaluation service phase before treating confidence thresholds as production-ready.
+- Carry `CalibrationReport` and `ThresholdStrategy` into the future model-version API and registry metadata.
+- Add richer calibration selection later if needed, such as per-class thresholds, pressure-set OOD thresholds, or class-pair-specific review rules.
 - Consider a smaller `data/test/*` fixture generator or downloader script if future agents need to reproduce the CIFAR-10 mini export from scratch.

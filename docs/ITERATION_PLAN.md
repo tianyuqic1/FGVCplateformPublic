@@ -127,6 +127,44 @@ Suggested checkpoint pushes:
 - `feat: add linear head training smoke flow`
 - `feat: add evaluation and threshold sweep outputs`
 
+## Iteration 0.6: Calibration And Decision Strategy
+
+Objective: turn raw model scores into a versioned decision contract before wrapping the toolkit with higher-level APIs.
+
+Scope:
+
+- Fit temperature scaling on the validation split.
+- Report calibration metrics: ECE, NLL, Brier score, and confidence bins.
+- Generate confidence-threshold candidates from validation score distributions instead of hard-coded production thresholds.
+- Select a `ThresholdStrategy` from validation sweep results under a target selective-risk policy.
+- Estimate a margin threshold from validation margins.
+- Persist calibration reports, threshold sweeps, and threshold strategies as model-linked artifacts.
+- Require inference to consume `ThresholdStrategy` instead of ad hoc confidence and margin parameters.
+- Re-run the CIFAR-10 mini + DINOv3 ViT-L validation path with calibration enabled.
+
+Deliverables:
+
+- `CalibrationReport` schema.
+- `ThresholdStrategy` schema.
+- Temperature-scaling utility.
+- Strategy selection utility.
+- Updated smoke flow and tests.
+- Validation documentation showing before/after calibration behavior.
+
+Acceptance:
+
+- The default smoke flow writes `calibration_report.json`, `threshold_sweep.json`, and `threshold_strategy.json`.
+- Inference results include `threshold_strategy_id`.
+- Tests assert that strategy thresholds are selected from validation sweep output.
+- Tests assert that inference uses the strategy thresholds.
+- The DINOv3 CIFAR-10 mini run demonstrates calibrated confidence and a strategy-backed decision.
+
+Suggested checkpoint pushes:
+
+- `feat: add calibration report artifacts`
+- `feat: add threshold strategy selection`
+- `test: cover calibrated inference contract`
+
 ## Iteration 1: Dataset Assets And Metadata APIs
 
 Objective: make datasets, dataset versions, taxonomy, sample quality, and readiness first-class platform concepts in the control-plane API.
@@ -222,6 +260,7 @@ Scope:
 - Link training outputs to candidate model versions.
 - Serve training queue and training detail APIs from control-plane metadata.
 - Execute feature extraction, training, evaluation, and threshold sweep in the worker.
+- Attach calibration report and threshold strategy artifacts to completed training runs and candidate model versions.
 - Show progress, run configuration, metrics, reports, and artifact links in the UI.
 
 Deliverables:
@@ -236,7 +275,7 @@ Acceptance:
 - A training run has a dataset version, feature artifact, backbone, head config, report, and status.
 - Completed runs produce candidate model versions.
 - Reports include accuracy, macro F1, top-k/candidate recall, per-class metrics, confusion information, and run configuration.
-- Tests cover feature reuse, training metadata, report content, and threshold sweep outputs.
+- Tests cover feature reuse, training metadata, report content, calibration metadata, threshold strategy output, and threshold sweep outputs.
 
 Suggested checkpoint pushes:
 

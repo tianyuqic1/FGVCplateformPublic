@@ -1,5 +1,7 @@
 from .artifacts import (
     AbstentionDecision,
+    CalibrationBin,
+    CalibrationReport,
     DatasetManifest,
     EvaluationReport,
     FeatureArtifact,
@@ -7,12 +9,15 @@ from .artifacts import (
     ModelArtifact,
     SampleRecord,
     ThresholdPoint,
+    ThresholdStrategy,
     ThresholdSweep,
     TrainingRunReport,
 )
 
 __all__ = [
     "AbstentionDecision",
+    "CalibrationBin",
+    "CalibrationReport",
     "DatasetManifest",
     "EvaluationReport",
     "FeatureArtifact",
@@ -20,6 +25,7 @@ __all__ = [
     "ModelArtifact",
     "SampleRecord",
     "ThresholdPoint",
+    "ThresholdStrategy",
     "ThresholdSweep",
     "TrainingRunReport",
 ]

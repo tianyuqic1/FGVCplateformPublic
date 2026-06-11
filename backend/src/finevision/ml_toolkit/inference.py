@@ -4,7 +4,9 @@ import numpy as np
 
 from finevision.ml_toolkit.metrics import softmax
 from finevision.ml_toolkit.training import apply_linear_head
-from finevision.schemas.artifacts import AbstentionDecision, InferenceResult, ModelArtifact
+from finevision.schemas.artifacts import AbstentionDecision, InferenceResult, ModelArtifact, ThresholdStrategy
+
+DECISION_EPSILON = 1e-6
 
 
 def _nearest_neighbors(query: np.ndarray, features: np.ndarray, sample_ids: list[str], labels: list[str], k: int) -> list[dict[str, float | str]]:
@@ -19,12 +21,11 @@ def _nearest_neighbors(query: np.ndarray, features: np.ndarray, sample_ids: list
 def run_inference(
     model_artifact: ModelArtifact,
     model_state: dict[str, np.ndarray],
+    threshold_strategy: ThresholdStrategy,
     query_features: np.ndarray,
     reference_features: np.ndarray,
     reference_sample_ids: list[str],
     reference_labels: list[str],
-    confidence_threshold: float = 0.7,
-    margin_threshold: float = 0.12,
     ood_distance_threshold: float | None = None,
     top_k: int = 3,
 ) -> InferenceResult:
@@ -36,7 +37,7 @@ def run_inference(
         model_state["feature_mean"],
         model_state["feature_std"],
     )
-    probabilities = softmax(logits)[0]
+    probabilities = softmax(logits, temperature=threshold_strategy.temperature)[0]
     order = np.argsort(probabilities)[::-1]
     capped = order[: min(top_k, len(model_artifact.classes))]
     top = [
@@ -54,10 +55,10 @@ def run_inference(
     if ood_distance_threshold is not None and ood_score is not None and ood_score > ood_distance_threshold:
         decision = "reject_ood"
         reasons.append("embedding_distance_above_threshold")
-    if confidence < confidence_threshold:
+    if confidence + DECISION_EPSILON < threshold_strategy.accept_threshold:
         decision = "abstain" if decision == "accept" else decision
         reasons.append("confidence_below_threshold")
-    if margin < margin_threshold:
+    if margin + DECISION_EPSILON < threshold_strategy.margin_threshold:
         decision = "abstain" if decision == "accept" else decision
         reasons.append("top1_top2_margin_below_threshold")
     if not reasons:
@@ -67,13 +68,14 @@ def run_inference(
         dataset_id=model_artifact.dataset_id,
         dataset_version_id=model_artifact.dataset_version_id,
         model_artifact_id=model_artifact.artifact_id,
+        threshold_strategy_id=threshold_strategy.strategy_id,
         top_k=top,
         decision=AbstentionDecision(
             decision=decision,  # type: ignore[arg-type]
             reasons=reasons,
             thresholds={
-                "confidence": confidence_threshold,
-                "margin": margin_threshold,
+                "confidence": threshold_strategy.accept_threshold,
+                "margin": threshold_strategy.margin_threshold,
                 **({"ood_distance": ood_distance_threshold} if ood_distance_threshold is not None else {}),
             },
             margin=margin,

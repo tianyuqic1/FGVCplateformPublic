@@ -6,10 +6,11 @@ from pathlib import Path
 import numpy as np
 
 from finevision.ml_toolkit.artifacts import load_model_artifact, write_dataset_manifest, write_json
+from finevision.ml_toolkit.calibration import fit_temperature_scaling
 from finevision.ml_toolkit.datasets import scan_imagefolder
 from finevision.ml_toolkit.features import ColorStatsExtractor, TimmDinoV3Extractor, extract_features
 from finevision.ml_toolkit.inference import run_inference
-from finevision.ml_toolkit.thresholds import sweep_confidence_thresholds
+from finevision.ml_toolkit.thresholds import estimate_margin_threshold, select_threshold_strategy, sweep_confidence_thresholds
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
 from finevision.ml_toolkit.training import train_linear_head
 
@@ -45,19 +46,46 @@ def run_smoke_flow(
     extractor = build_extractor(extractor_name, device=device, batch_size=batch_size)
     feature_artifact, features = extract_features(manifest, extractor, artifact_root / "features")
     model_artifact, training_report, logits = train_linear_head(feature_artifact, features, artifact_root / "models", run_id="run-toy-001")
-    threshold_sweep = sweep_confidence_thresholds(feature_artifact, model_artifact, logits, artifact_root=artifact_root / "models")
+    calibration = fit_temperature_scaling(
+        model_artifact,
+        logits,
+        feature_artifact.labels,
+        feature_artifact.splits,
+        artifact_root=artifact_root / "models",
+    )
+    threshold_sweep = sweep_confidence_thresholds(
+        feature_artifact,
+        model_artifact,
+        logits,
+        artifact_root=artifact_root / "models",
+        calibration=calibration,
+    )
+    margin_threshold, margin_config = estimate_margin_threshold(
+        feature_artifact,
+        model_artifact,
+        logits,
+        calibration=calibration,
+        split=calibration.split,
+    )
+    threshold_strategy = select_threshold_strategy(
+        threshold_sweep,
+        model_artifact,
+        calibration=calibration,
+        margin_threshold=margin_threshold,
+        selection_config=margin_config,
+        artifact_root=artifact_root / "models",
+    )
 
     loaded_model, model_state = load_model_artifact(artifact_root / "models" / model_artifact.artifact_id)
     query_index = int(np.where(np.array(feature_artifact.splits) == "test")[0][0])
     inference = run_inference(
         loaded_model,
         model_state,
+        threshold_strategy,
         features[query_index],
         features,
         feature_artifact.sample_ids,
         feature_artifact.labels,
-        confidence_threshold=0.55,
-        margin_threshold=0.05,
     )
     write_json(artifact_root / "inference_result.json", inference)
 
@@ -70,6 +98,14 @@ def run_smoke_flow(
         "accuracy": training_report.evaluation.accuracy,
         "macro_f1": training_report.evaluation.macro_f1,
         "threshold_points": len(threshold_sweep.points),
+        "calibration_temperature": calibration.temperature,
+        "calibration_ece_before": calibration.before["ece"],
+        "calibration_ece_after": calibration.after["ece"],
+        "threshold_strategy": threshold_strategy.strategy_id,
+        "accept_threshold": threshold_strategy.accept_threshold,
+        "margin_threshold": threshold_strategy.margin_threshold,
+        "expected_coverage": threshold_strategy.expected_coverage,
+        "expected_selective_risk": threshold_strategy.expected_selective_risk,
         "inference_decision": inference.decision.decision,
         "inference_top1": inference.top_k[0],
         "extractor": extractor_name,

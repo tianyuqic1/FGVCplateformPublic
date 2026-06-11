@@ -78,6 +78,29 @@ class EvaluationReport:
 
 
 @dataclass(frozen=True)
+class CalibrationBin:
+    lower: float
+    upper: float
+    count: int
+    accuracy: float
+    confidence: float
+
+
+@dataclass(frozen=True)
+class CalibrationReport:
+    artifact_id: str
+    dataset_id: str
+    dataset_version_id: str
+    model_artifact_id: str
+    method: str
+    split: str
+    temperature: float
+    before: dict[str, float]
+    after: dict[str, float]
+    bins: list[CalibrationBin]
+
+
+@dataclass(frozen=True)
 class TrainingRunReport:
     run_id: str
     dataset_id: str
@@ -102,7 +125,29 @@ class ThresholdSweep:
     dataset_id: str
     dataset_version_id: str
     model_artifact_id: str
+    calibration_artifact_id: str | None
     points: list[ThresholdPoint]
+    split: str
+
+
+@dataclass(frozen=True)
+class ThresholdStrategy:
+    strategy_id: str
+    dataset_id: str
+    dataset_version_id: str
+    model_artifact_id: str
+    calibration_artifact_id: str | None
+    calibration_method: str
+    temperature: float
+    split: str
+    accept_threshold: float
+    margin_threshold: float
+    target_selective_risk: float
+    expected_coverage: float
+    expected_selective_risk: float
+    review_cost_per_item: float
+    selection_rule: str
+    selection_config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -120,6 +165,7 @@ class InferenceResult:
     dataset_id: str
     dataset_version_id: str
     model_artifact_id: str
+    threshold_strategy_id: str | None
     top_k: list[dict[str, float | str]]
     decision: AbstentionDecision
     nearest_neighbors: list[dict[str, float | str]] = field(default_factory=list)
