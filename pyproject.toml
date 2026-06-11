@@ -1,0 +1,31 @@
+[project]
+name = "finevision"
+version = "0.1.0"
+description = "FineVision workbench and ML/data toolkit"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dinov3 = [
+  "timm>=1.0.19",
+  "torch>=2.7",
+  "torchvision>=0.22",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["backend/src"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend/src"]

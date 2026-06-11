@@ -91,6 +91,8 @@ Scope:
 - Create stratified splits when explicit splits are absent.
 - Generate taxonomy and low-sample readiness diagnostics.
 - Wrap frozen-backbone feature extraction behind a generic interface such as `backbone_id` plus `extractor_config`.
+- Add a DINOv3 ViT-L extractor through `timm`, but keep heavy model downloads out of default tests.
+- Add a lightweight deterministic extractor for local smoke tests.
 - Persist feature artifacts with sample ids, labels, dimensions, backbone metadata, and dataset-version binding.
 - Train at least one lightweight classifier head, starting with a linear head.
 - Produce evaluation reports with accuracy, macro F1, per-class metrics, confusion data, and run configuration.
@@ -114,6 +116,8 @@ Acceptance:
 - A small ImageFolder dataset can produce a manifest, feature artifact, trained head, evaluation report, and inference result.
 - Artifacts include stable ids and metadata.
 - The implementation does not hard-code DINOv3 into business logic; DINOv3-style extraction is one configured backbone option.
+- The default smoke test runs without downloading DINOv3 weights.
+- A documented command can run the DINOv3 ViT-L extractor when optional dependencies and weights are available.
 - A checkpoint push records the working toolkit spike.
 
 Suggested checkpoint pushes:

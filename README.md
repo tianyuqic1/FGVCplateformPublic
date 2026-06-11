@@ -66,6 +66,29 @@ Main routes:
 /pipelines/pipe-014
 ```
 
+## ML/Data Toolkit
+
+Iteration 0.5 starts the backend toolkit under `backend/src/finevision/ml_toolkit/`.
+
+Run the lightweight smoke flow:
+
+```text
+uv run --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-smoke
+uv run --group dev pytest
+```
+
+The smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
+
+```text
+DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> ThresholdSweep -> InferenceResult
+```
+
+DINOv3 ViT-L is wired through `timm` as an optional extractor. It may download large weights, so it is not used by the default smoke test:
+
+```text
+uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vitl
+```
+
 ## Next Step
 
 Start implementation from:
