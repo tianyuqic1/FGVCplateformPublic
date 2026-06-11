@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from finevision.api.store import MetadataStore
+from finevision.api.store import JobStore, MetadataStore
 from finevision.ml_toolkit.datasets import scan_imagefolder
 
 
@@ -17,8 +18,15 @@ class ImportImageFolderRequest(BaseModel):
     dataset_version_id: str = Field(..., min_length=1)
 
 
+class CreateJobRequest(BaseModel):
+    type: Literal["import_imagefolder"]
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
-    store = MetadataStore(metadata_dir or os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata"))
+    resolved_metadata_dir = metadata_dir or os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata")
+    store = MetadataStore(resolved_metadata_dir)
+    job_store = JobStore(resolved_metadata_dir)
     api = FastAPI(title="FineVision Control Plane API", version="0.1.0")
     api.add_middleware(
         CORSMiddleware,
@@ -28,6 +36,7 @@ def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     api.state.metadata_store = store
+    api.state.job_store = job_store
 
     @api.get("/api/health")
     def health() -> dict[str, str]:
@@ -59,6 +68,32 @@ def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
             "version": store.version_summary(manifest),
         }
 
+    @api.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED)
+    def create_job(request: CreateJobRequest) -> dict[str, object]:
+        payload = _validate_import_imagefolder_payload(request.payload)
+        job = job_store.create_job(request.type, payload)
+        return {"job": job.__dict__}
+
+    @api.get("/api/jobs")
+    def list_jobs() -> dict[str, list[dict[str, object]]]:
+        return {"jobs": [job.__dict__ for job in job_store.list_jobs()]}
+
+    @api.get("/api/jobs/{job_id}")
+    def get_job(job_id: str) -> dict[str, object]:
+        job = job_store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        return {"job": job.__dict__}
+
+    @api.post("/api/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str) -> dict[str, object]:
+        job = job_store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        if job.status not in {"queued"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued jobs can be cancelled")
+        return {"job": job_store.cancel_job(job).__dict__}
+
     @api.get("/api/dataset-versions/{dataset_version_id}/readiness")
     def get_dataset_version_readiness(dataset_version_id: str) -> dict[str, object]:
         manifest = store.get_dataset_version(dataset_version_id)
@@ -71,6 +106,17 @@ def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
         }
 
     return api
+
+
+def _validate_import_imagefolder_payload(payload: dict[str, Any]) -> dict[str, str]:
+    required = ("path", "dataset_id", "dataset_version_id")
+    missing = [field for field in required if not str(payload.get(field, "")).strip()]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Missing import_imagefolder payload fields: {', '.join(missing)}",
+        )
+    return {field: str(payload[field]) for field in required}
 
 
 app = create_app()

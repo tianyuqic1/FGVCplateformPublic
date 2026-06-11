@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from uuid import uuid4
 
 from finevision.ml_toolkit.artifacts import read_dataset_manifest, write_dataset_manifest
 from finevision.schemas.artifacts import DatasetManifest
+
+JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+JobType = Literal["import_imagefolder"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,20 @@ class DatasetSummary:
     sample_count: int
     status: str
     readiness: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class JobRecord:
+    job_id: str
+    type: JobType
+    status: JobStatus
+    payload: dict[str, Any]
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class MetadataStore:
@@ -111,3 +131,97 @@ class MetadataStore:
 
     def _manifest_path(self, dataset_id: str, dataset_version_id: str) -> Path:
         return self.root / "datasets" / dataset_id / "versions" / dataset_version_id / "manifest.json"
+
+
+class JobStore:
+    def __init__(self, root: str | Path) -> None:
+        self.root = Path(root).resolve()
+
+    def create_job(self, job_type: JobType, payload: dict[str, Any]) -> JobRecord:
+        now = _timestamp()
+        job = JobRecord(
+            job_id=f"job-{uuid4().hex[:12]}",
+            type=job_type,
+            status="queued",
+            payload=payload,
+            created_at=now,
+            updated_at=now,
+        )
+        self.save_job(job)
+        return job
+
+    def save_job(self, job: JobRecord) -> Path:
+        path = self._job_path(job.job_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(asdict(job), indent=2, sort_keys=True), encoding="utf-8")
+        return path
+
+    def get_job(self, job_id: str) -> JobRecord | None:
+        path = self._job_path(job_id)
+        if not path.exists():
+            return None
+        return self._read_job(path)
+
+    def list_jobs(self) -> list[JobRecord]:
+        return [self._read_job(path) for path in sorted((self.root / "jobs").glob("*.json"))]
+
+    def next_queued_job(self) -> JobRecord | None:
+        queued = [job for job in self.list_jobs() if job.status == "queued"]
+        if not queued:
+            return None
+        return sorted(queued, key=lambda job: job.created_at)[0]
+
+    def mark_running(self, job: JobRecord) -> JobRecord:
+        now = _timestamp()
+        updated = _replace_job(job, status="running", started_at=now, updated_at=now, error=None)
+        self.save_job(updated)
+        return updated
+
+    def mark_succeeded(self, job: JobRecord, result: dict[str, Any]) -> JobRecord:
+        now = _timestamp()
+        updated = _replace_job(
+            job,
+            status="succeeded",
+            result=result,
+            error=None,
+            finished_at=now,
+            updated_at=now,
+        )
+        self.save_job(updated)
+        return updated
+
+    def mark_failed(self, job: JobRecord, error: str) -> JobRecord:
+        now = _timestamp()
+        updated = _replace_job(
+            job,
+            status="failed",
+            error=error,
+            finished_at=now,
+            updated_at=now,
+        )
+        self.save_job(updated)
+        return updated
+
+    def cancel_job(self, job: JobRecord) -> JobRecord:
+        now = _timestamp()
+        updated = _replace_job(job, status="cancelled", finished_at=now, updated_at=now)
+        self.save_job(updated)
+        return updated
+
+    def _job_path(self, job_id: str) -> Path:
+        return self.root / "jobs" / f"{job_id}.json"
+
+    @staticmethod
+    def _read_job(path: Path) -> JobRecord:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return JobRecord(**data)
+
+
+def _timestamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _replace_job(job: JobRecord, **changes: Any) -> JobRecord:
+    data = asdict(job)
+    data.update(changes)
+    return JobRecord(**data)
