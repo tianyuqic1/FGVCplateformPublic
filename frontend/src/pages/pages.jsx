@@ -1,6 +1,7 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems, trainingRuns } from "../data/mockData.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
+import { useRecentJobs } from "../hooks/useJobs.js";
 import { Icon } from "../components/icons.jsx";
 import {
   CandidateBar,
@@ -26,6 +27,17 @@ function riskTone(route) {
   if (route === "ood") return "risk";
   if (route === "bad-image") return "neutral";
   return "warn";
+}
+
+function jobStatus(job) {
+  if (job.status === "succeeded") return { label: "完成", tone: "default", icon: "Check" };
+  if (job.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
+  if (job.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
+  return { label: "排队中", tone: "info", icon: "Clock" };
+}
+
+function jobTarget(job) {
+  return job.datasetVersionId ?? job.datasetId ?? "未绑定数据集";
 }
 
 function ReviewCard({ item }) {
@@ -99,6 +111,36 @@ function RunRow({ run }) {
       </div>
       <StatusChip tone={done ? "default" : "warn"}>{done ? "完成" : "运行中"}</StatusChip>
     </Link>
+  );
+}
+
+function JobRow({ job }) {
+  const state = jobStatus(job);
+  return (
+    <Link className="timeline-item clickable" to="/pipelines/pipe-014">
+      <div className="timeline-icon">
+        <Icon name={state.icon} size={18} />
+      </div>
+      <div>
+        <strong>{job.jobType}</strong>
+        <div className="row-meta">
+          {jobTarget(job)} · {job.message || job.id}
+        </div>
+        <ProgressBar value={job.progress} fill={job.status === "failed" ? "#b4233c" : job.status === "running" ? "#a15c07" : "#0f766e"} shimmer={job.status === "running"} />
+      </div>
+      <StatusChip tone={state.tone}>{state.label}</StatusChip>
+    </Link>
+  );
+}
+
+function RecentJobsPanel({ limit = 5 }) {
+  const { jobs, source, loading } = useRecentJobs(limit);
+  const sourceLabel = loading ? "正在连接 Control-plane API" : source === "api" ? "Control-plane API" : "本地预览任务";
+
+  return (
+    <Panel title="任务状态" caption={`${sourceLabel} · queued / running / succeeded / failed。`}>
+      <div className="timeline">{jobs.map((job) => <JobRow job={job} key={job.id} />)}</div>
+    </Panel>
   );
 }
 
@@ -573,6 +615,12 @@ export function PipelinesPage() {
       <Panel title="模板：DINOv3 分类头训练" caption="点击节点查看运行样式。">
         <div className="pipeline">{pipelineNodes.map((node) => <PipelineNode node={node} key={node.id} />)}</div>
       </Panel>
+      <div className="grid two section-gap">
+        <RecentJobsPanel />
+        <Panel title="Worker 边界" caption="MVP 阶段先查询任务状态，不在浏览器里直接触发模型计算。">
+          <div className="code-panel">control-plane: /api/jobs<br />worker: feature extraction / train / calibration<br />storage: artifacts + metadata store<br />frontend: poll job status + fallback preview</div>
+        </Panel>
+      </div>
     </>
   );
 }

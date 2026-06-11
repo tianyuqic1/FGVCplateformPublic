@@ -1,0 +1,44 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      FINEVISION_METADATA_DIR: /data/metadata
+      FINEVISION_ARTIFACT_DIR: /data/artifacts
+    ports:
+      - "8000:8000"
+    volumes:
+      - finevision-metadata:/data/metadata
+      - finevision-artifacts:/data/artifacts
+      - ./data:/app/data:ro
+
+  ml-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["python", "-m", "finevision.worker.jobs", "--poll-interval-seconds", "2"]
+    environment:
+      FINEVISION_METADATA_DIR: /data/metadata
+      FINEVISION_ARTIFACT_DIR: /data/artifacts
+    depends_on:
+      - api
+    volumes:
+      - finevision-metadata:/data/metadata
+      - finevision-artifacts:/data/artifacts
+      - ./data:/app/data:ro
+
+volumes:
+  finevision-metadata:
+  finevision-artifacts:

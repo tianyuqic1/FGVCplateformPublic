@@ -107,16 +107,31 @@ Run the API locally:
 uv run uvicorn finevision.api:app --reload
 ```
 
+Run the worker locally:
+
+```text
+uv run python -m finevision.worker.jobs
+```
+
 When the workbench runs through Vite, `/api` is proxied to `http://localhost:8000`.
 For other environments or a different API port, set `VITE_API_BASE_URL`.
 
-Dataset endpoints:
+Control-plane endpoints:
 
 ```text
 GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
+POST /api/jobs
+GET  /api/jobs
+GET  /api/jobs/{job_id}
+```
+
+Run the local service boundary:
+
+```text
+docker compose up --build
 ```
 
 More detail:

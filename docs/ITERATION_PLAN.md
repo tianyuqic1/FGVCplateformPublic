@@ -224,6 +224,8 @@ Suggested checkpoint pushes:
 
 Objective: introduce the runtime boundary between lightweight API operations and heavy ML/data jobs without prematurely splitting the codebase into independent microservices.
 
+Status: implemented as the first API/worker boundary slice on branch `codex/iteration-1-5-api-worker-boundary`.
+
 Scope:
 
 - Keep one repository and shared schema/artifact contracts.
@@ -253,6 +255,7 @@ Deliverables:
 - Docker Compose configuration.
 - Shared schema package/module for API and worker.
 - Artifact volume/path conventions.
+- Frontend job status panel on the pipelines page.
 
 Acceptance:
 
@@ -261,6 +264,22 @@ Acceptance:
 - The frontend can query job status through the API.
 - API dependencies remain lightweight and do not require the ML runtime stack.
 - Worker dependencies can include heavy ML packages without polluting the API container.
+
+Implemented acceptance:
+
+- `POST /api/jobs` creates a queued `import_imagefolder` job without scanning the dataset in the request handler.
+- `GET /api/jobs` and `GET /api/jobs/{job_id}` expose job status.
+- `python -m finevision.worker.jobs` runs a worker loop; `--once` executes one queued job.
+- Worker jobs persist `running`, `succeeded`, and `failed` transitions with result/error data.
+- `docker-compose.yml` runs `frontend`, `api`, and `ml-worker` as separate processes with shared metadata/artifact volumes.
+- The pipeline page reads recent jobs from the API and falls back to preview jobs when the API is offline.
+
+Deferred to later iterations:
+
+- Real queue backend with locking/leases.
+- Database-backed metadata.
+- Worker jobs for feature extraction, training, calibration, threshold sweep, indexing, and batch inference.
+- Job progress streaming or polling intervals beyond simple status reads.
 
 Suggested checkpoint pushes:
 

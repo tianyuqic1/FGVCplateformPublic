@@ -1,6 +1,6 @@
 # Control-plane API
 
-This document records the Iteration 1 control-plane API slice.
+This document records the Iteration 1 and 1.5 control-plane API slices.
 
 ## Boundary
 
@@ -12,10 +12,13 @@ Current scope:
 - ImageFolder manifest import
 - Dataset detail and version summaries
 - Dataset readiness reads
+- Job creation and job status reads
+- Worker execution for queued ImageFolder import jobs
 - Local JSON metadata persistence
 - Frontend dataset pages connected to the API with mock fallback
+- Frontend pipeline page connected to job status with mock fallback
 
-The ML/data toolkit remains the compute kernel. A later worker process will call those toolkit functions outside the request path.
+The ML/data toolkit remains the compute kernel. Iteration 1.5 introduces a worker process that calls toolkit functions outside the request path.
 
 ## Run
 
@@ -23,6 +26,18 @@ Start the API:
 
 ```bash
 uv run uvicorn finevision.api:app --reload
+```
+
+Start the worker loop in another terminal:
+
+```bash
+uv run python -m finevision.worker.jobs
+```
+
+Run at most one queued job:
+
+```bash
+uv run python -m finevision.worker.jobs --once
 ```
 
 If port `8000` is already occupied:
@@ -58,6 +73,10 @@ GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
+POST /api/jobs
+GET  /api/jobs
+GET  /api/jobs/{job_id}
+POST /api/jobs/{job_id}/cancel
 ```
 
 Import request:
@@ -67,6 +86,38 @@ Import request:
   "path": "data/test/cifar10-mini-imagefolder",
   "dataset_id": "cifar10-mini",
   "dataset_version_id": "dataset@cifar10-mini-001"
+}
+```
+
+The synchronous `POST /api/datasets/import-imagefolder` endpoint is retained for Iteration 1 compatibility. New long-running imports should use the job API:
+
+```json
+{
+  "type": "import_imagefolder",
+  "payload": {
+    "path": "data/test/cifar10-mini-imagefolder",
+    "dataset_id": "cifar10-mini",
+    "dataset_version_id": "dataset@cifar10-mini-001"
+  }
+}
+```
+
+Job response shape:
+
+```json
+{
+  "job": {
+    "job_id": "job-abc123",
+    "type": "import_imagefolder",
+    "status": "queued",
+    "payload": {
+      "path": "data/test/cifar10-mini-imagefolder",
+      "dataset_id": "cifar10-mini",
+      "dataset_version_id": "dataset@cifar10-mini-001"
+    },
+    "result": null,
+    "error": null
+  }
 }
 ```
 
@@ -105,24 +156,58 @@ FINEVISION_METADATA_DIR=/path/to/metadata
 
 The current store is intentionally simple JSON. It is enough for Iteration 1 and keeps the API contract testable before introducing database tables or a job queue.
 
+Jobs are stored as JSON under:
+
+```text
+.finevision-api/metadata/jobs
+```
+
+Dataset manifests are stored under:
+
+```text
+.finevision-api/metadata/datasets
+```
+
+## Docker Compose
+
+Run the local service boundary:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+```text
+frontend   Vite workbench
+api        FastAPI control plane
+ml-worker  worker loop consuming queued jobs
+```
+
+The `api` and `ml-worker` services share metadata and artifact volumes. This validates the process boundary without introducing distributed infrastructure yet.
+
 ## Verification
 
 ```bash
 uv run --group dev pytest
 cd frontend && npm run smoke:api-client
+cd frontend && npm run smoke:jobs-client
 cd frontend && npm run build
 cd frontend && npm run smoke:routes
+docker compose config
 ```
 
 Current verified result:
 
 ```text
-backend: 5 passed
+backend: 7 passed
 frontend api client: passed
+frontend jobs client: passed
 frontend build: passed
 frontend routes: 16 x 200
+docker compose config: passed
 ```
 
 ## Next
 
-Iteration 1.5 should add an API/worker process boundary and a job lifecycle. The API should create jobs and return ids immediately; the worker should execute ImageFolder import, feature extraction, training, calibration, and inference jobs against the shared artifact contracts.
+Iteration 2 should move feature extraction, training, evaluation, calibration, and threshold strategy generation behind the worker job lifecycle. The API should continue to create jobs and expose metadata/status; the worker should own compute execution and artifact writes.

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "smoke:routes": "node scripts/smoke-routes.mjs",
-    "smoke:api-client": "node scripts/smoke-api-client.mjs"
+    "smoke:api-client": "node scripts/smoke-api-client.mjs",
+    "smoke:jobs-client": "node scripts/smoke-jobs-client.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

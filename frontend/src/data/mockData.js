@@ -151,6 +151,53 @@ export const trainingRuns = [
   },
 ];
 
+export const jobs = [
+  {
+    id: "job-feature-014",
+    jobType: "feature_extraction",
+    status: "running",
+    datasetId: "bird",
+    datasetVersionId: "dataset@014",
+    progress: 72,
+    createdAt: "2026-06-11T10:24:00+08:00",
+    updatedAt: "2026-06-11T10:42:00+08:00",
+    message: "DINOv3 feature cache",
+  },
+  {
+    id: "job-import-cifar10",
+    jobType: "import_imagefolder",
+    status: "succeeded",
+    datasetId: "cifar10-mini",
+    datasetVersionId: "dataset@cifar10-mini-001",
+    progress: 100,
+    createdAt: "2026-06-11T09:10:00+08:00",
+    updatedAt: "2026-06-11T09:11:00+08:00",
+    message: "460 samples indexed",
+  },
+  {
+    id: "job-calibration-006",
+    jobType: "calibration_sweep",
+    status: "queued",
+    datasetId: "defect",
+    datasetVersionId: "dataset@006",
+    progress: 0,
+    createdAt: "2026-06-11T10:44:00+08:00",
+    updatedAt: "2026-06-11T10:44:00+08:00",
+    message: "waiting for model artifact",
+  },
+  {
+    id: "job-audit-leaf",
+    jobType: "dataset_audit",
+    status: "failed",
+    datasetId: "leaf",
+    datasetVersionId: "dataset@003",
+    progress: 38,
+    createdAt: "2026-06-11T08:25:00+08:00",
+    updatedAt: "2026-06-11T08:31:00+08:00",
+    message: "class folder contains unsupported files",
+  },
+];
+
 export const modelVersions = [
   {
     id: "bird-cls-v4",
