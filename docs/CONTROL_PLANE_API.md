@@ -121,6 +121,12 @@ Job response shape:
 }
 ```
 
+Job status values:
+
+```text
+queued, running, succeeded, failed, cancelled
+```
+
 Dataset summary response shape:
 
 ```json
@@ -200,12 +206,13 @@ docker compose config
 Current verified result:
 
 ```text
-backend: 7 passed
+backend: 8 passed
 frontend api client: passed
 frontend jobs client: passed
 frontend build: passed
 frontend routes: 16 x 200
 docker compose config: passed
+worker --once CLI smoke: passed
 ```
 
 ## Next

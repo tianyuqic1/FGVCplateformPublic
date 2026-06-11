@@ -269,10 +269,11 @@ Implemented acceptance:
 
 - `POST /api/jobs` creates a queued `import_imagefolder` job without scanning the dataset in the request handler.
 - `GET /api/jobs` and `GET /api/jobs/{job_id}` expose job status.
+- `POST /api/jobs/{job_id}/cancel` cancels queued jobs before the worker executes them.
 - `python -m finevision.worker.jobs` runs a worker loop; `--once` executes one queued job.
 - Worker jobs persist `running`, `succeeded`, and `failed` transitions with result/error data.
 - `docker-compose.yml` runs `frontend`, `api`, and `ml-worker` as separate processes with shared metadata/artifact volumes.
-- The pipeline page reads recent jobs from the API and falls back to preview jobs when the API is offline.
+- The pipeline page reads recent jobs from the API, displays queued/running/succeeded/failed/cancelled states, and falls back to preview jobs when the API is offline.
 
 Deferred to later iterations:
 

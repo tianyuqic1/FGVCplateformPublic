@@ -101,3 +101,32 @@ def test_import_imagefolder_job_failure_is_persisted(tmp_path: Path) -> None:
     assert "missing-imagefolder" in stored_job["error"]
 
     assert client.get("/api/datasets/broken").status_code == 404
+
+
+def test_queued_import_imagefolder_job_can_be_cancelled(tmp_path: Path) -> None:
+    metadata_dir = tmp_path / "metadata"
+    dataset_dir = create_toy_imagefolder(tmp_path / "toy-imagefolder", samples_per_class=2)
+    client = TestClient(create_app(metadata_dir=metadata_dir))
+
+    create_response = client.post(
+        "/api/jobs",
+        json={
+            "type": "import_imagefolder",
+            "payload": {
+                "path": str(dataset_dir),
+                "dataset_id": "cancelled-toy",
+                "dataset_version_id": "dataset@cancelled-toy-001",
+            },
+        },
+    )
+    assert create_response.status_code == 202
+    created_job = create_response.json()["job"]
+
+    cancel_response = client.post(f"/api/jobs/{created_job['job_id']}/cancel")
+    assert cancel_response.status_code == 200
+    cancelled_job = cancel_response.json()["job"]
+    assert cancelled_job["status"] == "cancelled"
+    assert cancelled_job["finished_at"] is not None
+
+    assert run_next_job(metadata_dir) is None
+    assert client.get("/api/datasets/cancelled-toy").status_code == 404

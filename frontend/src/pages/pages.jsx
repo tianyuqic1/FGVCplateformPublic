@@ -33,6 +33,7 @@ function jobStatus(job) {
   if (job.status === "succeeded") return { label: "完成", tone: "default", icon: "Check" };
   if (job.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
   if (job.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
+  if (job.status === "cancelled") return { label: "已取消", tone: "neutral", icon: "Ban" };
   return { label: "排队中", tone: "info", icon: "Clock" };
 }
 
@@ -126,7 +127,7 @@ function JobRow({ job }) {
         <div className="row-meta">
           {jobTarget(job)} · {job.message || job.id}
         </div>
-        <ProgressBar value={job.progress} fill={job.status === "failed" ? "#b4233c" : job.status === "running" ? "#a15c07" : "#0f766e"} shimmer={job.status === "running"} />
+        <ProgressBar value={job.progress} fill={job.status === "failed" ? "#b4233c" : job.status === "running" ? "#a15c07" : job.status === "cancelled" ? "#6b7280" : "#0f766e"} shimmer={job.status === "running"} />
       </div>
       <StatusChip tone={state.tone}>{state.label}</StatusChip>
     </Link>
@@ -138,7 +139,7 @@ function RecentJobsPanel({ limit = 5 }) {
   const sourceLabel = loading ? "正在连接 Control-plane API" : source === "api" ? "Control-plane API" : "本地预览任务";
 
   return (
-    <Panel title="任务状态" caption={`${sourceLabel} · queued / running / succeeded / failed。`}>
+    <Panel title="任务状态" caption={`${sourceLabel} · queued / running / succeeded / failed / cancelled。`}>
       <div className="timeline">{jobs.map((job) => <JobRow job={job} key={job.id} />)}</div>
     </Panel>
   );

@@ -48,11 +48,12 @@ export function extractJob(payload) {
 }
 
 export function normalizeJobStatus(value) {
-  if (["queued", "running", "succeeded", "failed"].includes(value)) return value;
+  if (["queued", "running", "succeeded", "failed", "cancelled"].includes(value)) return value;
   if (["pending", "created", "scheduled", "waiting"].includes(value)) return "queued";
   if (["active", "started", "in_progress", "processing"].includes(value)) return "running";
   if (["done", "success", "completed", "complete", "passed"].includes(value)) return "succeeded";
-  if (["error", "errored", "cancelled", "canceled", "timeout"].includes(value)) return "failed";
+  if (["cancelled", "canceled"].includes(value)) return "cancelled";
+  if (["error", "errored", "timeout"].includes(value)) return "failed";
   return "queued";
 }
 

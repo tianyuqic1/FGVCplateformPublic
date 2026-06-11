@@ -32,6 +32,8 @@ assert(detail.id === "job-002", "extracts wrapped job payload");
 assert(detail.status === "succeeded", "maps done to succeeded");
 
 assert(normalizeJobStatus("pending") === "queued", "maps pending to queued");
+assert(normalizeJobStatus("cancelled") === "cancelled", "preserves cancelled");
+assert(normalizeJobStatus("canceled") === "cancelled", "maps canceled to cancelled");
 assert(normalizeJobStatus("error") === "failed", "maps error to failed");
 
 console.log("jobs api client smoke passed");
