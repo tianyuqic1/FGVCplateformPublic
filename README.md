@@ -89,6 +89,12 @@ DINOv3 ViT-L is wired through `timm` as an optional extractor. It may download l
 uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vitl
 ```
 
+The first real-data DINOv3 validation is documented in:
+
+```text
+docs/ML_TOOLKIT_VALIDATION.md
+```
+
 ## Next Step
 
 Start implementation from:

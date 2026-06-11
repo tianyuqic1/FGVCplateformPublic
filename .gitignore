@@ -6,8 +6,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
-.finevision-smoke/
-.finevision-dinov3/
+.finevision-*/
 data/downloads/
 data/test/
 

@@ -28,6 +28,6 @@ def test_smoke_flow_writes_artifacts_and_inference(tmp_path: Path) -> None:
     assert summary["model_artifact"] == "dataset@toy-001-linear-head"
     assert summary["accuracy"] >= 0.8
     assert summary["macro_f1"] >= 0.8
-    assert summary["threshold_points"] == 5
+    assert summary["threshold_points"] == 7
     assert summary["inference_decision"] in {"accept", "abstain", "reject_ood"}
     assert "label" in summary["inference_top1"]

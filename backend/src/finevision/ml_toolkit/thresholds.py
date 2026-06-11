@@ -17,7 +17,7 @@ def sweep_confidence_thresholds(
     review_cost_per_item: float = 1.0,
     artifact_root: str | Path | None = None,
 ) -> ThresholdSweep:
-    thresholds = thresholds or [0.5, 0.6, 0.7, 0.8, 0.9]
+    thresholds = thresholds or [0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 0.9]
     labels = np.array(feature_artifact.labels)
     classes = np.array(model_artifact.classes)
     true_idx = np.array([int(np.where(classes == label)[0][0]) for label in labels], dtype=np.int64)
