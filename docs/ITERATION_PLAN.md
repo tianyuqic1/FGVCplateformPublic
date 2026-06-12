@@ -282,11 +282,66 @@ Deferred to later iterations:
 - Worker jobs for feature extraction, training, calibration, threshold sweep, indexing, and batch inference.
 - Job progress streaming or polling intervals beyond simple status reads.
 
+Target database design:
+
+```text
+docs/DATABASE_DESIGN.md
+```
+
 Suggested checkpoint pushes:
 
 - `feat: add api and worker entrypoints`
 - `feat: add job lifecycle abstraction`
 - `chore: add docker compose service boundary`
+
+## Iteration 1.6: Database Foundation
+
+Objective: replace the temporary JSON metadata direction with a durable PostgreSQL-backed control-plane schema.
+
+Scope:
+
+- Add PostgreSQL to local Docker Compose.
+- Add SQLAlchemy and Alembic.
+- Create initial migrations for `datasets`, `dataset_versions`, `jobs`, `job_events`, and `artifacts`.
+- Keep artifact files outside PostgreSQL and register them by URI.
+- Preserve the current JSON metadata store as a temporary compatibility adapter while repositories are introduced.
+
+Acceptance:
+
+- A fresh database can be migrated from zero.
+- API and worker can connect to the same database.
+- Job status and dataset metadata schema include leases, events, and artifact references.
+- Documentation and schema match `docs/DATABASE_DESIGN.md`.
+
+Suggested checkpoint pushes:
+
+- `chore: add postgres and alembic foundation`
+- `feat: add control plane database schema`
+- `test: cover database-backed repositories`
+
+## Iteration 1.7: Replace JSON Metadata Store
+
+Objective: move dataset import metadata and job lifecycle from JSON files into PostgreSQL before expanding worker responsibilities.
+
+Scope:
+
+- Replace `MetadataStore` and `JobStore` JSON persistence with repository interfaces backed by PostgreSQL.
+- Keep dataset manifest JSON as an artifact registered in the `artifacts` table.
+- Add transactional job claiming with lease ownership and lease expiry.
+- Preserve API response contracts for dataset and job endpoints.
+
+Acceptance:
+
+- `POST /api/jobs` writes a PostgreSQL job row.
+- Worker claims jobs transactionally and does not double-run a queued job under multiple workers.
+- Dataset import writes dataset, dataset version, artifact, job, and job event rows.
+- Existing API and frontend smoke tests pass against the database-backed store.
+
+Suggested checkpoint pushes:
+
+- `feat: add database-backed job store`
+- `feat: add database-backed dataset metadata`
+- `test: cover transactional worker job claiming`
 
 ## Iteration 2: Training And Evaluation Services
 

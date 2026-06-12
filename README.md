@@ -138,6 +138,7 @@ More detail:
 
 ```text
 docs/CONTROL_PLANE_API.md
+docs/DATABASE_DESIGN.md
 ```
 
 ## Next Step

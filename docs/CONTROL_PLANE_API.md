@@ -160,7 +160,13 @@ Override it with:
 FINEVISION_METADATA_DIR=/path/to/metadata
 ```
 
-The current store is intentionally simple JSON. It is enough for Iteration 1 and keeps the API contract testable before introducing database tables or a job queue.
+The current store is intentionally simple JSON. It is enough for Iteration 1 and 1.5 and keeps the API contract testable before introducing database tables or a durable queue.
+
+The target durable design is PostgreSQL-backed control-plane metadata with artifact files stored outside the database. See:
+
+```text
+docs/DATABASE_DESIGN.md
+```
 
 Jobs are stored as JSON under:
 
