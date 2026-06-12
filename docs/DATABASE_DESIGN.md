@@ -478,6 +478,20 @@ sample split in train/val/test/stress/unassigned
   - `artifacts`
 - Keep the existing JSON store as a compatibility adapter until API tests move to repositories.
 
+Current foundation status:
+
+```text
+docker-compose.yml includes postgres and adminer
+alembic.ini is configured
+20260612_0001 creates datasets, dataset_versions, jobs, job_events, and artifacts
+```
+
+Run migrations:
+
+```bash
+DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+```
+
 ### Iteration 1.7: Replace JSON Store
 
 - Move dataset import metadata from JSON files into PostgreSQL.

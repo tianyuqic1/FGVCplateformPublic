@@ -134,6 +134,21 @@ Run the local service boundary:
 docker compose up --build
 ```
 
+This starts:
+
+```text
+frontend: http://localhost:5173
+api:      http://localhost:8001
+adminer:  http://localhost:8081
+postgres: localhost:5432
+```
+
+Apply database migrations:
+
+```text
+DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+```
+
 More detail:
 
 ```text

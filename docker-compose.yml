@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: http://localhost:8001
     ports:
       - "5173:5173"
     depends_on:
@@ -15,10 +15,14 @@ services:
       context: .
       dockerfile: Dockerfile.api
     environment:
+      DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/artifacts
     ports:
-      - "8000:8000"
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - finevision-metadata:/data/metadata
       - finevision-artifacts:/data/artifacts
@@ -30,15 +34,44 @@ services:
       dockerfile: Dockerfile.api
     command: ["python", "-m", "finevision.worker.jobs", "--poll-interval-seconds", "2"]
     environment:
+      DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/artifacts
     depends_on:
-      - api
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     volumes:
       - finevision-metadata:/data/metadata
       - finevision-artifacts:/data/artifacts
       - ./data:/app/data:ro
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: finevision
+      POSTGRES_USER: finevision
+      POSTGRES_PASSWORD: finevision
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finevision -d finevision"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - finevision-postgres:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:4
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   finevision-metadata:
   finevision-artifacts:
+  finevision-postgres:
