@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from finevision.api.store import JobStore, MetadataStore
+from finevision.api.store import create_stores
 from finevision.ml_toolkit.datasets import scan_imagefolder
 
 
@@ -23,10 +23,15 @@ class CreateJobRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def create_app(metadata_dir: str | Path | None = None) -> FastAPI:
-    resolved_metadata_dir = metadata_dir or os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata")
-    store = MetadataStore(resolved_metadata_dir)
-    job_store = JobStore(resolved_metadata_dir)
+def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
+    if database_url is not None:
+        store, job_store = create_stores(database_url=database_url)
+    elif metadata_dir is not None:
+        store, job_store = create_stores(metadata_dir=metadata_dir)
+    else:
+        resolved_database_url = os.environ.get("DATABASE_URL")
+        resolved_metadata_dir = os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata")
+        store, job_store = create_stores(metadata_dir=resolved_metadata_dir, database_url=resolved_database_url)
     api = FastAPI(title="FineVision Control Plane API", version="0.1.0")
     api.add_middleware(
         CORSMiddleware,

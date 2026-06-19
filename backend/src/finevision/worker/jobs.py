@@ -4,24 +4,29 @@ import argparse
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from finevision.api.store import JobRecord, JobStore, MetadataStore
+from finevision.api.store import JobRecord, MetadataStore, create_stores
 from finevision.ml_toolkit.datasets import scan_imagefolder
 
 
 DEFAULT_METADATA_DIR = ".finevision-api/metadata"
 
 
+class JobStoreLike(Protocol):
+    def claim_next_queued_job(self) -> JobRecord | None: ...
+    def next_queued_job(self) -> JobRecord | None: ...
+    def mark_running(self, job: JobRecord) -> JobRecord: ...
+    def mark_succeeded(self, job: JobRecord, result: dict[str, Any]) -> JobRecord: ...
+    def mark_failed(self, job: JobRecord, error: str) -> JobRecord: ...
+
+
 def run_next_job(metadata_dir: str | Path | None = None) -> JobRecord | None:
-    root = metadata_dir or os.environ.get("FINEVISION_METADATA_DIR", DEFAULT_METADATA_DIR)
-    metadata_store = MetadataStore(root)
-    job_store = JobStore(root)
-    job = job_store.next_queued_job()
-    if job is None:
+    metadata_store, job_store = _create_worker_stores(metadata_dir)
+    running = _claim_job(job_store)
+    if running is None:
         return None
 
-    running = job_store.mark_running(job)
     try:
         result = _run_job(running, metadata_store)
     except Exception as exc:  # The worker boundary persists failures for API inspection.
@@ -71,6 +76,26 @@ def _required_payload_value(payload: dict[str, Any], field: str) -> str:
     if not value:
         raise ValueError(f"Missing job payload field: {field}")
     return value
+
+
+def _create_worker_stores(metadata_dir: str | Path | None) -> tuple[MetadataStore, JobStoreLike]:
+    if metadata_dir is not None:
+        return create_stores(metadata_dir=metadata_dir)
+
+    database_url = os.environ.get("DATABASE_URL")
+    metadata_root = os.environ.get("FINEVISION_METADATA_DIR", DEFAULT_METADATA_DIR)
+    return create_stores(metadata_dir=metadata_root, database_url=database_url)
+
+
+def _claim_job(job_store: JobStoreLike) -> JobRecord | None:
+    claim_next = getattr(job_store, "claim_next_queued_job", None)
+    if claim_next is not None:
+        return claim_next()
+
+    job = job_store.next_queued_job()
+    if job is None:
+        return None
+    return job_store.mark_running(job)
 
 
 def main() -> None:

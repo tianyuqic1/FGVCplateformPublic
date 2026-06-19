@@ -148,36 +148,43 @@ Dataset summary response shape:
 
 ## Persistence
 
-By default, API metadata is written under:
+Iteration 1.7 makes PostgreSQL the default persistence layer when `DATABASE_URL` is configured.
+The API and worker use the same control-plane tables:
 
 ```text
-.finevision-api/metadata
+datasets
+dataset_versions
+artifacts
+jobs
+job_events
 ```
 
-Override it with:
+Dataset manifests are kept as `dataset_manifest` artifacts. The full manifest JSON is stored in
+`artifacts.artifact_metadata`, while `dataset_versions.manifest_artifact_id` points to the current
+manifest artifact row. This preserves the existing dataset list/detail/readiness API contract while
+keeping large future artifacts outside the database.
+
+Jobs are stored in `jobs`. Job lifecycle transitions append rows to `job_events` so the UI can later
+show durable pipeline history without parsing worker stdout.
+
+Run migrations before starting API and worker against a fresh database:
 
 ```bash
-FINEVISION_METADATA_DIR=/path/to/metadata
+DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
 ```
 
-The current store is intentionally simple JSON. It is enough for Iteration 1 and 1.5 and keeps the API contract testable before introducing database tables or a durable queue.
-
-The target durable design is PostgreSQL-backed control-plane metadata with artifact files stored outside the database. See:
-
-```text
-docs/DATABASE_DESIGN.md
-```
-
-Jobs are stored as JSON under:
-
-```text
-.finevision-api/metadata/jobs
-```
-
-Dataset manifests are stored under:
+The old JSON store remains as a compatibility adapter. It is used when tests or local tools pass
+`metadata_dir` explicitly, or when no `DATABASE_URL` is configured. In that mode:
 
 ```text
 .finevision-api/metadata/datasets
+.finevision-api/metadata/jobs
+```
+
+The durable schema design is recorded in:
+
+```text
+docs/DATABASE_DESIGN.md
 ```
 
 ## Docker Compose
@@ -196,7 +203,9 @@ api        FastAPI control plane
 ml-worker  worker loop consuming queued jobs
 ```
 
-The `api` and `ml-worker` services share metadata and artifact volumes. This validates the process boundary without introducing distributed infrastructure yet.
+The `api` and `ml-worker` services share the PostgreSQL control-plane database. They still share
+metadata/artifact volumes for compatibility and future file artifacts, but job and dataset metadata
+now flows through PostgreSQL by default.
 
 ## Verification
 
@@ -212,7 +221,8 @@ docker compose config
 Current verified result:
 
 ```text
-backend: 8 passed
+backend: 8 passed, 5 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
+db integration: 5 passed against local PostgreSQL
 frontend api client: passed
 frontend jobs client: passed
 frontend build: passed
@@ -223,4 +233,4 @@ worker --once CLI smoke: passed
 
 ## Next
 
-Iteration 2 should move feature extraction, training, evaluation, calibration, and threshold strategy generation behind the worker job lifecycle. The API should continue to create jobs and expose metadata/status; the worker should own compute execution and artifact writes.
+Iteration 2 should move feature extraction, training, evaluation, calibration, and threshold strategy generation behind the database-backed worker job lifecycle. The API should continue to create jobs and expose metadata/status; the worker should own compute execution and artifact writes.

@@ -98,8 +98,10 @@ docs/ML_TOOLKIT_VALIDATION.md
 ## Control-plane API
 
 Iteration 1 starts the FastAPI control plane under `backend/src/finevision/api/`.
-It stores lightweight JSON metadata locally and exposes dataset asset endpoints without
-running DINOv3, training, or inference jobs.
+Iteration 1.7 uses PostgreSQL for control-plane metadata when `DATABASE_URL` is configured.
+The JSON metadata store remains available for explicit no-database local runs and focused tests.
+The API exposes dataset asset and job endpoints without running DINOv3, training, or inference work
+inside request handlers.
 
 Run the API locally:
 
@@ -147,6 +149,12 @@ Apply database migrations:
 
 ```text
 DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+```
+
+Run PostgreSQL-backed repository tests:
+
+```text
+FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run pytest backend/tests/test_db_stores.py
 ```
 
 More detail:

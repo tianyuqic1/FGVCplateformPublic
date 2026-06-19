@@ -225,3 +225,17 @@ def _replace_job(job: JobRecord, **changes: Any) -> JobRecord:
     data = asdict(job)
     data.update(changes)
     return JobRecord(**data)
+
+
+def create_stores(
+    *,
+    metadata_dir: str | Path | None = None,
+    database_url: str | None = None,
+) -> tuple[MetadataStore, JobStore]:
+    if database_url:
+        from finevision.api.db_store import DatabaseJobStore, DatabaseMetadataStore
+
+        return DatabaseMetadataStore(database_url), DatabaseJobStore(database_url)
+
+    root = metadata_dir or ".finevision-api/metadata"
+    return MetadataStore(root), JobStore(root)

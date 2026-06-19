@@ -494,10 +494,20 @@ DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevisio
 
 ### Iteration 1.7: Replace JSON Store
 
-- Move dataset import metadata from JSON files into PostgreSQL.
-- Move job lifecycle from JSON files into PostgreSQL.
-- Add transactional job claiming with leases.
-- Keep manifest JSON as an artifact registered in `artifacts`.
+- Implemented: dataset import metadata moves into PostgreSQL when `DATABASE_URL` is configured.
+- Implemented: job lifecycle moves into PostgreSQL when `DATABASE_URL` is configured.
+- Implemented: worker job claiming uses transactional row locking with `FOR UPDATE SKIP LOCKED`, `lease_owner`, and `lease_expires_at`.
+- Implemented: manifest JSON is stored as a `dataset_manifest` artifact in `artifacts.artifact_metadata`.
+- Kept intentionally: the JSON store remains as an explicit compatibility adapter for no-database local runs and focused tests.
+
+No new migration was required for this step. The Iteration 1.6 tables already support the 1.7 API and worker boundary.
+
+Deferred to Iteration 2:
+
+- dedicated artifact APIs
+- feature/model/training-specific tables
+- expired lease retry and requeue policy
+- sample-level query tables beyond the manifest artifact JSON
 
 ### Iteration 2: Training Metadata
 

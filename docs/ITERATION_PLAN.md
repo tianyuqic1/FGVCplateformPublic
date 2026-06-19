@@ -323,6 +323,8 @@ Suggested checkpoint pushes:
 
 Objective: move dataset import metadata and job lifecycle from JSON files into PostgreSQL before expanding worker responsibilities.
 
+Status: implemented as the database-backed repository slice on branch `codex/iteration-1-5-api-worker-boundary`.
+
 Scope:
 
 - Replace `MetadataStore` and `JobStore` JSON persistence with repository interfaces backed by PostgreSQL.
@@ -332,16 +334,24 @@ Scope:
 
 Acceptance:
 
-- `POST /api/jobs` writes a PostgreSQL job row.
-- Worker claims jobs transactionally and does not double-run a queued job under multiple workers.
-- Dataset import writes dataset, dataset version, artifact, job, and job event rows.
-- Existing API and frontend smoke tests pass against the database-backed store.
+- Done: `POST /api/jobs` writes a PostgreSQL job row when `DATABASE_URL` is configured.
+- Done: worker claims jobs transactionally with `SELECT ... FOR UPDATE SKIP LOCKED` and lease metadata.
+- Done: dataset import writes dataset, dataset version, manifest artifact, job, and job event rows.
+- Done: existing JSON-backed tests still pass through the explicit `metadata_dir` compatibility path.
+- Done: PostgreSQL integration tests cover the API-to-worker import lifecycle and double-claim protection.
+
+Implementation notes:
+
+- `finevision.api.store` keeps the JSON adapter and exposes a store factory.
+- `finevision.api.db_store` implements database-backed dataset and job stores.
+- API and worker prefer PostgreSQL when `DATABASE_URL` is present.
+- The JSON adapter remains available for focused tests and no-database local runs.
 
 Suggested checkpoint pushes:
 
-- `feat: add database-backed job store`
-- `feat: add database-backed dataset metadata`
-- `test: cover transactional worker job claiming`
+- `feat: replace metadata store with postgres repositories`
+- `test: cover postgres job lifecycle and claiming`
+- `docs: document iteration 1.7 persistence`
 
 ## Iteration 2: Training And Evaluation Services
 
