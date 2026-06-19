@@ -8,11 +8,14 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
+from finevision.api.review_store import DatabaseReviewStore
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.datasets import scan_imagefolder
@@ -51,20 +54,33 @@ class RunInferenceRequest(BaseModel):
     accept_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     margin_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     ood_distance_threshold: float | None = Field(default=None, ge=0.0)
+    route_to_review: bool = True
+
+
+class SubmitReviewRequest(BaseModel):
+    final_outcome: Literal["confirmed_label", "corrected_label", "ood", "bad_image", "uncertain", "ignore"]
+    destination: Literal["training_candidate", "ood_stress", "bad_image", "taxonomy_dispute", "ignore"]
+    final_label: str | None = Field(default=None)
+    reviewer_note: str | None = Field(default=None)
+    reviewer: str | None = Field(default="local-reviewer")
 
 
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
     resolved_database_url: str | None = None
+    database_engine: Engine | None = None
     if database_url is not None:
         resolved_database_url = database_url
-        store, job_store = create_stores(database_url=database_url)
+        database_engine = create_engine(database_url)
+        store, job_store = create_stores(database_url=database_engine)
     elif metadata_dir is not None:
         store, job_store = create_stores(metadata_dir=metadata_dir)
     else:
         resolved_database_url = os.environ.get("DATABASE_URL")
         resolved_metadata_dir = os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata")
-        store, job_store = create_stores(metadata_dir=resolved_metadata_dir, database_url=resolved_database_url)
-    training_store = DatabaseTrainingStore(resolved_database_url) if resolved_database_url else None
+        if resolved_database_url:
+            database_engine = create_engine(resolved_database_url)
+        store, job_store = create_stores(metadata_dir=resolved_metadata_dir, database_url=database_engine)
+    training_store = DatabaseTrainingStore(database_engine) if database_engine is not None else None
     api = FastAPI(title="FineVision Control Plane API", version="0.1.0")
     api.add_middleware(
         CORSMiddleware,
@@ -76,7 +92,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.metadata_store = store
     api.state.job_store = job_store
     api.state.training_store = training_store
-    api.state.inference_store = DatabaseInferenceStore(resolved_database_url) if resolved_database_url else None
+    api.state.inference_store = DatabaseInferenceStore(database_engine) if database_engine is not None else None
+    api.state.review_store = DatabaseReviewStore(database_engine) if database_engine is not None else None
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
 
     @api.get("/api/health")
@@ -215,62 +232,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
 
     @api.post("/api/inference")
     def run_scoped_inference(request: RunInferenceRequest) -> dict[str, object]:
-        inference_store: DatabaseInferenceStore | None = api.state.inference_store
-        if inference_store is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Inference requires DATABASE_URL-backed model metadata",
-            )
-        if not request.image_path and not request.sample_id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Either image_path or sample_id is required",
-            )
-
-        context = inference_store.load_context(
-            dataset_version_id=request.dataset_version_id,
-            model_version_id=request.model_version_id,
-        )
-        if context is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found for dataset version")
-
-        strategy = context.threshold_strategy
-        if request.accept_threshold is not None or request.margin_threshold is not None:
-            strategy = replace(
-                strategy,
-                accept_threshold=request.accept_threshold
-                if request.accept_threshold is not None
-                else strategy.accept_threshold,
-                margin_threshold=request.margin_threshold
-                if request.margin_threshold is not None
-                else strategy.margin_threshold,
-            )
-
-        try:
-            result = _run_inference_from_context(
-                context=context,
-                request=request,
-                strategy=strategy,
-            )
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-
-        payload = {
-            "dataset_id": context.dataset_id,
-            "dataset_version_id": context.dataset_version_id,
-            "model_version_id": context.model_version_id,
-            "model_status": context.model_status,
-            "model_artifact_id": context.model_artifact.artifact_id,
-            "feature_artifact_id": context.feature_artifact.artifact_id,
-            "threshold_strategy_id": result.threshold_strategy_id,
-            "input": {
-                "image_path": request.image_path,
-                "sample_id": request.sample_id,
-            },
-            "result": to_jsonable(result),
-        }
+        payload = _run_scoped_inference_payload(api, request)
+        _record_review_route(api, request, payload)
         return {"inference_result": payload}
 
     @api.post("/api/inference/upload")
@@ -296,13 +259,64 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             margin_threshold=margin_threshold,
             ood_distance_threshold=ood_distance_threshold,
         )
-        payload = run_scoped_inference(request)["inference_result"]
-        payload["input"] = {
-            **payload["input"],
-            "upload_filename": image.filename,
-            "uploaded_image_path": str(uploaded_path),
-        }
+        payload = _run_scoped_inference_payload(
+            api,
+            request,
+            input_overrides={
+                "upload_filename": image.filename,
+                "uploaded_image_path": str(uploaded_path),
+            },
+        )
+        _record_review_route(api, request, payload)
         return {"inference_result": payload}
+
+    @api.get("/api/review-items")
+    def list_review_items(
+        status_filter: str | None = Query(default="pending", alias="status"),
+        limit: int = 50,
+    ) -> dict[str, object]:
+        review_store: DatabaseReviewStore | None = api.state.review_store
+        if review_store is None:
+            return {"review_items": []}
+        return {
+            "review_items": [
+                _review_item_payload(item)
+                for item in review_store.list_review_items(status=status_filter, limit=max(1, min(limit, 200)))
+            ]
+        }
+
+    @api.get("/api/review-items/{review_item_id}")
+    def get_review_item(review_item_id: str) -> dict[str, object]:
+        review_store: DatabaseReviewStore | None = api.state.review_store
+        if review_store is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
+        review_item = review_store.get_review_item(review_item_id)
+        if review_item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
+        return {"review_item": _review_item_payload(review_item)}
+
+    @api.post("/api/review-items/{review_item_id}/submit")
+    def submit_review_item(review_item_id: str, request: SubmitReviewRequest) -> dict[str, object]:
+        review_store: DatabaseReviewStore | None = api.state.review_store
+        if review_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Review workflow requires DATABASE_URL-backed persistence",
+            )
+        try:
+            review_item, feedback_item = review_store.complete_review(
+                review_id=review_item_id,
+                final_outcome=request.final_outcome,
+                destination=request.destination,
+                final_label=request.final_label,
+                reviewer_note=request.reviewer_note,
+                reviewer=request.reviewer,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        return {"review_item": _review_item_payload(review_item), "feedback_item": feedback_item.__dict__}
 
     return api
 
@@ -338,6 +352,110 @@ def _validate_train_classifier_payload(payload: dict[str, Any]) -> dict[str, Any
         **payload,
         "training_run_id": str(payload["training_run_id"]),
         "dataset_version_id": str(payload["dataset_version_id"]),
+    }
+
+
+def _run_scoped_inference_payload(
+    api: FastAPI,
+    request: RunInferenceRequest,
+    input_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    inference_store: DatabaseInferenceStore | None = api.state.inference_store
+    if inference_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Inference requires DATABASE_URL-backed model metadata",
+        )
+    if not request.image_path and not request.sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either image_path or sample_id is required",
+        )
+
+    context = inference_store.load_context(
+        dataset_version_id=request.dataset_version_id,
+        model_version_id=request.model_version_id,
+    )
+    if context is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found for dataset version")
+
+    strategy = context.threshold_strategy
+    if request.accept_threshold is not None or request.margin_threshold is not None:
+        strategy = replace(
+            strategy,
+            accept_threshold=request.accept_threshold
+            if request.accept_threshold is not None
+            else strategy.accept_threshold,
+            margin_threshold=request.margin_threshold
+            if request.margin_threshold is not None
+            else strategy.margin_threshold,
+        )
+
+    try:
+        result = _run_inference_from_context(
+            context=context,
+            request=request,
+            strategy=strategy,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    input_payload = {
+        "image_path": request.image_path,
+        "sample_id": request.sample_id,
+        **(input_overrides or {}),
+    }
+    return {
+        "dataset_id": context.dataset_id,
+        "dataset_version_id": context.dataset_version_id,
+        "model_version_id": context.model_version_id,
+        "model_status": context.model_status,
+        "model_artifact_id": context.model_artifact.artifact_id,
+        "feature_artifact_id": context.feature_artifact.artifact_id,
+        "threshold_strategy_id": result.threshold_strategy_id,
+        "input": input_payload,
+        "result": to_jsonable(result),
+    }
+
+
+def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: dict[str, Any]) -> None:
+    if not request.route_to_review:
+        return
+    review_store: DatabaseReviewStore | None = api.state.review_store
+    if review_store is None:
+        return
+    event, review_item = review_store.record_inference_result(
+        request_payload=request.model_dump(),
+        response_payload=payload,
+    )
+    payload["inference_event_id"] = event.inference_event_id
+    payload["review_item_id"] = review_item.review_item_id if review_item else None
+
+
+def _review_item_payload(item: Any) -> dict[str, Any]:
+    return {
+        "review_item_id": item.review_item_id,
+        "inference_event_id": item.inference_event_id,
+        "dataset_id": item.dataset_id,
+        "dataset_version_id": item.dataset_version_id,
+        "model_version_id": item.model_version_id,
+        "sample_id": item.sample_id,
+        "input_ref": item.input_ref,
+        "status": item.status,
+        "risk_type": item.risk_type,
+        "priority": item.priority,
+        "reason": item.reason,
+        "reason_codes": item.reason_codes,
+        "context": item.context,
+        "assistance_metadata": item.assistance_metadata,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "submitted_at": item.submitted_at,
+        "feedbacked_at": item.feedbacked_at,
+        "completed_by": item.completed_by,
+        "feedback": item.feedback.__dict__ if item.feedback else None,
     }
 
 

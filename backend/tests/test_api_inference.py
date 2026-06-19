@@ -10,7 +10,18 @@ from PIL import Image
 from sqlalchemy import create_engine
 
 from finevision.api import create_app
-from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, model_versions, training_runs
+from finevision.db.schema import (
+    artifacts,
+    dataset_versions,
+    datasets,
+    feedback_items,
+    inference_events,
+    job_events,
+    jobs,
+    model_versions,
+    review_items,
+    training_runs,
+)
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
 from finevision.worker import run_next_job
 
@@ -60,6 +71,15 @@ def test_scoped_inference_returns_accept_decision_and_nearest_neighbors(
     assert result["nearest_neighbors"]
     assert result["nearest_neighbors"][0]["sample_id"] != sample_id
     assert {"sample_id", "label", "distance"} <= set(result["nearest_neighbors"][0])
+    assert body["inference_event_id"]
+    assert body["review_item_id"] is None
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        inference_count = conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one()
+        review_count = conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one()
+    assert inference_count == 1
+    assert review_count == 0
 
 
 def test_scoped_inference_can_abstain_for_low_confidence_and_low_margin(
@@ -100,6 +120,75 @@ def test_scoped_inference_can_abstain_for_low_confidence_and_low_margin(
     assert "top1_top2_margin_below_threshold" in margin_decision["reasons"]
 
 
+def test_abstain_inference_creates_review_item_and_feedback(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+            "accept_threshold": 1.0,
+            "margin_threshold": 1.0,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()["inference_result"]
+    review_item_id = body["review_item_id"]
+    assert body["inference_event_id"]
+    assert review_item_id
+
+    list_response = client.get("/api/review-items")
+    assert list_response.status_code == 200
+    items = list_response.json()["review_items"]
+    assert [item["review_item_id"] for item in items] == [review_item_id]
+    assert items[0]["status"] == "pending"
+    assert items[0]["context"]["decision"]["decision"] == "abstain"
+    assert items[0]["context"]["nearest_neighbors"]
+
+    detail_response = client.get(f"/api/review-items/{review_item_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["review_item"]["risk_type"] in {"mixed", "low_confidence", "low_margin"}
+
+    submit_response = client.post(
+        f"/api/review-items/{review_item_id}/submit",
+        json={
+            "final_outcome": "corrected_label",
+            "destination": "training_candidate",
+            "final_label": "red_square",
+            "reviewer_note": "human correction for test",
+            "reviewer": "qa",
+        },
+    )
+    assert submit_response.status_code == 200
+    completed = submit_response.json()["review_item"]
+    assert completed["status"] == "feedbacked"
+    assert completed["feedback"]["destination"] == "training_candidate"
+
+    duplicate_response = client.post(
+        f"/api/review-items/{review_item_id}/submit",
+        json={
+            "final_outcome": "ood",
+            "destination": "ood_stress",
+            "reviewer_note": "duplicate",
+            "reviewer": "qa",
+        },
+    )
+    assert duplicate_response.status_code == 409
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        feedback_count = conn.execute(sa.select(sa.func.count()).select_from(feedback_items)).scalar_one()
+        dataset_count = conn.execute(sa.select(sa.func.count()).select_from(dataset_versions)).scalar_one()
+    assert feedback_count == 1
+    assert dataset_count == 1
+
+
 def test_scoped_inference_can_reject_ood_image(
     database_url: str,
     tmp_path: Path,
@@ -126,6 +215,13 @@ def test_scoped_inference_can_reject_ood_image(
     assert "embedding_distance_above_threshold" in decision["reasons"]
     assert decision["ood_score"] > 0.0
     assert decision["thresholds"]["ood_distance"] == 0.0
+    review_item_id = response.json()["inference_result"]["review_item_id"]
+    assert review_item_id
+    detail_response = client.get(f"/api/review-items/{review_item_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["review_item"]
+    assert detail["risk_type"] == "ood_candidate"
+    assert detail["priority"] == 10
 
 
 def test_scoped_inference_accepts_uploaded_image(

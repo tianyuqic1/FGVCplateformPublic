@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from sqlalchemy.engine import Engine
+
 from finevision.ml_toolkit.artifacts import read_dataset_manifest, write_dataset_manifest
 from finevision.schemas.artifacts import DatasetManifest
 
@@ -230,7 +232,7 @@ def _replace_job(job: JobRecord, **changes: Any) -> JobRecord:
 def create_stores(
     *,
     metadata_dir: str | Path | None = None,
-    database_url: str | None = None,
+    database_url: str | Engine | None = None,
 ) -> tuple[MetadataStore, JobStore]:
     if database_url:
         from finevision.api.db_store import DatabaseJobStore, DatabaseMetadataStore
