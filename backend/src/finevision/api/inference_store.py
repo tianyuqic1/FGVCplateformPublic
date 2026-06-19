@@ -6,6 +6,7 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.pool import NullPool
 
 from finevision.db.schema import artifacts, dataset_versions, datasets, model_versions, training_runs
 from finevision.ml_toolkit.artifacts import load_feature_artifact, load_model_artifact
@@ -27,7 +28,7 @@ class InferenceContext:
 
 class DatabaseInferenceStore:
     def __init__(self, database_url: str | Engine) -> None:
-        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url)
+        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url, poolclass=NullPool)
 
     def load_context(self, *, dataset_version_id: str, model_version_id: str) -> InferenceContext | None:
         with self.engine.begin() as conn:

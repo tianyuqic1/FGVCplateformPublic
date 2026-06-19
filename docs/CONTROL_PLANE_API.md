@@ -188,14 +188,17 @@ Scoped inference request:
   "sample_id": null,
   "top_k": 3,
   "evidence_k": 3,
-  "ood_distance_threshold": 1.5
+  "ood_distance_threshold": 1.5,
+  "route_to_review": true
 }
 ```
 
 `POST /api/inference` requires PostgreSQL-backed model metadata and uses the `model_versions`
 row produced by Iteration 2. Input can be either `image_path` or `sample_id`. `sample_id`
 reuses the stored feature matrix; `image_path` restores the extractor from the feature artifact
-metadata and extracts a single query feature. Batch inference and uploaded file storage are deferred.
+metadata and extracts a single query feature. `POST /api/inference/upload` accepts a multipart
+`image` file and stores it under the configured upload directory before running the same scoped
+inference path. Batch inference is deferred.
 
 Scoped inference response shape:
 
@@ -209,6 +212,8 @@ Scoped inference response shape:
     "model_artifact_id": "dataset@cifar10-mini-001-run-abc123-linear-head",
     "feature_artifact_id": "dataset@cifar10-mini-001-color_stats_v1-cff1350237",
     "threshold_strategy_id": "dataset@cifar10-mini-001-run-abc123-threshold-strategy",
+    "inference_event_id": "inference-abc123",
+    "review_item_id": null,
     "input": {
       "image_path": "/absolute/path/to/query.png",
       "sample_id": null
@@ -240,6 +245,36 @@ Scoped inference response shape:
 The `decision.decision` value is one of `accept`, `abstain`, or `reject_ood`. `top_k` is capped by
 the model class count. Nearest-neighbor evidence is an exact scan over the feature artifact for MVP;
 ANN/vector index serving is deferred.
+
+When `route_to_review` is true, every inference is persisted as an `inference_event`. `accept`
+decisions are recorded for traceability only. `abstain` and `reject_ood` decisions create a pending
+review item; `reject_ood` is treated as an OOD candidate until a human confirms it.
+
+Review queue endpoints:
+
+```text
+GET  /api/review-items?status=pending&limit=50
+GET  /api/review-items/{review_item_id}
+POST /api/review-items/{review_item_id}/submit
+```
+
+Review submit request:
+
+```json
+{
+  "final_outcome": "corrected_label",
+  "destination": "training_candidate",
+  "final_label": "red_square",
+  "reviewer_note": "Nearest-neighbor evidence supports red_square.",
+  "reviewer": "local-reviewer"
+}
+```
+
+`final_outcome` is one of `confirmed_label`, `corrected_label`, `ood`, `bad_image`, `uncertain`, or
+`ignore`. `destination` is one of `training_candidate`, `ood_stress`, `bad_image`,
+`taxonomy_dispute`, or `ignore`. The submit operation creates a typed feedback item and marks the
+review as `feedbacked` in one database transaction. Feedback pool entries do not rewrite dataset
+versions or trigger retraining.
 
 Dataset summary response shape:
 
@@ -362,6 +397,9 @@ docker compose config: passed
 worker --once CLI smoke: passed
 ```
 
-## Next
+## Review Workflow Status
 
-Iteration 4 should turn abstain and reject_ood inference decisions into typed human review work.
+Iteration 4 now turns `abstain` and `reject_ood` inference decisions into typed human review work:
+inference events are persisted, pending review items are created automatically, and human submit
+writes typed feedback pool entries. LLM/VLM assistance, online abstention updates, and automatic
+dataset-version curation remain deferred.

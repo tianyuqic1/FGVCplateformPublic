@@ -452,11 +452,11 @@ Scope:
 
 - Create review items automatically for `abstain` and `reject_ood` decisions when routing is enabled.
 - Store review items with dataset id, sample id, priority, reason, model context, nearest neighbors, and assistance metadata.
-- Add optional LLM/VLM assistance adapter interface, but keep it advisory only.
 - Add review detail API.
 - Add review completion API requiring human final outcome, feedback destination, reviewer note, and completion metadata.
 - Route completed outcomes into training candidate, OOD/stress, bad-image, dispute, or ignore pools.
 - Connect review queue and detail UI.
+- Defer LLM/VLM assistance, online abstention updates, accept-sample auditing, and automatic dataset-version curation.
 
 Deliverables:
 
@@ -466,11 +466,20 @@ Deliverables:
 - Feedback pool storage.
 - UI for final label, feedback destination, reviewer note, and submission.
 
+Implementation status:
+
+- Done: `inference_events`, `review_items`, and `feedback_items` tables are added by Alembic migration.
+- Done: `POST /api/inference` and `/api/inference/upload` persist inference events when routing is enabled.
+- Done: `abstain` and `reject_ood` decisions create pending review items; `accept` only records the inference event.
+- Done: `GET /api/review-items`, `GET /api/review-items/{id}`, and `POST /api/review-items/{id}/submit` serve the Review Workflow MVP.
+- Done: `/review` and `/review/:id` read the Review API and submit typed human feedback.
+- Done: feedback pool entries do not mutate dataset versions or trigger retraining.
+
 Acceptance:
 
 - Review items are ordered by risk priority.
 - A review cannot complete without a human final outcome.
-- LLM/VLM assistance is visibly separate from the final label.
+- LLM/VLM assistance is deferred; current UI shows model evidence and human notes only.
 - Completed outcomes enter the correct typed feedback pool.
 - Tests cover queue ordering, completion, typed routing, and audit trail retention.
 

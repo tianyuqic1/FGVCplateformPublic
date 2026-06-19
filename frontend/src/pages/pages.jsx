@@ -262,7 +262,7 @@ export function DashboardPage({ showToast }) {
         }
       />
       <div className="grid metrics">
-        <MetricCard title="待复核样本" value="128" caption="高风险 17 · LLM 已读 63" fill="#a15c07" percent={48} icon="UserCheck" to="/review" />
+        <MetricCard title="待复核样本" value="128" caption="高风险 17 · 人工待处理" fill="#a15c07" percent={48} icon="UserCheck" to="/review" />
         <MetricCard title="运行中训练" value="2" caption="1 个候选版本可灰度" fill="#315fbd" percent={72} icon="FlaskConical" to="/training" />
         <MetricCard title="生产覆盖率" value="82%" caption="阈值策略 selective-v4" fill="#0f766e" percent={82} icon="Gauge" to="/models" />
         <MetricCard title="OOD 告警" value="3" caption="工业零件数据集漂移" fill="#b4233c" percent={34} icon="ShieldAlert" to="/review" />
@@ -481,7 +481,7 @@ function DatasetTab({ dataset, tab, showToast }) {
             <ClassRow title="未确认类别" description="12 张样本存在标签争议" label="争议池" tone="info" />
           </div>
         </Panel>
-        <Panel title="类别定义" caption="给人工和 LLM 使用的判别说明。">
+        <Panel title="类别定义" caption="给人工复核使用的判别说明。">
           <div className="field">
             <label>判别规则</label>
             <textarea defaultValue="关注喉部色块、胸侧颜色、尾羽形状；不要把背景或拍摄地点作为类别依据。" />
@@ -491,9 +491,9 @@ function DatasetTab({ dataset, tab, showToast }) {
               <Icon name="Save" size={16} />
               类别保存待接入
             </button>
-            <button className="ghost-button">
+            <button className="ghost-button" disabled>
               <Icon name="Wand2" size={16} />
-              让 LLM 生成差异点
+              差异点辅助待接入
             </button>
           </div>
         </Panel>
@@ -934,7 +934,6 @@ export function InferencePage({ showToast }) {
         <div className="toolbar section-gap-small">
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
           <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
-          <button className="ghost-button" disabled><Icon name="ScissorsLineDashed" size={16} />SAM3 后续接入</button>
         </div>
       </Panel>
       <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
@@ -1209,7 +1208,7 @@ export function ModelsPage() {
         <MetricCard title="线上版本" value="v4" caption="bird-cls-v4" fill="#0f766e" percent={88} icon="Rocket" to="/models/bird-cls-v4" />
         <MetricCard title="候选版本" value="v5" caption="等待人工抽检" fill="#315fbd" percent={64} icon="GitCompare" to="/models/bird-cls-v5" />
         <MetricCard title="校准误差" value="2.8%" caption="ECE after scaling" fill="#26804f" percent={72} icon="Thermometer" to="/models/bird-cls-v4" />
-        <MetricCard title="LLM 成本" value="¥126" caption="今日复核辅助" fill="#a15c07" percent={44} icon="WalletCards" to="/models/bird-cls-v5" />
+        <MetricCard title="复核压力" value="126" caption="今日待处理证据项" fill="#a15c07" percent={44} icon="WalletCards" to="/models/bird-cls-v5" />
       </div>
       <div className="grid two section-gap">
         <Panel title="版本注册表" caption="点击版本查看发布门禁。"><div className="grid three">{modelVersions.map((model) => <ModelCard model={model} key={model.id} />)}</div></Panel>

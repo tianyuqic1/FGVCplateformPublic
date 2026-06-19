@@ -13,9 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
-from finevision.api.review_store import DatabaseReviewStore
+from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.datasets import scan_imagefolder
@@ -70,7 +71,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     database_engine: Engine | None = None
     if database_url is not None:
         resolved_database_url = database_url
-        database_engine = create_engine(database_url)
+        database_engine = create_engine(database_url, poolclass=NullPool)
         store, job_store = create_stores(database_url=database_engine)
     elif metadata_dir is not None:
         store, job_store = create_stores(metadata_dir=metadata_dir)
@@ -78,7 +79,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         resolved_database_url = os.environ.get("DATABASE_URL")
         resolved_metadata_dir = os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata")
         if resolved_database_url:
-            database_engine = create_engine(resolved_database_url)
+            database_engine = create_engine(resolved_database_url, poolclass=NullPool)
         store, job_store = create_stores(metadata_dir=resolved_metadata_dir, database_url=database_engine)
     training_store = DatabaseTrainingStore(database_engine) if database_engine is not None else None
     api = FastAPI(title="FineVision Control Plane API", version="0.1.0")
@@ -316,7 +317,10 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-        return {"review_item": _review_item_payload(review_item), "feedback_item": feedback_item.__dict__}
+        return {
+            "review_item": _review_item_payload(review_item),
+            "feedback_item": _feedback_item_payload(feedback_item, review_item_id=review_item.review_item_id),
+        }
 
     return api
 
@@ -455,7 +459,20 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
         "submitted_at": item.submitted_at,
         "feedbacked_at": item.feedbacked_at,
         "completed_by": item.completed_by,
-        "feedback": item.feedback.__dict__ if item.feedback else None,
+        "feedback": _feedback_item_payload(item.feedback, review_item_id=item.review_item_id) if item.feedback else None,
+    }
+
+
+def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | None = None) -> dict[str, object]:
+    return {
+        "feedback_item_id": item.feedback_item_id,
+        "review_item_id": review_item_id or item.review_item_id,
+        "final_outcome": item.final_outcome,
+        "destination": item.destination,
+        "final_label": item.final_label,
+        "reviewer_note": item.reviewer_note,
+        "created_by": item.created_by,
+        "created_at": item.created_at,
     }
 
 

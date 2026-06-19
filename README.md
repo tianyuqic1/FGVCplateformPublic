@@ -140,7 +140,16 @@ POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
 POST /api/inference
+POST /api/inference/upload
+GET  /api/review-items
+GET  /api/review-items/{review_item_id}
+POST /api/review-items/{review_item_id}/submit
 ```
+
+Inference requests are persisted as review-auditable events when routing is enabled. `abstain` and
+`reject_ood` decisions create pending review items; `accept` decisions are recorded but do not enter
+the human queue by default. Review submission writes typed feedback pool entries and does not mutate
+the immutable source dataset version.
 
 For a fresh local database, start PostgreSQL first and apply migrations before
 starting the API/worker containers:
@@ -181,6 +190,7 @@ npm run smoke:api-client
 npm run smoke:jobs-client
 npm run smoke:training-client
 npm run smoke:inference-client
+npm run smoke:review-client
 ```
 
 More detail:

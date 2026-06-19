@@ -166,9 +166,12 @@ def test_abstain_inference_creates_review_item_and_feedback(
         },
     )
     assert submit_response.status_code == 200
-    completed = submit_response.json()["review_item"]
+    submit_body = submit_response.json()
+    completed = submit_body["review_item"]
     assert completed["status"] == "feedbacked"
     assert completed["feedback"]["destination"] == "training_candidate"
+    assert completed["feedback"]["review_item_id"] == review_item_id
+    assert submit_body["feedback_item"]["review_item_id"] == review_item_id
 
     duplicate_response = client.post(
         f"/api/review-items/{review_item_id}/submit",

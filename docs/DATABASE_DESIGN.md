@@ -77,7 +77,7 @@ created_by_job_id uuid references jobs(id)
 created_at timestamptz not null
 ```
 
-Important rule: model versions, feature artifacts, inference requests, and review items should reference a dataset version.
+Important rule: model versions, feature artifacts, inference events, and review items should reference a dataset version.
 
 ### dataset_classes
 
@@ -344,52 +344,90 @@ Production constraint: only one `production` model per dataset should be active.
 
 ## Inference, Review, And Feedback
 
-These tables can be introduced after training/model registry, but the design should reserve them early.
+Implemented in Iteration 4. These tables preserve the inference-to-review-to-feedback audit trail
+without mutating dataset versions or training assets.
 
-### inference_requests
+### inference_events
 
 ```text
 id uuid primary key
+event_key text not null unique
+dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
 model_version_id uuid not null references model_versions(id)
-input_uri text
+model_status text not null
+model_artifact_id uuid references artifacts(id)
+feature_artifact_id uuid references artifacts(id)
+threshold_strategy_artifact_id uuid references artifacts(id)
+input_type text not null
+input_ref text
+sample_id text
 decision text not null
 confidence double precision
 margin double precision
-threshold_strategy_artifact_id uuid references artifacts(id)
-result jsonb not null
+ood_score double precision
+reasons jsonb not null
+request_payload jsonb not null
+result_payload jsonb not null
 created_at timestamptz not null
 ```
+
+`input_type` is `sample`, `image_path`, or `upload`. `decision` is `accept`, `abstain`, or
+`reject_ood`. `accept` is persisted for traceability but does not create a review item by default.
 
 ### review_items
 
 ```text
 id uuid primary key
-inference_request_id uuid references inference_requests(id)
+review_key text not null unique
+inference_event_id uuid not null unique references inference_events(id)
+dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
-sample_id uuid references samples(id)
+model_version_id uuid not null references model_versions(id)
+sample_id text
+input_ref text
 status text not null
 risk_type text not null
 priority integer not null default 100
-assigned_to text
+reason text not null
+reason_codes jsonb not null
 context jsonb not null default '{}'
+assistance_metadata jsonb not null default '{}'
+assigned_to text
+submitted_at timestamptz
+feedbacked_at timestamptz
+completed_by text
 created_at timestamptz not null
-resolved_at timestamptz
+updated_at timestamptz not null
 ```
+
+`status` is `pending`, `submitted`, `feedbacked`, `skipped`, or `disputed`. The MVP completes
+reviews directly from `pending` to `feedbacked` in one transaction after the human submit.
+`risk_type` is `low_confidence`, `low_margin`, `ood_candidate`, or `mixed`. `reject_ood` is treated
+as an OOD candidate until a human confirms it.
 
 ### feedback_items
 
 ```text
 id uuid primary key
-review_item_id uuid references review_items(id)
+feedback_key text not null unique
+review_item_id uuid not null unique references review_items(id)
+inference_event_id uuid not null references inference_events(id)
+dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
-sample_id uuid references samples(id)
+model_version_id uuid not null references model_versions(id)
+sample_id text
 final_label text
-feedback_type text not null
+final_outcome text not null
 destination text not null
-comment text
+reviewer_note text
+feedback_metadata jsonb not null default '{}'
+created_by text
 created_at timestamptz not null
 ```
+
+`final_outcome` is `confirmed_label`, `corrected_label`, `ood`, `bad_image`, `uncertain`, or
+`ignore`.
 
 Feedback destinations:
 
@@ -400,6 +438,9 @@ bad_image
 taxonomy_dispute
 ignore
 ```
+
+Feedback pools are candidate inputs to later dataset curation/versioning. They must not directly
+rewrite the immutable source dataset version or trigger retraining by themselves.
 
 ## Vector Database Position
 
@@ -524,7 +565,7 @@ Current deliberate simplification:
 
 ### Iteration 3: Inference And Review
 
-- Add `inference_requests`, `review_items`, and `feedback_items`.
+- Add `inference_events`, `review_items`, and `feedback_items`.
 - Use `feature_indexes` for nearest-neighbor evidence and OOD decisions.
 - Feed reviewed outcomes back into future dataset versions.
 

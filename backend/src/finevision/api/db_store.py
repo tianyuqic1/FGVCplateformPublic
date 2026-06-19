@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.pool import NullPool
 
 from finevision.api.store import DatasetSummary, JobRecord, JobStatus, JobType, MetadataStore
 from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs
@@ -17,7 +18,7 @@ from finevision.schemas.artifacts import DatasetManifest, SampleRecord, to_jsona
 
 class DatabaseMetadataStore:
     def __init__(self, database_url: str | Engine) -> None:
-        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url)
+        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url, poolclass=NullPool)
 
     def save_dataset_manifest(self, manifest: DatasetManifest) -> Path:
         now = _now()
@@ -198,7 +199,7 @@ class DatabaseMetadataStore:
 
 class DatabaseJobStore:
     def __init__(self, database_url: str | Engine, *, lease_owner: str | None = None) -> None:
-        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url)
+        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url, poolclass=NullPool)
         self.lease_owner = lease_owner or f"worker-{uuid4().hex[:8]}"
 
     def create_job(self, job_type: JobType, payload: dict[str, Any]) -> JobRecord:

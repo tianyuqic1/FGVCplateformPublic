@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine, create_engine
+from sqlalchemy.pool import NullPool
 
 from finevision.db.schema import (
     dataset_versions,
@@ -70,7 +71,7 @@ class ReviewItemRecord:
 
 class DatabaseReviewStore:
     def __init__(self, database_url: str | Engine) -> None:
-        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url)
+        self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url, poolclass=NullPool)
 
     def record_inference_result(
         self,
