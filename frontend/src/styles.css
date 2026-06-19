@@ -568,6 +568,12 @@ a {
   padding: 10px;
 }
 
+.timeline-item.selected {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: #ecfbf8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+}
+
 .timeline-icon {
   display: grid;
   place-items: center;

@@ -309,10 +309,10 @@ function RunRow({ run }) {
   );
 }
 
-function JobRow({ job }) {
+function JobRow({ job, selected = false }) {
   const state = jobStatus(job);
   return (
-    <Link className="timeline-item clickable" to="/pipelines/pipe-014">
+    <Link className={`timeline-item clickable ${selected ? "selected" : ""}`} to={`/pipelines?job_id=${encodeURIComponent(job.id)}`}>
       <div className="timeline-icon">
         <Icon name={state.icon} size={18} />
       </div>
@@ -328,13 +328,21 @@ function JobRow({ job }) {
   );
 }
 
-function RecentJobsPanel({ limit = 5 }) {
+function RecentJobsPanel({ limit = 5, selectedJobId = "" }) {
   const { jobs, source, loading } = useRecentJobs(limit);
   const sourceLabel = loading ? "正在连接 Control-plane API" : source === "api" ? "Control-plane API" : "本地预览任务";
+  const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) : null;
 
   return (
     <Panel title="任务状态" caption={`${sourceLabel} · queued / running / succeeded / failed / cancelled。`}>
-      <div className="timeline">{jobs.map((job) => <JobRow job={job} key={job.id} />)}</div>
+      {selectedJobId && !selectedJob && (
+        <div className="timeline-item">
+          <div className="timeline-icon"><Icon name="Search" size={18} /></div>
+          <div><strong>当前列表没有这个 job</strong><div className="row-meta">{selectedJobId} · 请刷新或扩大任务查询范围。</div></div>
+          <StatusChip tone="warn">missing</StatusChip>
+        </div>
+      )}
+      <div className="timeline">{jobs.map((job) => <JobRow job={job} selected={job.id === selectedJobId} key={job.id} />)}</div>
     </Panel>
   );
 }
@@ -353,20 +361,31 @@ function ModelCard({ model }) {
 
 function PipelineNode({ node }) {
   return (
-    <Link className={`pipeline-node ${node.running ? "running" : ""}`} to="/pipelines/pipe-014">
+    <div className={`pipeline-node ${node.running ? "running" : ""}`}>
       <Icon name={node.icon} size={20} />
       <h3>{node.title}</h3>
       <p className="small">{node.description}</p>
       <ProgressBar value={node.progress} fill={node.running ? "#a15c07" : "#0f766e"} />
       <div className="row-meta">{node.progress}%</div>
-    </Link>
+    </div>
   );
 }
 
 export function DashboardPage({ showToast }) {
   const { datasets: datasetItems } = useDatasets();
-  const { reviewItems: pendingReviewItems, loading: reviewLoading } = useReviewItems({ status: "pending", limit: 3 });
+  const { reviewItems: pendingReviewItems, loading: reviewLoading } = useReviewItems({ status: "pending", limit: 100 });
+  const { trainingRuns: dashboardRuns, source: trainingSource, loading: trainingLoading } = useTrainingRuns();
   const reviewCountLabel = reviewLoading ? "..." : String(pendingReviewItems.length);
+  const activeRuns = dashboardRuns.filter((run) => ["queued", "running"].includes(run.status));
+  const candidateRuns = dashboardRuns.filter((run) => run.modelVersionId && run.status === "succeeded");
+  const failedRuns = dashboardRuns.filter((run) => run.status === "failed");
+  const oodReviewCount = pendingReviewItems.filter((item) => item.riskType === "ood_candidate").length;
+  const highRiskReviewCount = pendingReviewItems.filter((item) => item.priority <= 40 || item.riskType === "ood_candidate").length;
+  const activeRunLabel = trainingLoading ? "..." : String(activeRuns.length);
+  const trainingCaption =
+    trainingSource === "api"
+      ? `${candidateRuns.length} 个候选版本 · 失败 ${failedRuns.length}`
+      : "Training API 不可用，显示预览数据";
 
   return (
     <>
@@ -388,9 +407,9 @@ export function DashboardPage({ showToast }) {
       />
       <div className="grid metrics">
         <MetricCard title="待复核样本" value={reviewCountLabel} caption="Review API · abstain/OOD" fill="#a15c07" percent={Math.min(100, pendingReviewItems.length * 18)} icon="UserCheck" to="/review" />
-        <MetricCard title="运行中训练" value="2" caption="1 个候选版本可灰度" fill="#315fbd" percent={72} icon="FlaskConical" to="/training" />
-        <MetricCard title="生产覆盖率" value="82%" caption="阈值策略 selective-v4" fill="#0f766e" percent={82} icon="Gauge" to="/models" />
-        <MetricCard title="OOD 告警" value="3" caption="工业零件数据集漂移" fill="#b4233c" percent={34} icon="ShieldAlert" to="/review" />
+        <MetricCard title="运行中训练" value={activeRunLabel} caption={trainingCaption} fill="#315fbd" percent={Math.min(100, activeRuns.length * 36)} icon="FlaskConical" to="/training" />
+        <MetricCard title="生产覆盖率" value="--" caption="Model Registry API 待接入" fill="#0f766e" percent={0} icon="Gauge" to="/models" />
+        <MetricCard title="OOD 告警" value={reviewLoading ? "..." : String(oodReviewCount)} caption="来自待复核 OOD 候选" fill="#b4233c" percent={Math.min(100, oodReviewCount * 34)} icon="ShieldAlert" to="/review" />
       </div>
       <div className="grid two section-gap">
         <Panel
@@ -404,9 +423,9 @@ export function DashboardPage({ showToast }) {
           }
         >
           <div className="timeline">
-            <TaskItem icon="AlertTriangle" title="处理 17 条高风险复核样本" description="其中 5 条疑似 OOD，可能影响生产指标。" action="现在处理" to="/review" tone="risk" />
-            <TaskItem icon="CircleGauge" title="确认候选模型阈值策略" description="候选模型准确率略升，但复核压力增加 4%。" action="打开训练" to="/training" tone="warn" />
-            <TaskItem icon="DatabaseZap" title="工业零件数据集特征漂移" description="近 24 小时 embedding 分布偏离训练集。" action="看数据集" to="/datasets/defect" tone="info" />
+            <TaskItem icon={highRiskReviewCount > 0 ? "AlertTriangle" : "CheckCircle2"} title={highRiskReviewCount > 0 ? `处理 ${highRiskReviewCount} 条高风险复核样本` : "当前没有高风险复核样本"} description={highRiskReviewCount > 0 ? `其中 ${oodReviewCount} 条 OOD 候选，人工确认后才进入反馈池。` : "新的 abstain / reject_ood 推理会自动进入复核队列。"} action="打开复核" to="/review" tone={highRiskReviewCount > 0 ? "risk" : "default"} />
+            <TaskItem icon={failedRuns.length > 0 ? "AlertTriangle" : "CircleGauge"} title={failedRuns.length > 0 ? `定位 ${failedRuns.length} 条失败训练` : `${candidateRuns.length} 个候选模型可评审`} description={failedRuns.length > 0 ? "训练详情页现在会展示 error、jobId 和缺失产物。" : "候选模型仍需人工评审和发布门禁后才能生产使用。"} action="打开训练" to="/training" tone={failedRuns.length > 0 ? "risk" : "warn"} />
+            <TaskItem icon="DatabaseZap" title="反馈池等待数据策展" description="复核结论不会自动写回训练集，需要冻结成新 dataset version。" action="看反馈池" to="/feedback" tone="info" />
           </div>
         </Panel>
         <Panel
@@ -420,7 +439,7 @@ export function DashboardPage({ showToast }) {
           }
         >
           {pendingReviewItems.length > 0 ? (
-            <div className="grid">{pendingReviewItems.map((item) => <ApiReviewCard item={item} key={item.id} />)}</div>
+            <div className="grid">{pendingReviewItems.slice(0, 3).map((item) => <ApiReviewCard item={item} key={item.id} />)}</div>
           ) : (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
@@ -905,10 +924,17 @@ export function TrainingPage({ showToast }) {
   const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
   const failedRunCount = runItems.filter((run) => run.status === "failed").length;
   const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
+  const canUseDatasetForTraining = datasetSource === "api" && datasetVersionOptions.length > 0;
   const canCreate =
+    canUseDatasetForTraining &&
     createState.status !== "running" &&
     trainingForm.datasetVersionId.trim() &&
     Number(trainingForm.ridgeLambda) > 0;
+  const createBlockReason = canUseDatasetForTraining
+    ? ""
+    : datasetSource === "api"
+      ? "当前没有真实 dataset version 可用于训练。"
+      : "当前数据集来自本地预览，不能提交真实训练任务。";
 
   useEffect(() => {
     if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
@@ -992,6 +1018,12 @@ export function TrainingPage({ showToast }) {
               </button>
             </div>
           </div>
+          {createBlockReason && (
+            <div className="route-box section-gap-small">
+              <div><strong>创建训练已暂停</strong><div className="row-meta">{createBlockReason}</div></div>
+              <StatusChip tone="warn">api required</StatusChip>
+            </div>
+          )}
           {createState.run && (
             <div className="chips section-gap-small">
               <StatusChip tone="default">{createState.run.id}</StatusChip>
@@ -1119,7 +1151,7 @@ export function TrainingDetailPage({ showToast }) {
 
 export function InferencePage({ showToast }) {
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
-  const { trainingRuns: inferenceTrainingRuns } = useTrainingRuns();
+  const { trainingRuns: inferenceTrainingRuns, source: trainingSource } = useTrainingRuns();
   const datasetOptions = apiDatasets.length > 0 ? apiDatasets : datasets;
   const [form, setForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "",
@@ -1136,11 +1168,22 @@ export function InferencePage({ showToast }) {
   const modelVersionOptions = inferenceTrainingRuns
     .map((run) => run.modelVersionId)
     .filter(Boolean);
+  const canUseInferenceInputs = datasetSource === "api" && trainingSource === "api" && datasetVersionOptions.length > 0 && modelVersionOptions.length > 0;
   const canRun =
+    canUseInferenceInputs &&
     state.status !== "running" &&
     form.datasetVersionId.trim() &&
     form.modelVersionId.trim() &&
     (form.imageFile || form.imagePath.trim() || form.sampleId.trim());
+  const inferenceBlockReason = canUseInferenceInputs
+    ? ""
+    : datasetSource !== "api"
+      ? "当前数据集来自本地预览，不能运行真实推理。"
+      : trainingSource !== "api"
+        ? "当前模型版本来自本地预览，不能运行真实推理。"
+        : modelVersionOptions.length === 0
+          ? "当前没有真实候选模型版本，请先完成训练。"
+          : "当前没有真实 dataset version 可用于推理。";
 
   useEffect(() => {
     if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
@@ -1273,6 +1316,12 @@ export function InferencePage({ showToast }) {
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
           <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
         </div>
+        {inferenceBlockReason && (
+          <div className="route-box section-gap-small">
+            <div><strong>推理运行已暂停</strong><div className="row-meta">{inferenceBlockReason}</div></div>
+            <StatusChip tone="warn">api required</StatusChip>
+          </div>
+        )}
       </Panel>
       <Panel title="推理结果" caption="MVP 推理实验室：结果会记录为 inference event；abstain / reject_ood 会路由到人工复核。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
         {state.status === "idle" && (
@@ -1849,16 +1898,18 @@ export function ModelDetailPage({ showToast }) {
 }
 
 export function PipelinesPage() {
+  const [searchParams] = useSearchParams();
+  const selectedJobId = searchParams.get("job_id") || "";
   return (
     <>
       <PageHero title="把数据、训练、弃权和发布串成可重跑流程。" description="流水线视图面向工程实现：每个节点都有输入产物、输出产物、日志和失败恢复点。" actions={<button className="primary-button" disabled><Icon name="Play" size={16} />流水线执行待接入</button>} />
-      <Panel title="模板：DINOv3 分类头训练" caption="点击节点查看运行样式。">
+      <Panel title="模板预览：DINOv3 分类头训练" caption="这是只读流程模板；真实任务状态请看下方 Control-plane jobs。">
         <div className="pipeline">{pipelineNodes.map((node) => <PipelineNode node={node} key={node.id} />)}</div>
       </Panel>
       <div className="grid two section-gap">
-        <RecentJobsPanel />
+        <RecentJobsPanel selectedJobId={selectedJobId} />
         <Panel title="Worker 边界" caption="MVP 阶段先查询任务状态，不在浏览器里直接触发模型计算。">
-          <div className="code-panel">control-plane: /api/jobs<br />worker: feature extraction / train / calibration<br />storage: artifacts + metadata store<br />frontend: poll job status + fallback preview</div>
+          <div className="code-panel">control-plane: /api/jobs<br />selected_job: {selectedJobId || "none"}<br />worker: feature extraction / train / calibration<br />storage: artifacts + metadata store<br />frontend: poll job status + fallback preview</div>
         </Panel>
       </div>
     </>
