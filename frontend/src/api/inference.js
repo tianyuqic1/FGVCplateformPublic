@@ -17,7 +17,15 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`${response.status} ${method} ${path}`);
+    let detail = `${response.status} ${method} ${path}`;
+    try {
+      const payload = await response.json();
+      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      detail = message ? `${detail}: ${message}` : detail;
+    } catch {
+      // Keep the HTTP status fallback when the response body is not JSON.
+    }
+    throw new Error(detail);
   }
 
   return response.json();

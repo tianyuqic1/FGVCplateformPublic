@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
 import { importImagefolder } from "../api/datasets.js";
@@ -558,7 +558,7 @@ function ClassRow({ title, description, label, tone = "default" }) {
 
 export function TrainingPage({ showToast }) {
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
-  const { datasets: datasetOptions } = useDatasets();
+  const { datasets: datasetOptions, source: datasetSource } = useDatasets();
   const [showCreate, setShowCreate] = useState(false);
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "dataset@cifar10-mini-001",
@@ -567,10 +567,19 @@ export function TrainingPage({ showToast }) {
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
+  const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const canCreate =
     createState.status !== "running" &&
     trainingForm.datasetVersionId.trim() &&
     Number(trainingForm.ridgeLambda) > 0;
+
+  useEffect(() => {
+    if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
+    setTrainingForm((current) => {
+      if (datasetVersionOptions.includes(current.datasetVersionId)) return current;
+      return { ...current, datasetVersionId: datasetVersionOptions[0] };
+    });
+  }, [datasetSource, datasetVersionOptions.join("|")]);
 
   function updateTrainingField(field, value) {
     setTrainingForm((current) => ({ ...current, [field]: value }));
@@ -702,7 +711,8 @@ export function TrainingDetailPage({ showToast }) {
 }
 
 export function InferencePage({ showToast }) {
-  const { datasets: apiDatasets } = useDatasets();
+  const { datasets: apiDatasets, source: datasetSource } = useDatasets();
+  const { trainingRuns: inferenceTrainingRuns } = useTrainingRuns();
   const datasetOptions = apiDatasets.length > 0 ? apiDatasets : datasets;
   const [form, setForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "",
@@ -713,11 +723,29 @@ export function InferencePage({ showToast }) {
     evidenceK: 3,
   });
   const [state, setState] = useState({ status: "idle", result: null, error: null });
+  const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
+  const modelVersionOptions = inferenceTrainingRuns
+    .map((run) => run.modelVersionId)
+    .filter(Boolean);
   const canRun =
     state.status !== "running" &&
     form.datasetVersionId.trim() &&
     form.modelVersionId.trim() &&
     (form.imagePath.trim() || form.sampleId.trim());
+
+  useEffect(() => {
+    if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
+    setForm((current) => {
+      const next = { ...current };
+      if (!datasetVersionOptions.includes(next.datasetVersionId)) {
+        next.datasetVersionId = datasetVersionOptions[0];
+      }
+      if (modelVersionOptions.length > 0 && !modelVersionOptions.includes(next.modelVersionId)) {
+        next.modelVersionId = modelVersionOptions[0];
+      }
+      return next;
+    });
+  }, [datasetSource, datasetVersionOptions.join("|"), modelVersionOptions.join("|")]);
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -761,7 +789,12 @@ export function InferencePage({ showToast }) {
           </div>
           <div className="field">
             <label>模型版本</label>
-            <input value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} placeholder="model_version_id" />
+            <input list="model-version-options" value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} placeholder="model_version_id" />
+            <datalist id="model-version-options">
+              {modelVersionOptions.map((modelVersionId) => (
+                <option value={modelVersionId} key={modelVersionId}>{modelVersionId}</option>
+              ))}
+            </datalist>
           </div>
           <div className="field">
             <label>图片路径</label>
