@@ -277,15 +277,24 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     @api.get("/api/review-items")
     def list_review_items(
         status_filter: str | None = Query(default="pending", alias="status"),
+        dataset_id: str | None = Query(default=None),
         limit: int = 50,
     ) -> dict[str, object]:
         review_store: DatabaseReviewStore | None = api.state.review_store
         if review_store is None:
             return {"review_items": []}
+        allowed_statuses = {None, "", "all", "pending", "submitted", "feedbacked", "skipped", "disputed"}
+        if status_filter not in allowed_statuses:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported review status filter")
+        normalized_status = None if status_filter in {None, "", "all"} else status_filter
         return {
             "review_items": [
                 _review_item_payload(item)
-                for item in review_store.list_review_items(status=status_filter, limit=max(1, min(limit, 200)))
+                for item in review_store.list_review_items(
+                    status=normalized_status,
+                    dataset_id=dataset_id,
+                    limit=max(1, min(limit, 200)),
+                )
             ]
         }
 

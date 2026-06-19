@@ -119,9 +119,10 @@ export function normalizeReviewItem(raw = {}) {
   };
 }
 
-export async function listReviewItems({ status = "pending", limit = 50 } = {}) {
+export async function listReviewItems({ status = "pending", datasetId, limit = 50 } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (datasetId) params.set("dataset_id", datasetId);
   if (limit) params.set("limit", String(limit));
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/review-items?${params.toString()}`, { signal });

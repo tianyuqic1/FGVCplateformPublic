@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
 import { importImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
+import { listReviewItems } from "../api/reviews.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
@@ -58,6 +59,20 @@ function destinationForOutcome(outcome) {
   if (outcome === "ignore") return "ignore";
   return "training_candidate";
 }
+
+function destinationOptionsForOutcome(outcome) {
+  if (outcome === "ood") return [["ood_stress", "OOD 压力池"]];
+  if (outcome === "bad_image") return [["bad_image", "坏图池"]];
+  if (outcome === "uncertain") return [["taxonomy_dispute", "类别争议池"], ["ignore", "忽略池"]];
+  if (outcome === "ignore") return [["ignore", "忽略池"]];
+  return [["training_candidate", "训练候选池"]];
+}
+
+const REVIEW_STATUS_TABS = [
+  ["pending", "待复核"],
+  ["feedbacked", "已完成"],
+  ["all", "全部"],
+];
 
 function jobStatus(job) {
   if (job.status === "succeeded") return { label: "完成", tone: "default", icon: "Check" };
@@ -118,13 +133,14 @@ function ReviewImage({ item, risk, detail = false }) {
   return <VisualPlaceholder type={risk.visualType} label={label} low={item.riskType !== "ood_candidate"} />;
 }
 
-function ApiReviewCard({ item }) {
+function ApiReviewCard({ item, queryString = "" }) {
   const risk = reviewRisk(item);
   const statusInfo = reviewStatus(item);
   const topCandidate = item.topK[0];
   const secondCandidate = item.topK[1];
+  const target = `/review/${item.id}${queryString ? `?${queryString}` : ""}`;
   return (
-    <Link className="sample-card clickable" to={`/review/${item.id}`}>
+    <Link className="sample-card clickable" to={target}>
       <ReviewImage item={item} risk={risk} />
       <div>
         <div className="chips">
@@ -1012,15 +1028,65 @@ export function InferencePage({ showToast }) {
 }
 
 export function ReviewPage() {
-  const { reviewItems: apiReviewItems, loading, error, refresh } = useReviewItems({ status: "pending", limit: 80 });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedStatus = searchParams.get("status") || "pending";
+  const statusFilter = REVIEW_STATUS_TABS.some(([value]) => value === requestedStatus) ? requestedStatus : "pending";
+  const datasetFilter = searchParams.get("dataset_id") || "";
+  const { datasets: datasetItems } = useDatasets();
+  const { reviewItems: apiReviewItems, loading, error, refresh } = useReviewItems({
+    status: statusFilter,
+    datasetId: datasetFilter || undefined,
+    limit: 80,
+  });
   const oodCount = apiReviewItems.filter((item) => item.riskType === "ood_candidate").length;
   const lowConfidenceCount = apiReviewItems.filter((item) => item.riskType === "low_confidence").length;
   const lowMarginCount = apiReviewItems.filter((item) => item.riskType === "low_margin").length;
+  const queryString = searchParams.toString();
+  const datasetOptions = Array.from(
+    new Map(
+      [
+        ...datasetItems.map((dataset) => [dataset.id, dataset.name || dataset.id]),
+        ...apiReviewItems.map((item) => [item.datasetId, item.datasetId]),
+        datasetFilter ? [datasetFilter, datasetFilter] : null,
+      ].filter((entry) => entry?.[0]),
+    ),
+  );
+
+  function updateReviewFilter(field, value) {
+    const next = new URLSearchParams(searchParams);
+    if (field === "status") {
+      next.set("status", value || "pending");
+    }
+    if (field === "dataset_id") {
+      if (value) next.set("dataset_id", value);
+      else next.delete("dataset_id");
+    }
+    setSearchParams(next);
+  }
+
   return (
     <>
       <PageHero title="让人工只处理模型真正不确定的样本。" description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。" actions={<button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>} />
       <div className="grid review">
-        <Panel title="待复核队列" caption={loading ? "正在连接 Review API。" : `${apiReviewItems.length} 条待处理样本。`}>
+        <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在连接 Review API。" : `${apiReviewItems.length} 条样本。`}>
+          <div className="review-filter-bar">
+            <div className="tabs">
+              {REVIEW_STATUS_TABS.map(([value, label]) => (
+                <button className={`tab-button ${statusFilter === value ? "active" : ""}`} key={value} onClick={() => updateReviewFilter("status", value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="filter-select">
+              <span>数据集</span>
+              <select value={datasetFilter} onChange={(event) => updateReviewFilter("dataset_id", event.target.value)}>
+                <option value="">全部数据集</option>
+                {datasetOptions.map(([id, label]) => (
+                  <option value={id} key={id}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {error && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
@@ -1031,21 +1097,21 @@ export function ReviewPage() {
           {!error && apiReviewItems.length === 0 && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
-              <div><strong>{loading ? "正在加载队列" : "暂无待复核样本"}</strong><div className="row-meta">{loading ? "Review API 正在返回结果。" : "abstain / reject_ood 推理会自动进入这里。"}</div></div>
+              <div><strong>{loading ? "正在加载队列" : "当前筛选下没有样本"}</strong><div className="row-meta">{loading ? "Review API 正在返回结果。" : statusFilter === "pending" ? "abstain / reject_ood 推理会自动进入这里。" : "可以切回待复核或全部查看其他记录。"}</div></div>
               <StatusChip tone={loading ? "info" : "default"}>{loading ? "loading" : "clear"}</StatusChip>
             </div>
           )}
           <div className="grid">
             {apiReviewItems.map((item) => (
-              <ApiReviewCard item={item} key={item.id} />
+              <ApiReviewCard item={item} queryString={queryString} key={item.id} />
             ))}
           </div>
         </Panel>
-        <Panel title="队列摘要" caption="只统计真实 Review API 返回的待处理项。">
+        <Panel title="队列摘要" caption="统计当前筛选结果；历史入口在左侧状态切换中。">
           <div className="timeline">
-            <TaskItem icon="ShieldAlert" title={`${oodCount} 条 OOD 候选`} description="只代表模型拒识，需要人工确认后才进入 OOD 压力池。" action="查看" to="/review" tone="risk" />
-            <TaskItem icon="Gauge" title={`${lowConfidenceCount} 条低置信`} description="置信度低于阈值，建议确认最终类别或标记不确定。" action="查看" to="/review" tone="warn" />
-            <TaskItem icon="GitCompare" title={`${lowMarginCount} 条低间隔`} description="top-1 与 top-2 接近，优先检查易混类别。" action="查看" to="/review" tone="info" />
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">conf</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="GitCompare" size={18} /></div><div><strong>{lowMarginCount} 条低间隔</strong><div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div></div><StatusChip tone="info">margin</StatusChip></div>
           </div>
         </Panel>
       </div>
@@ -1055,6 +1121,8 @@ export function ReviewPage() {
 
 export function ReviewDetailPage({ showToast }) {
   const { reviewItemId = "" } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { reviewItem: item, loading, error, refresh } = useReviewItem(reviewItemId);
   const submitState = useSubmitReviewOutcome(reviewItemId);
   const [form, setForm] = useState({
@@ -1076,7 +1144,7 @@ export function ReviewDetailPage({ showToast }) {
     });
   }
 
-  async function handleSubmit() {
+  async function handleSubmit({ stay = false } = {}) {
     try {
       await submitState.submit({
         final_outcome: form.finalOutcome,
@@ -1085,8 +1153,32 @@ export function ReviewDetailPage({ showToast }) {
         reviewer_note: form.reviewerNote.trim() || null,
         reviewer: "local-reviewer",
       });
-      showToast("复核结果已进入反馈池");
-      refresh();
+      if (stay) {
+        showToast("复核结果已进入反馈池");
+        refresh();
+        return;
+      }
+
+      const preferredDatasetId = searchParams.get("dataset_id") || item?.datasetId || "";
+      const sameDatasetNext = preferredDatasetId
+        ? await listReviewItems({ status: "pending", datasetId: preferredDatasetId, limit: 1 })
+        : [];
+      const globalNext = sameDatasetNext.length > 0 ? sameDatasetNext : await listReviewItems({ status: "pending", limit: 1 });
+      const nextItem = globalNext[0];
+      if (nextItem) {
+        const nextParams = new URLSearchParams();
+        nextParams.set("status", "pending");
+        if (nextItem.datasetId) nextParams.set("dataset_id", nextItem.datasetId);
+        showToast("复核结果已进入反馈池，已打开下一张");
+        navigate(`/review/${nextItem.id}?${nextParams.toString()}`);
+        return;
+      }
+
+      const queueParams = new URLSearchParams();
+      queueParams.set("status", "pending");
+      if (preferredDatasetId) queueParams.set("dataset_id", preferredDatasetId);
+      showToast("复核结果已进入反馈池，当前队列已清空");
+      navigate(`/review?${queueParams.toString()}`);
     } catch (submitError) {
       showToast(submitError?.message ?? "复核提交失败");
     }
@@ -1112,7 +1204,10 @@ export function ReviewDetailPage({ showToast }) {
 
   const risk = reviewRisk(item);
   const statusInfo = reviewStatus(item);
+  const queueSearch = searchParams.toString();
+  const queuePath = `/review${queueSearch ? `?${queueSearch}` : ""}`;
   const candidateLabels = Array.from(new Set(item.topK.map((candidate) => candidate.label).filter(Boolean)));
+  const destinationOptions = destinationOptionsForOutcome(form.finalOutcome);
   const requiresLabel = ["confirmed_label", "corrected_label"].includes(form.finalOutcome);
   const canSubmit =
     item.status === "pending" &&
@@ -1123,7 +1218,7 @@ export function ReviewDetailPage({ showToast }) {
 
   return (
     <>
-      <PageHero title={item.sampleId || item.id} description={`${item.datasetVersionId} · ${item.modelVersionId} · ${item.reason}`} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip></>} />
+      <PageHero title={item.sampleId || item.id} description={`${item.datasetVersionId} · ${item.modelVersionId} · ${item.reason}`} actions={<><Link className="ghost-button" to={queuePath}><Icon name="ArrowLeft" size={16} />返回队列</Link><StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip></>} />
       <div className="grid detail">
         <Panel title="模型证据" caption="保留推理当时的图像、top-k、阈值原因和近邻证据。">
           <ReviewImage item={item} risk={risk} detail />
@@ -1182,7 +1277,12 @@ export function ReviewDetailPage({ showToast }) {
         <Panel title="人工复核" caption="人工结论进入反馈池；后续数据版本构建再决定是否采纳。" action={<StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>}>
           <div className="grid">
             {item.feedback && (
-              <div className="code-panel">final_outcome: {item.feedback.final_outcome}<br />destination: {item.feedback.destination}<br />final_label: {item.feedback.final_label ?? "n/a"}<br />note: {item.feedback.reviewer_note ?? "none"}</div>
+              <div className="feedback-summary">
+                <div><span>最终结论</span><strong>{item.feedback.final_outcome}</strong></div>
+                <div><span>反馈池</span><strong>{item.feedback.destination}</strong></div>
+                <div><span>最终标签</span><strong>{item.feedback.final_label ?? "n/a"}</strong></div>
+                <div><span>备注</span><strong>{item.feedback.reviewer_note ?? "none"}</strong></div>
+              </div>
             )}
             {!item.feedback && (
               <>
@@ -1201,11 +1301,9 @@ export function ReviewDetailPage({ showToast }) {
                   <div className="field">
                     <label>反馈池</label>
                     <select value={form.destination} onChange={(event) => updateReviewField("destination", event.target.value)}>
-                      <option value="training_candidate">训练候选池</option>
-                      <option value="ood_stress">OOD 压力池</option>
-                      <option value="bad_image">坏图池</option>
-                      <option value="taxonomy_dispute">类别争议池</option>
-                      <option value="ignore">忽略池</option>
+                      {destinationOptions.map(([value, label]) => (
+                        <option value={value} key={value}>{label}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="field full-span">
@@ -1224,7 +1322,8 @@ export function ReviewDetailPage({ showToast }) {
                 </div>
                 {submitState.error && <div className="row-meta">提交失败：{submitState.error.message}</div>}
                 <div className="toolbar">
-                  <button className="primary-button" onClick={handleSubmit} disabled={!canSubmit}><Icon name={submitState.status === "submitting" ? "LoaderCircle" : "Check"} size={16} />{submitState.status === "submitting" ? "提交中" : "提交复核"}</button>
+                  <button className="primary-button" onClick={() => handleSubmit()} disabled={!canSubmit}><Icon name={submitState.status === "submitting" ? "LoaderCircle" : "Check"} size={16} />{submitState.status === "submitting" ? "提交中" : "提交并下一张"}</button>
+                  <button className="ghost-button" onClick={() => handleSubmit({ stay: true })} disabled={!canSubmit}><Icon name="CheckCircle2" size={16} />提交后留在此页</button>
                   <button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>
                 </div>
               </>

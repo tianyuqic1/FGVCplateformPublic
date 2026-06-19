@@ -173,6 +173,25 @@ def test_abstain_inference_creates_review_item_and_feedback(
     assert completed["feedback"]["review_item_id"] == review_item_id
     assert submit_body["feedback_item"]["review_item_id"] == review_item_id
 
+    pending_response = client.get("/api/review-items?status=pending&dataset_id=infer-toy")
+    assert pending_response.status_code == 200
+    assert pending_response.json()["review_items"] == []
+
+    completed_response = client.get("/api/review-items?status=feedbacked&dataset_id=infer-toy")
+    assert completed_response.status_code == 200
+    assert [item["review_item_id"] for item in completed_response.json()["review_items"]] == [review_item_id]
+
+    all_response = client.get("/api/review-items?status=all")
+    assert all_response.status_code == 200
+    assert [item["review_item_id"] for item in all_response.json()["review_items"]] == [review_item_id]
+
+    missing_dataset_response = client.get("/api/review-items?status=all&dataset_id=missing-dataset")
+    assert missing_dataset_response.status_code == 200
+    assert missing_dataset_response.json()["review_items"] == []
+
+    invalid_status_response = client.get("/api/review-items?status=unknown")
+    assert invalid_status_response.status_code == 422
+
     duplicate_response = client.post(
         f"/api/review-items/{review_item_id}/submit",
         json={

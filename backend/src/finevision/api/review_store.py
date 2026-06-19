@@ -161,10 +161,18 @@ class DatabaseReviewStore:
             row = conn.execute(_inference_event_select().where(inference_events.c.event_key == event_id)).mappings().first()
         return _inference_event_from_row(row) if row else None
 
-    def list_review_items(self, *, status: str | None = "pending", limit: int = 50) -> list[ReviewItemRecord]:
+    def list_review_items(
+        self,
+        *,
+        status: str | None = "pending",
+        dataset_id: str | None = None,
+        limit: int = 50,
+    ) -> list[ReviewItemRecord]:
         query = _review_item_select().order_by(review_items.c.priority.asc(), review_items.c.created_at.asc()).limit(limit)
         if status:
             query = query.where(review_items.c.status == status)
+        if dataset_id:
+            query = query.where(datasets.c.dataset_key == dataset_id)
         with self.engine.begin() as conn:
             rows = conn.execute(query).mappings().all()
         return [_review_item_from_row(row) for row in rows]

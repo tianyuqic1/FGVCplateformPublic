@@ -590,6 +590,38 @@ a {
   background: #e4f7f4;
 }
 
+.review-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.filter-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(270px, 100%);
+}
+
+.filter-select span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.filter-select select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
 .card {
   padding: 14px;
   transition:
@@ -861,6 +893,32 @@ a {
   font-size: 13px;
 }
 
+.feedback-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.feedback-summary div {
+  min-width: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
+.feedback-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.feedback-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .candidate {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr) 48px;
@@ -1112,7 +1170,8 @@ a {
   }
 
   .topbar,
-  .page-hero {
+  .page-hero,
+  .review-filter-bar {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1130,6 +1189,7 @@ a {
   .image-grid,
   .image-grid.compact,
   .evidence-metrics,
+  .feedback-summary,
   .field-grid {
     grid-template-columns: 1fr;
   }

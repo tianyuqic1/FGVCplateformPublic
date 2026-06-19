@@ -26,7 +26,7 @@ export function useReviewItems(filters = {}) {
     return () => {
       active = false;
     };
-  }, [filters.status, filters.limit]);
+  }, [filters.status, filters.datasetId, filters.limit]);
 
   useEffect(() => refresh(), [refresh]);
 

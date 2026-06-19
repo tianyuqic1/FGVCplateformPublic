@@ -1,6 +1,7 @@
 import {
   extractReviewItem,
   extractReviewItemList,
+  listReviewItems,
   normalizeReviewItem,
 } from "../src/api/reviews.js";
 
@@ -65,5 +66,24 @@ const completed = normalizeReviewItem(
   }),
 );
 if (completed.feedback.destination !== "training_candidate") throw new Error("Feedback destination missing");
+
+let requestedUrl = "";
+globalThis.window = {
+  setTimeout,
+  clearTimeout,
+};
+globalThis.fetch = async (url) => {
+  requestedUrl = url;
+  return {
+    ok: true,
+    json: async () => payload,
+  };
+};
+
+await listReviewItems({ status: "all", datasetId: "toy", limit: 80 });
+if (!requestedUrl.includes("/api/review-items?")) throw new Error("Review list endpoint missing");
+if (!requestedUrl.includes("status=all")) throw new Error("Review status filter missing");
+if (!requestedUrl.includes("dataset_id=toy")) throw new Error("Review dataset filter missing");
+if (!requestedUrl.includes("limit=80")) throw new Error("Review limit missing");
 
 console.log("review api client smoke passed");
