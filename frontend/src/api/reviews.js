@@ -5,6 +5,21 @@ function apiBaseUrl() {
   return configured ? configured.replace(/\/$/, "") : "";
 }
 
+function toAssetUrl(value) {
+  if (!value) return null;
+  if (/^(https?:|blob:|data:)/.test(value)) return value;
+  if (value.startsWith("/")) return `${apiBaseUrl()}${value}`;
+  return value;
+}
+
+function imageUrlFromInputRef(inputRef) {
+  if (!inputRef) return null;
+  const normalized = String(inputRef).replace(/\\/g, "/");
+  if (!normalized.includes("/uploads/")) return null;
+  const filename = normalized.split("/").filter(Boolean).pop();
+  return filename ? `/api/uploads/${filename}` : null;
+}
+
 async function fetchJson(path, { method = "GET", body, signal } = {}) {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     method,
@@ -77,6 +92,8 @@ export function normalizeReviewItem(raw = {}) {
   const decision = normalizeDecision(context?.decision);
   const topK = (context?.topK ?? context?.top_k ?? []).map(normalizeCandidate);
   const nearestNeighbors = (context?.nearestNeighbors ?? context?.nearest_neighbors ?? []).map(normalizeNeighbor);
+  const inputRef = raw?.inputRef ?? raw?.input_ref ?? context?.input?.uploaded_image_path ?? context?.input?.image_path ?? null;
+  const rawImageUrl = raw?.imageUrl ?? raw?.image_url ?? context?.input?.uploaded_image_url ?? imageUrlFromInputRef(inputRef);
   return {
     id: raw?.id ?? raw?.reviewItemId ?? raw?.review_item_id ?? "review-preview",
     inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
@@ -89,7 +106,8 @@ export function normalizeReviewItem(raw = {}) {
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? context?.dataset_version_id ?? null,
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? context?.model_version_id ?? null,
     sampleId: raw?.sampleId ?? raw?.sample_id ?? context?.input?.sample_id ?? null,
-    inputRef: raw?.inputRef ?? raw?.input_ref ?? context?.input?.uploaded_image_path ?? context?.input?.image_path ?? null,
+    inputRef,
+    imageUrl: toAssetUrl(rawImageUrl),
     topK,
     decision,
     nearestNeighbors,

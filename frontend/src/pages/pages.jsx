@@ -105,6 +105,19 @@ function ReviewCard({ item }) {
   );
 }
 
+function ReviewImage({ item, risk, detail = false }) {
+  const label = item.sampleId || item.inputRef || item.id;
+  if (item.imageUrl) {
+    return (
+      <div className={`review-image ${detail ? "detail" : ""}`}>
+        <img src={item.imageUrl} alt={label} />
+        <span>{label}</span>
+      </div>
+    );
+  }
+  return <VisualPlaceholder type={risk.visualType} label={label} low={item.riskType !== "ood_candidate"} />;
+}
+
 function ApiReviewCard({ item }) {
   const risk = reviewRisk(item);
   const statusInfo = reviewStatus(item);
@@ -112,7 +125,7 @@ function ApiReviewCard({ item }) {
   const secondCandidate = item.topK[1];
   return (
     <Link className="sample-card clickable" to={`/review/${item.id}`}>
-      <VisualPlaceholder type={risk.visualType} label={item.sampleId || item.inputRef || item.id} low={item.riskType !== "ood_candidate"} />
+      <ReviewImage item={item} risk={risk} />
       <div>
         <div className="chips">
           <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
@@ -125,7 +138,7 @@ function ApiReviewCard({ item }) {
           {topCandidate ? `${topCandidate.label} ${topCandidate.score.toFixed(2)}` : "无候选"} ·{" "}
           {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无 second"}
         </p>
-        <p className="small">{item.reason}</p>
+        <p className="small review-reason">{item.reason}</p>
       </div>
     </Link>
   );
@@ -1112,12 +1125,21 @@ export function ReviewDetailPage({ showToast }) {
     <>
       <PageHero title={item.sampleId || item.id} description={`${item.datasetVersionId} · ${item.modelVersionId} · ${item.reason}`} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip></>} />
       <div className="grid detail">
-        <Panel title="模型证据" caption="保留推理当时的 top-k、阈值原因和近邻证据。">
-          <VisualPlaceholder type={risk.visualType} label={item.sampleId || item.inputRef || item.id} low={item.riskType !== "ood_candidate"} />
+        <Panel title="模型证据" caption="保留推理当时的图像、top-k、阈值原因和近邻证据。">
+          <ReviewImage item={item} risk={risk} detail />
           <div className="chips section-gap-small">
             <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
             <StatusChip tone="info">priority {item.priority}</StatusChip>
             <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{item.decision.value}</StatusChip>
+          </div>
+          <div className="evidence-metrics section-gap-small">
+            <div><span>confidence</span><strong>{item.decision.confidence.toFixed(4)}</strong></div>
+            <div><span>margin</span><strong>{item.decision.margin.toFixed(4)}</strong></div>
+            <div><span>ood score</span><strong>{item.decision.oodScore?.toFixed?.(4) ?? "n/a"}</strong></div>
+          </div>
+          <div className="reason-box section-gap-small">
+            <strong>复核原因</strong>
+            <span>{item.reasonCodes.join(", ") || item.reason}</span>
           </div>
           <div className="section-gap-small">
             {item.topK.length > 0 ? (
@@ -1128,7 +1150,6 @@ export function ReviewDetailPage({ showToast }) {
               <div className="row-meta">没有 top-k 候选。</div>
             )}
           </div>
-          <div className="code-panel section-gap-small">decision: {item.decision.value}<br />reason: {item.reasonCodes.join(", ") || "none"}<br />confidence: {item.decision.confidence.toFixed(4)}<br />margin: {item.decision.margin.toFixed(4)}<br />ood_score: {item.decision.oodScore ?? "n/a"}</div>
           <div className="panel-title embedded"><div><h2>近邻证据</h2><span>辅助解释，不作为真值。</span></div></div>
           {item.nearestNeighbors.length > 0 ? (
             <div className="timeline">

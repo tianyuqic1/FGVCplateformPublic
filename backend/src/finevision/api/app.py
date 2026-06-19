@@ -10,6 +10,7 @@ from uuid import uuid4
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -96,6 +97,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.inference_store = DatabaseInferenceStore(database_engine) if database_engine is not None else None
     api.state.review_store = DatabaseReviewStore(database_engine) if database_engine is not None else None
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
+    api.state.upload_dir.mkdir(parents=True, exist_ok=True)
+    api.mount("/api/uploads", StaticFiles(directory=str(api.state.upload_dir)), name="uploads")
 
     @api.get("/api/health")
     def health() -> dict[str, str]:
@@ -447,6 +450,7 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
         "model_version_id": item.model_version_id,
         "sample_id": item.sample_id,
         "input_ref": item.input_ref,
+        "image_url": _uploaded_image_url(item.input_ref),
         "status": item.status,
         "risk_type": item.risk_type,
         "priority": item.priority,
@@ -474,6 +478,18 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
         "created_by": item.created_by,
         "created_at": item.created_at,
     }
+
+
+def _uploaded_image_url(input_ref: str | None) -> str | None:
+    if not input_ref:
+        return None
+    normalized = input_ref.replace("\\", "/")
+    if "/uploads/" not in normalized:
+        return None
+    filename = Path(normalized).name
+    if not filename:
+        return None
+    return f"/api/uploads/{filename}"
 
 
 def _run_inference_from_context(

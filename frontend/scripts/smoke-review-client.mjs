@@ -17,8 +17,10 @@ const payload = {
       priority: 60,
       reason: "Top-1 and top-2 scores are too close.",
       reason_codes: ["top1_top2_margin_below_threshold"],
+      input_ref: "/data/uploads/query-001.jpg",
+      image_url: "/api/uploads/query-001.jpg",
       context: {
-        input: { sample_id: "sample-001" },
+        input: { sample_id: "sample-001", uploaded_image_path: "/data/uploads/query-001.jpg" },
         top_k: [
           { label: "red_square", score: 0.52 },
           { label: "green_circle", score: 0.49 },
@@ -44,6 +46,7 @@ if (items[0].riskType !== "low_margin") throw new Error("Risk type missing");
 if (items[0].topK[0].label !== "red_square") throw new Error("Top-k not normalized");
 if (items[0].decision.value !== "abstain") throw new Error("Decision not normalized");
 if (items[0].nearestNeighbors[0].sampleId !== "sample-002") throw new Error("Neighbor id missing");
+if (!items[0].imageUrl.endsWith("/api/uploads/query-001.jpg")) throw new Error("Review image url missing");
 
 const detail = normalizeReviewItem(extractReviewItem({ review_item: { ...payload.review_items[0], status: "feedbacked" } }));
 if (detail.status !== "feedbacked") throw new Error("Detail status not normalized");

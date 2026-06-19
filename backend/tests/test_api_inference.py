@@ -260,6 +260,46 @@ def test_scoped_inference_accepts_uploaded_image(
     assert result["nearest_neighbors"]
 
 
+def test_uploaded_image_review_item_exposes_public_image_url(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FINEVISION_UPLOAD_DIR", str(tmp_path / "uploads"))
+    client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    query_path = tmp_path / "needs-review.jpg"
+    Image.new("RGB", (96, 96), (0, 0, 0)).save(query_path)
+
+    with query_path.open("rb") as image:
+        response = client.post(
+            "/api/inference/upload",
+            data={
+                "dataset_version_id": "dataset@infer-toy-001",
+                "model_version_id": model_version_id,
+                "top_k": "3",
+                "evidence_k": "2",
+                "accept_threshold": "0.0",
+                "margin_threshold": "0.0",
+                "ood_distance_threshold": "0.0",
+            },
+            files={"image": ("needs-review.jpg", image, "image/jpeg")},
+        )
+
+    assert response.status_code == 200
+    review_item_id = response.json()["inference_result"]["review_item_id"]
+    assert review_item_id
+
+    detail_response = client.get(f"/api/review-items/{review_item_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["review_item"]
+    assert detail["image_url"].startswith("/api/uploads/")
+    assert detail["image_url"].endswith(".jpg")
+
+    image_response = client.get(detail["image_url"])
+    assert image_response.status_code == 200
+    assert image_response.headers["content-type"] == "image/jpeg"
+
+
 def test_scoped_inference_rejects_unknown_model_version(
     database_url: str,
     tmp_path: Path,
