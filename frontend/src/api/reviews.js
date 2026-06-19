@@ -1,0 +1,133 @@
+const DEFAULT_TIMEOUT_MS = 10000;
+
+function apiBaseUrl() {
+  const configured = import.meta.env?.VITE_API_BASE_URL;
+  return configured ? configured.replace(/\/$/, "") : "";
+}
+
+async function fetchJson(path, { method = "GET", body, signal } = {}) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  if (!response.ok) {
+    let detail = `${response.status} ${method} ${path}`;
+    try {
+      const payload = await response.json();
+      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      detail = message ? `${detail}: ${message}` : detail;
+    } catch {
+      // Keep the HTTP status fallback when the response body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
+function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  return request(controller.signal).finally(() => window.clearTimeout(timer));
+}
+
+export function extractReviewItemList(payload) {
+  return payload?.review_items ?? payload?.items ?? [];
+}
+
+export function extractReviewItem(payload) {
+  return payload?.review_item ?? payload?.item ?? payload;
+}
+
+function normalizeCandidate(raw) {
+  return {
+    label: raw?.label ?? "unknown",
+    score: Number.isFinite(Number(raw?.score)) ? Number(raw.score) : 0,
+  };
+}
+
+function normalizeNeighbor(raw) {
+  return {
+    sampleId: raw?.sampleId ?? raw?.sample_id ?? null,
+    label: raw?.label ?? "unknown",
+    distance: Number.isFinite(Number(raw?.distance)) ? Number(raw.distance) : null,
+  };
+}
+
+function normalizeDecision(raw = {}) {
+  return {
+    value: raw?.value ?? raw?.decision ?? "abstain",
+    reasons: Array.isArray(raw?.reasons) ? raw.reasons : [],
+    thresholds: raw?.thresholds ?? {},
+    confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : 0,
+    margin: Number.isFinite(Number(raw?.margin)) ? Number(raw.margin) : 0,
+    oodScore: Number.isFinite(Number(raw?.oodScore ?? raw?.ood_score)) ? Number(raw?.oodScore ?? raw?.ood_score) : null,
+  };
+}
+
+export function normalizeReviewItem(raw = {}) {
+  const context = raw?.context ?? {};
+  const decision = normalizeDecision(context?.decision);
+  const topK = (context?.topK ?? context?.top_k ?? []).map(normalizeCandidate);
+  const nearestNeighbors = (context?.nearestNeighbors ?? context?.nearest_neighbors ?? []).map(normalizeNeighbor);
+  return {
+    id: raw?.id ?? raw?.reviewItemId ?? raw?.review_item_id ?? "review-preview",
+    inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    status: raw?.status ?? "pending",
+    riskType: raw?.riskType ?? raw?.risk_type ?? "mixed",
+    priority: Number.isFinite(Number(raw?.priority)) ? Number(raw.priority) : 100,
+    reason: raw?.reason ?? "Needs human review",
+    reasonCodes: raw?.reasonCodes ?? raw?.reason_codes ?? decision.reasons,
+    datasetId: raw?.datasetId ?? raw?.dataset_id ?? context?.dataset_id ?? null,
+    datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? context?.dataset_version_id ?? null,
+    modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? context?.model_version_id ?? null,
+    sampleId: raw?.sampleId ?? raw?.sample_id ?? context?.input?.sample_id ?? null,
+    inputRef: raw?.inputRef ?? raw?.input_ref ?? context?.input?.uploaded_image_path ?? context?.input?.image_path ?? null,
+    topK,
+    decision,
+    nearestNeighbors,
+    context,
+    feedback: raw?.feedback ?? null,
+    createdAt: raw?.createdAt ?? raw?.created_at ?? null,
+    updatedAt: raw?.updatedAt ?? raw?.updated_at ?? null,
+    feedbackedAt: raw?.feedbackedAt ?? raw?.feedbacked_at ?? null,
+  };
+}
+
+export async function listReviewItems({ status = "pending", limit = 50 } = {}) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (limit) params.set("limit", String(limit));
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/review-items?${params.toString()}`, { signal });
+    return extractReviewItemList(payload).map(normalizeReviewItem);
+  });
+}
+
+export async function getReviewItem(reviewItemId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/review-items/${encodeURIComponent(reviewItemId)}`, { signal });
+    return normalizeReviewItem(extractReviewItem(payload));
+  });
+}
+
+export async function submitReviewOutcome(reviewItemId, input) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/review-items/${encodeURIComponent(reviewItemId)}/submit`, {
+      method: "POST",
+      body: input,
+      signal,
+    });
+    return {
+      reviewItem: normalizeReviewItem(extractReviewItem(payload)),
+      feedbackItem: payload?.feedback_item ?? null,
+    };
+  });
+}

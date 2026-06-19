@@ -1,0 +1,66 @@
+import {
+  extractReviewItem,
+  extractReviewItemList,
+  normalizeReviewItem,
+} from "../src/api/reviews.js";
+
+const payload = {
+  review_items: [
+    {
+      review_item_id: "review-001",
+      inference_event_id: "inference-001",
+      dataset_id: "toy",
+      dataset_version_id: "dataset@toy-001",
+      model_version_id: "toy-run-001-candidate",
+      status: "pending",
+      risk_type: "low_margin",
+      priority: 60,
+      reason: "Top-1 and top-2 scores are too close.",
+      reason_codes: ["top1_top2_margin_below_threshold"],
+      context: {
+        input: { sample_id: "sample-001" },
+        top_k: [
+          { label: "red_square", score: 0.52 },
+          { label: "green_circle", score: 0.49 },
+        ],
+        decision: {
+          decision: "abstain",
+          reasons: ["top1_top2_margin_below_threshold"],
+          confidence: 0.52,
+          margin: 0.03,
+          ood_score: 0.2,
+        },
+        nearest_neighbors: [{ sample_id: "sample-002", label: "red_square", distance: 0.12 }],
+      },
+      feedback: null,
+    },
+  ],
+};
+
+const items = extractReviewItemList(payload).map(normalizeReviewItem);
+if (items.length !== 1) throw new Error("Review list extraction failed");
+if (items[0].id !== "review-001") throw new Error("Review id missing");
+if (items[0].riskType !== "low_margin") throw new Error("Risk type missing");
+if (items[0].topK[0].label !== "red_square") throw new Error("Top-k not normalized");
+if (items[0].decision.value !== "abstain") throw new Error("Decision not normalized");
+if (items[0].nearestNeighbors[0].sampleId !== "sample-002") throw new Error("Neighbor id missing");
+
+const detail = normalizeReviewItem(extractReviewItem({ review_item: { ...payload.review_items[0], status: "feedbacked" } }));
+if (detail.status !== "feedbacked") throw new Error("Detail status not normalized");
+
+const completed = normalizeReviewItem(
+  extractReviewItem({
+    review_item: {
+      ...payload.review_items[0],
+      feedback: {
+        feedback_item_id: "feedback-001",
+        final_outcome: "corrected_label",
+        destination: "training_candidate",
+        final_label: "red_square",
+      },
+    },
+  }),
+);
+if (completed.feedback.destination !== "training_candidate") throw new Error("Feedback destination missing");
+
+console.log("review api client smoke passed");

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "./components/AppShell.jsx";
 import { Icon } from "./components/icons.jsx";
-import { datasets, reviewItems, trainingRuns } from "./data/mockData.js";
+import { datasets, trainingRuns } from "./data/mockData.js";
+import { useReviewItems } from "./hooks/useReviews.js";
 import {
   DashboardPage,
   DatasetDetailPage,
@@ -108,6 +109,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const title = titleForPath(location.pathname);
   const crumb = crumbForPath(location.pathname);
+  const { reviewItems: pendingReviewItems } = useReviewItems({ status: "pending", limit: 100 });
 
   function showToast(message) {
     setToast(message);
@@ -118,10 +120,10 @@ export default function App() {
   const routeCounts = useMemo(
     () => ({
       datasets: datasets.length,
-      reviews: reviewItems.length,
+      reviews: pendingReviewItems.length,
       runs: trainingRuns.length,
     }),
-    [],
+    [pendingReviewItems.length],
   );
 
   return (

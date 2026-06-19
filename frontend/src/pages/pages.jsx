@@ -6,6 +6,7 @@ import { runInference, runInferenceUpload } from "../api/inference.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
+import { useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
 import { Icon } from "../components/icons.jsx";
 import {
@@ -33,6 +34,29 @@ function riskTone(route) {
   if (route === "ood") return "risk";
   if (route === "bad-image") return "neutral";
   return "warn";
+}
+
+function reviewRisk(item) {
+  if (item?.riskType === "ood_candidate") return { label: "OOD 候选", tone: "risk", visualType: "ood" };
+  if (item?.riskType === "low_confidence") return { label: "低置信", tone: "warn", visualType: "bird" };
+  if (item?.riskType === "low_margin") return { label: "低间隔", tone: "warn", visualType: "bird" };
+  return { label: "需人工判断", tone: "info", visualType: "bird" };
+}
+
+function reviewStatus(item) {
+  if (item?.status === "feedbacked") return { label: "已入反馈池", tone: "default" };
+  if (item?.status === "submitted") return { label: "已提交", tone: "info" };
+  if (item?.status === "skipped") return { label: "已跳过", tone: "neutral" };
+  if (item?.status === "disputed") return { label: "争议", tone: "warn" };
+  return { label: "待复核", tone: "warn" };
+}
+
+function destinationForOutcome(outcome) {
+  if (outcome === "ood") return "ood_stress";
+  if (outcome === "bad_image") return "bad_image";
+  if (outcome === "uncertain") return "taxonomy_dispute";
+  if (outcome === "ignore") return "ignore";
+  return "training_candidate";
 }
 
 function jobStatus(job) {
@@ -76,6 +100,32 @@ function ReviewCard({ item }) {
           {item.secondCandidate.score.toFixed(2)}
         </p>
         <p className="small">{item.assistance}</p>
+      </div>
+    </Link>
+  );
+}
+
+function ApiReviewCard({ item }) {
+  const risk = reviewRisk(item);
+  const statusInfo = reviewStatus(item);
+  const topCandidate = item.topK[0];
+  const secondCandidate = item.topK[1];
+  return (
+    <Link className="sample-card clickable" to={`/review/${item.id}`}>
+      <VisualPlaceholder type={risk.visualType} label={item.sampleId || item.inputRef || item.id} low={item.riskType !== "ood_candidate"} />
+      <div>
+        <div className="chips">
+          <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
+          <StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>
+          <StatusChip tone="info">P{item.priority}</StatusChip>
+        </div>
+        <h3>{item.sampleId || item.id}</h3>
+        <p className="small">{item.datasetVersionId} · {item.modelVersionId}</p>
+        <p className="small">
+          {topCandidate ? `${topCandidate.label} ${topCandidate.score.toFixed(2)}` : "无候选"} ·{" "}
+          {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无 second"}
+        </p>
+        <p className="small">{item.reason}</p>
       </div>
     </Link>
   );
@@ -950,16 +1000,40 @@ export function InferencePage({ showToast }) {
 }
 
 export function ReviewPage() {
+  const { reviewItems: apiReviewItems, loading, error, refresh } = useReviewItems({ status: "pending", limit: 80 });
+  const oodCount = apiReviewItems.filter((item) => item.riskType === "ood_candidate").length;
+  const lowConfidenceCount = apiReviewItems.filter((item) => item.riskType === "low_confidence").length;
+  const lowMarginCount = apiReviewItems.filter((item) => item.riskType === "low_margin").length;
   return (
     <>
-      <PageHero title="让人工只处理模型真正不确定的样本。" description="复核页是这个系统的产品核心：模型弃权、LLM 预读、人工确认、标签回流都发生在这里。" actions={<div className="segmented"><button className="seg-button active">高风险</button><button className="seg-button">OOD</button><button className="seg-button">坏图</button><button className="seg-button">争议</button></div>} />
+      <PageHero title="让人工只处理模型真正不确定的样本。" description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。" actions={<button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>} />
       <div className="grid review">
-        <Panel title="队列" caption="点击样本进入复核详情。"><div className="grid">{reviewItems.map((item) => <ReviewCard item={item} key={item.id} />)}</div></Panel>
-        <Panel title="批量处理建议" caption="适合审核主管查看。">
+        <Panel title="待复核队列" caption={loading ? "正在连接 Review API。" : `${apiReviewItems.length} 条待处理样本。`}>
+          {error && (
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+              <div><strong>Review API 请求失败</strong><div className="row-meta">{error.message}</div></div>
+              <StatusChip tone="risk">error</StatusChip>
+            </div>
+          )}
+          {!error && apiReviewItems.length === 0 && (
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
+              <div><strong>{loading ? "正在加载队列" : "暂无待复核样本"}</strong><div className="row-meta">{loading ? "Review API 正在返回结果。" : "abstain / reject_ood 推理会自动进入这里。"}</div></div>
+              <StatusChip tone={loading ? "info" : "default"}>{loading ? "loading" : "clear"}</StatusChip>
+            </div>
+          )}
+          <div className="grid">
+            {apiReviewItems.map((item) => (
+              <ApiReviewCard item={item} key={item.id} />
+            ))}
+          </div>
+        </Panel>
+        <Panel title="队列摘要" caption="只统计真实 Review API 返回的待处理项。">
           <div className="timeline">
-            <TaskItem icon="Ban" title="5 条疑似 OOD" description="建议统一标记后进入压力集。" action="查看" to="/review/sample-0820" tone="risk" />
-            <TaskItem icon="ImageOff" title="12 条坏图" description="遮挡、低光照、主体不完整。" action="查看" to="/review/sample-0831" tone="warn" />
-            <TaskItem icon="Tags" title="8 条类别争议" description="需要更新类别定义和 LLM 提示。" action="查看" to="/datasets/bird?tab=classes" tone="info" />
+            <TaskItem icon="ShieldAlert" title={`${oodCount} 条 OOD 候选`} description="只代表模型拒识，需要人工确认后才进入 OOD 压力池。" action="查看" to="/review" tone="risk" />
+            <TaskItem icon="Gauge" title={`${lowConfidenceCount} 条低置信`} description="置信度低于阈值，建议确认最终类别或标记不确定。" action="查看" to="/review" tone="warn" />
+            <TaskItem icon="GitCompare" title={`${lowMarginCount} 条低间隔`} description="top-1 与 top-2 接近，优先检查易混类别。" action="查看" to="/review" tone="info" />
           </div>
         </Panel>
       </div>
@@ -968,22 +1042,159 @@ export function ReviewPage() {
 }
 
 export function ReviewDetailPage({ showToast }) {
-  const { reviewItemId = "sample-0817" } = useParams();
-  const item = reviewItems.find((row) => row.id === reviewItemId) ?? reviewItems[0];
+  const { reviewItemId = "" } = useParams();
+  const { reviewItem: item, loading, error, refresh } = useReviewItem(reviewItemId);
+  const submitState = useSubmitReviewOutcome(reviewItemId);
+  const [form, setForm] = useState({
+    finalOutcome: "corrected_label",
+    destination: "training_candidate",
+    finalLabel: "",
+    reviewerNote: "",
+  });
+
+  useEffect(() => {
+    setForm((current) => ({ ...current, destination: destinationForOutcome(current.finalOutcome) }));
+  }, [form.finalOutcome]);
+
+  function updateReviewField(field, value) {
+    setForm((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "finalOutcome") next.destination = destinationForOutcome(value);
+      return next;
+    });
+  }
+
+  async function handleSubmit() {
+    try {
+      await submitState.submit({
+        final_outcome: form.finalOutcome,
+        destination: form.destination,
+        final_label: form.finalLabel.trim() || null,
+        reviewer_note: form.reviewerNote.trim() || null,
+        reviewer: "local-reviewer",
+      });
+      showToast("复核结果已进入反馈池");
+      refresh();
+    } catch (submitError) {
+      showToast(submitError?.message ?? "复核提交失败");
+    }
+  }
+
+  if (loading) {
+    return (
+      <>
+        <PageHero title="复核详情" description="正在连接 Review API。" actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
+        <Panel title="加载中" caption="正在读取复核上下文。"><ProgressBar value={64} fill="#315fbd" shimmer /></Panel>
+      </>
+    );
+  }
+
+  if (!item || error) {
+    return (
+      <>
+        <PageHero title="复核项不存在" description={error?.message ?? "Review API 没有返回这个复核项。"} actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
+        <Panel title="无法打开复核详情" caption="请从真实队列中选择一个待复核样本。"><StatusChip tone="risk">not found</StatusChip></Panel>
+      </>
+    );
+  }
+
+  const risk = reviewRisk(item);
+  const statusInfo = reviewStatus(item);
+  const candidateLabels = Array.from(new Set(item.topK.map((candidate) => candidate.label).filter(Boolean)));
+  const requiresLabel = ["confirmed_label", "corrected_label"].includes(form.finalOutcome);
+  const canSubmit =
+    item.status === "pending" &&
+    submitState.status !== "submitting" &&
+    form.finalOutcome &&
+    form.destination &&
+    (!requiresLabel || form.finalLabel.trim());
+
   return (
     <>
-      <PageHero title={item.title} description={item.assistance} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><button className="primary-button" disabled><Icon name="Check" size={16} />复核提交待接入</button></>} />
+      <PageHero title={item.sampleId || item.id} description={`${item.datasetVersionId} · ${item.modelVersionId} · ${item.reason}`} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip></>} />
       <div className="grid detail">
-        <Panel title="图像对比" caption="原图、主体裁剪、SAM3 mask 和近邻。">
-          <VisualPlaceholder type={item.visualType} label="原图" low={item.route !== "ood"} />
-          <div className="image-grid compact section-gap-small"><VisualCard type={item.visualType} label="SAM3 mask" /><VisualCard type="bird" label="近邻正例" /><VisualCard type="ood" label="hard negative" /></div>
+        <Panel title="模型证据" caption="保留推理当时的 top-k、阈值原因和近邻证据。">
+          <VisualPlaceholder type={risk.visualType} label={item.sampleId || item.inputRef || item.id} low={item.riskType !== "ood_candidate"} />
+          <div className="chips section-gap-small">
+            <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
+            <StatusChip tone="info">priority {item.priority}</StatusChip>
+            <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{item.decision.value}</StatusChip>
+          </div>
+          <div className="section-gap-small">
+            {item.topK.length > 0 ? (
+              item.topK.map((candidate, index) => (
+                <CandidateBar label={candidate.label} score={candidate.score} fill={index === 0 ? "#0891b2" : index === 1 ? "#a15c07" : "#315fbd"} key={`${candidate.label}-${index}`} />
+              ))
+            ) : (
+              <div className="row-meta">没有 top-k 候选。</div>
+            )}
+          </div>
+          <div className="code-panel section-gap-small">decision: {item.decision.value}<br />reason: {item.reasonCodes.join(", ") || "none"}<br />confidence: {item.decision.confidence.toFixed(4)}<br />margin: {item.decision.margin.toFixed(4)}<br />ood_score: {item.decision.oodScore ?? "n/a"}</div>
+          <div className="panel-title embedded"><div><h2>近邻证据</h2><span>辅助解释，不作为真值。</span></div></div>
+          {item.nearestNeighbors.length > 0 ? (
+            <div className="timeline">
+              {item.nearestNeighbors.map((neighbor) => (
+                <div className="timeline-item" key={neighbor.sampleId}>
+                  <div className="timeline-icon"><Icon name="GitCompare" size={18} /></div>
+                  <div><strong>{neighbor.sampleId}</strong><div className="row-meta">{neighbor.label} · distance {neighbor.distance?.toFixed(4) ?? "n/a"}</div></div>
+                  <StatusChip tone="info">NN</StatusChip>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="row-meta">暂无近邻证据。</div>
+          )}
         </Panel>
-        <Panel title="审核表单" caption="人工标签是唯一可回流真值。" action={<StatusChip tone={riskTone(item.route)}>{item.risk}</StatusChip>}>
+        <Panel title="人工复核" caption="人工结论进入反馈池；后续数据版本构建再决定是否采纳。" action={<StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>}>
           <div className="grid">
-            <div className="card"><h3>模型候选</h3><CandidateBar label={item.modelCandidate.label} score={item.modelCandidate.score} /><CandidateBar label={item.secondCandidate.label} score={item.secondCandidate.score} fill="#a15c07" /></div>
-            <div className="card"><h3>LLM 建议</h3><p>{item.assistance}</p><StatusChip tone="info">辅助判断，不写入真值</StatusChip></div>
-            <div className="field-grid"><div className="field"><label>最终标签</label><select><option>普通石鵖</option><option>黑喉石鵖</option><option>OOD</option><option>坏图</option></select></div><div className="field"><label>回流目标</label><select><option>训练候选池</option><option>压力集</option><option>坏图池</option><option>争议池</option></select></div></div>
-            <div className="field"><label>审核备注</label><textarea defaultValue="喉部色块不明显，建议保留到争议池二审。" /></div>
+            {item.feedback && (
+              <div className="code-panel">final_outcome: {item.feedback.final_outcome}<br />destination: {item.feedback.destination}<br />final_label: {item.feedback.final_label ?? "n/a"}<br />note: {item.feedback.reviewer_note ?? "none"}</div>
+            )}
+            {!item.feedback && (
+              <>
+                <div className="field-grid">
+                  <div className="field">
+                    <label>最终结论</label>
+                    <select value={form.finalOutcome} onChange={(event) => updateReviewField("finalOutcome", event.target.value)}>
+                      <option value="corrected_label">纠正类别</option>
+                      <option value="confirmed_label">确认模型类别</option>
+                      <option value="ood">确认 OOD</option>
+                      <option value="bad_image">坏图</option>
+                      <option value="uncertain">仍不确定</option>
+                      <option value="ignore">忽略</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>反馈池</label>
+                    <select value={form.destination} onChange={(event) => updateReviewField("destination", event.target.value)}>
+                      <option value="training_candidate">训练候选池</option>
+                      <option value="ood_stress">OOD 压力池</option>
+                      <option value="bad_image">坏图池</option>
+                      <option value="taxonomy_dispute">类别争议池</option>
+                      <option value="ignore">忽略池</option>
+                    </select>
+                  </div>
+                  <div className="field full-span">
+                    <label>最终标签</label>
+                    <input list="review-label-options" value={form.finalLabel} onChange={(event) => updateReviewField("finalLabel", event.target.value)} disabled={!requiresLabel} placeholder={requiresLabel ? "选择或输入最终类别" : "该结论不需要类别标签"} />
+                    <datalist id="review-label-options">
+                      {candidateLabels.map((label) => (
+                        <option value={label} key={label}>{label}</option>
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>审核备注</label>
+                  <textarea value={form.reviewerNote} onChange={(event) => updateReviewField("reviewerNote", event.target.value)} placeholder="记录人工判断依据。" />
+                </div>
+                {submitState.error && <div className="row-meta">提交失败：{submitState.error.message}</div>}
+                <div className="toolbar">
+                  <button className="primary-button" onClick={handleSubmit} disabled={!canSubmit}><Icon name={submitState.status === "submitting" ? "LoaderCircle" : "Check"} size={16} />{submitState.status === "submitting" ? "提交中" : "提交复核"}</button>
+                  <button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>
+                </div>
+              </>
+            )}
           </div>
         </Panel>
       </div>
