@@ -764,6 +764,128 @@ function filterTrainingRuns(runs, statusFilter, sortMode) {
   });
 }
 
+const TRAINING_OUTPUTS = [
+  ["featureArtifactId", "特征缓存", "用于复用 frozen backbone 的 feature cache"],
+  ["modelArtifactId", "模型权重", "分类头训练产物"],
+  ["reportArtifactId", "训练报告", "评估指标和发布判断依据"],
+  ["calibrationArtifactId", "校准参数", "置信度校准产物"],
+  ["thresholdStrategyArtifactId", "阈值策略", "覆盖率 / selective risk 扫描产物"],
+];
+
+function trainingRunOutputItems(run) {
+  return TRAINING_OUTPUTS.map(([field, label, description]) => ({
+    field,
+    label,
+    description,
+    value: run?.[field] ?? null,
+  }));
+}
+
+function missingTrainingRunOutputs(run) {
+  return trainingRunOutputItems(run).filter((item) => !item.value);
+}
+
+function trainingRunNextActions(run, missingOutputs) {
+  if (run.status === "cancelled") {
+    return ["训练已取消；如需继续，请确认输入数据和参数后重新创建训练运行。"];
+  }
+
+  if (run.status === "failed" || run.error) {
+    const actions = ["查看 Training worker 日志，优先用 jobId 对齐后端任务。"];
+    if (!run.jobId) actions.push("确认 Training API 是否返回 job_id，避免前端无法跳转到任务日志。");
+    if (!run.datasetVersionId) actions.push("补齐 datasetVersionId；没有数据快照无法判断训练输入。");
+    if (missingOutputs.some((item) => item.field === "featureArtifactId")) actions.push("先确认特征抽取是否完成，必要时重跑 feature cache。");
+    if (missingOutputs.some((item) => item.field === "modelArtifactId")) actions.push("定位分类头训练阶段失败原因，再决定是否调整 head_config 后重跑。");
+    if (missingOutputs.some((item) => ["calibrationArtifactId", "thresholdStrategyArtifactId"].includes(item.field))) actions.push("若模型权重已生成，补跑校准和阈值扫描以恢复发布判断。");
+    return actions;
+  }
+
+  if (["queued", "running"].includes(run.status)) {
+    return ["等待 worker 写入下一阶段产物；缺失项在运行中只代表尚未生成。"];
+  }
+
+  if (missingOutputs.length > 0) {
+    return ["训练已结束但产物未齐，检查 API 响应和 artifact store 写入是否一致。"];
+  }
+
+  return ["产物链路齐全，可进入候选模型评审或后续推理验证。"];
+}
+
+function TrainingRunDiagnostics({ run }) {
+  const statusInfo = trainingStatus(run);
+  const outputItems = trainingRunOutputItems(run);
+  const missingOutputs = missingTrainingRunOutputs(run);
+  const hasFailureSignal = run.status === "failed" || Boolean(run.error);
+  const hasStoppedSignal = hasFailureSignal || run.status === "cancelled";
+  const actions = trainingRunNextActions(run, missingOutputs);
+  const summary = hasStoppedSignal
+    ? run.status === "cancelled"
+      ? "Training API 标记该 run 为 cancelled，产物缺失不代表训练失败。"
+      : run.error || "Training API 标记该 run 为 failed，但没有返回 error 文本。"
+    : ["queued", "running"].includes(run.status)
+      ? "训练仍在进行，产物缺失通常表示该阶段尚未完成。"
+      : missingOutputs.length > 0
+        ? "训练未报告失败，但产物链路还不完整。"
+        : "当前没有失败信号，lineage 和主要产物已可追踪。";
+
+  return (
+    <Panel
+      title={hasFailureSignal ? "失败诊断" : "Lineage 与产物状态"}
+      caption={hasFailureSignal ? "从 error、job 和缺失产物定位失败阶段。" : "轻量展示输入、候选输出和 artifact 完整度。"}
+      action={<StatusChip tone={hasFailureSignal ? "risk" : statusInfo.tone}>{statusInfo.label}</StatusChip>}
+    >
+      <div className={`diagnostic-callout ${hasFailureSignal ? "risk" : ""}`}>
+        <div className="timeline-icon">
+          <Icon name={hasFailureSignal ? "AlertTriangle" : "GitCompare"} size={18} />
+        </div>
+        <div>
+          <strong>{hasFailureSignal ? "训练失败信号" : run.status === "cancelled" ? "训练已取消" : "当前链路状态"}</strong>
+          <div className="row-meta">{summary}</div>
+        </div>
+      </div>
+      <div className="lineage-grid section-gap-small">
+        <div>
+          <span>jobId</span>
+          <strong>{run.jobId ?? "未返回"}</strong>
+        </div>
+        <div>
+          <span>datasetVersionId</span>
+          <strong>{run.datasetVersionId ?? "未绑定"}</strong>
+        </div>
+        <div>
+          <span>modelVersionId</span>
+          <strong>{run.modelVersionId ?? "未生成"}</strong>
+        </div>
+        <div>
+          <span>error</span>
+          <strong>{run.error ?? "无"}</strong>
+        </div>
+      </div>
+      <div className="artifact-list section-gap-small">
+        {outputItems.map((item) => (
+          <div className="artifact-row" key={item.field}>
+            <div>
+              <strong>{item.label}</strong>
+              <div className="row-meta">{item.value ?? item.description}</div>
+            </div>
+            <StatusChip tone={item.value ? "default" : hasFailureSignal ? "risk" : "warn"}>
+              {item.value ? "已生成" : "缺失"}
+            </StatusChip>
+          </div>
+        ))}
+      </div>
+      <div className="next-actions section-gap-small">
+        <strong>建议下一步</strong>
+        <ul>
+          {actions.map((action) => (
+            <li key={action}>{action}</li>
+          ))}
+        </ul>
+      </div>
+    </Panel>
+  );
+}
+
 export function TrainingPage({ showToast }) {
   const [trainingSearchParams, setTrainingSearchParams] = useSearchParams();
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
@@ -961,28 +1083,34 @@ export function TrainingDetailPage({ showToast }) {
   }
 
   const metrics = run.metrics ?? {};
-  const accuracy = Number.isFinite(Number(metrics.accuracy)) ? Math.round(Number(metrics.accuracy) * 1000) / 10 : 91.9;
-  const macroF1 = Number.isFinite(Number(metrics.macro_f1)) ? Math.round(Number(metrics.macro_f1) * 1000) / 10 : 88.4;
-  const coverage = Number.isFinite(Number(metrics.expected_coverage)) ? Math.round(Number(metrics.expected_coverage) * 100) : 86;
-  const reviewCost = Number.isFinite(Number(metrics.expected_selective_risk)) ? `${(Number(metrics.expected_selective_risk) * 100).toFixed(2)}% risk` : "+4%";
+  const accuracy = Number.isFinite(Number(metrics.accuracy)) ? Math.round(Number(metrics.accuracy) * 1000) / 10 : null;
+  const macroF1 = Number.isFinite(Number(metrics.macro_f1)) ? Math.round(Number(metrics.macro_f1) * 1000) / 10 : null;
+  const coverage = Number.isFinite(Number(metrics.expected_coverage)) ? Math.round(Number(metrics.expected_coverage) * 100) : null;
+  const reviewCost = Number.isFinite(Number(metrics.expected_selective_risk)) ? `${(Number(metrics.expected_selective_risk) * 100).toFixed(2)}% risk` : "待生成";
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
   return (
     <>
       <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="ExternalLink" size={16} />产物 API 待接入</button></>} />
       <div className="grid metrics">
         <MetricCard title="进度" value={`${run.progress}%`} caption={trainingStatus(run).label} fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
-        <MetricCard title="Val Acc" value={`${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy} icon="Target" />
-        <MetricCard title="Macro F1" value={`${macroF1}%`} caption={run.reportArtifactId ?? "报告待生成"} fill="#315fbd" percent={macroF1} icon="BarChart3" />
-        <MetricCard title="复核压力" value={reviewCost} caption="selective risk / review cost" fill="#b4233c" percent={coverage} icon="UserCheck" />
+        <MetricCard title="Val Acc" value={accuracy === null ? "待生成" : `${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy ?? 0} icon="Target" />
+        <MetricCard title="Macro F1" value={macroF1 === null ? "待生成" : `${macroF1}%`} caption={run.reportArtifactId ?? "报告待生成"} fill="#315fbd" percent={macroF1 ?? 0} icon="BarChart3" />
+        <MetricCard title="复核压力" value={reviewCost} caption="selective risk / review cost" fill="#b4233c" percent={coverage ?? 0} icon="UserCheck" />
       </div>
       <div className="grid two section-gap">
         <Panel title="运行步骤" caption="每一步都应有产物和失败恢复点。">
-          <div className="timeline"><GateRow title="数据快照" description={`${run.datasetVersionId} locked`} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
+          <div className="timeline"><GateRow title="数据快照" description={run.datasetVersionId ? `${run.datasetVersionId} locked` : "等待绑定数据快照"} result={run.datasetVersionId ? "pass" : "pending"} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
         </Panel>
+        <TrainingRunDiagnostics run={run} />
+      </div>
+      <div className="grid two section-gap">
         <Panel title="候选发布判断" caption="不要只看 accuracy。">
-          <CurveRow label="accuracy" value={`${accuracy}%`} percent={accuracy} fill="#0f766e" />
-          <CurveRow label="coverage" value={`${coverage}%`} percent={coverage} fill="#315fbd" />
-          <CurveRow label="review cost" value={reviewCost} percent={54} fill="#a15c07" />
+          <CurveRow label="accuracy" value={accuracy === null ? "待生成" : `${accuracy}%`} percent={accuracy ?? 0} fill="#0f766e" />
+          <CurveRow label="coverage" value={coverage === null ? "待生成" : `${coverage}%`} percent={coverage ?? 0} fill="#315fbd" />
+          <CurveRow label="review cost" value={reviewCost} percent={coverage ?? 0} fill="#a15c07" />
+        </Panel>
+        <Panel title="产物元数据" caption="原始字段便于和 API / artifact store 对账。">
+          <div className="code-panel">run: {run.id}<br />job: {run.jobId ?? "n/a"}<br />dataset: {run.datasetVersionId ?? "n/a"}<br />model_version: {run.modelVersionId ?? "n/a"}<br />feature: {run.featureArtifactId ?? "n/a"}<br />model_artifact: {run.modelArtifactId ?? "n/a"}<br />report: {run.reportArtifactId ?? "n/a"}<br />calibration: {run.calibrationArtifactId ?? "n/a"}<br />threshold_strategy: {run.thresholdStrategyArtifactId ?? "n/a"}<br />error: {run.error ?? "n/a"}</div>
         </Panel>
       </div>
     </>

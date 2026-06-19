@@ -44,9 +44,30 @@ if (detail.thresholdStrategyArtifactId !== "dataset@toy-001-run-db-001-threshold
   throw new Error("Threshold strategy artifact id missing");
 }
 
-const failedRun = normalizeTrainingRun({ run_id: "run-failed", status: "failed", error: "boom" });
-if (failedRun.status !== "failed" || failedRun.error !== "boom" || failedRun.progress !== 100) {
+const failedRun = normalizeTrainingRun({
+  run_id: "run-failed",
+  status: "failed",
+  error: "feature cache missing",
+  job_id: "job-train-failed",
+  dataset_version_id: "dataset@broken-001",
+  model_version_id: "broken-candidate-v1",
+  feature_artifact_id: "feature:dataset@broken-001:color_stats_v1:def456",
+});
+if (
+  failedRun.status !== "failed" ||
+  failedRun.error !== "feature cache missing" ||
+  failedRun.progress !== 100
+) {
   throw new Error("Failed training run was not normalized");
+}
+if (failedRun.jobId !== "job-train-failed") throw new Error("Failed run job id missing");
+if (failedRun.datasetVersionId !== "dataset@broken-001") throw new Error("Failed run dataset version id missing");
+if (failedRun.modelVersionId !== "broken-candidate-v1") throw new Error("Failed run model version id missing");
+if (failedRun.featureArtifactId !== "feature:dataset@broken-001:color_stats_v1:def456") {
+  throw new Error("Failed run feature artifact id missing");
+}
+if (failedRun.modelArtifactId !== null || failedRun.reportArtifactId !== null) {
+  throw new Error("Missing failed run artifacts should normalize to null");
 }
 
 console.log("training api client smoke passed");
