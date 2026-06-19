@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 
 from finevision.api import create_app
 from finevision.api.db_store import DatabaseJobStore
-from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs
+from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, model_versions, training_runs
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
 from finevision.worker import run_next_job
 
@@ -225,11 +225,85 @@ def test_database_job_claim_is_transactional(database_url: str) -> None:
     assert first_worker.get_job(job.job_id).status == "succeeded"  # type: ignore[union-attr]
 
 
+def test_database_backed_training_run_executes_toolkit_flow(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "toy-imagefolder", samples_per_class=5)
+    artifact_dir = tmp_path / "artifacts"
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("FINEVISION_ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    import_response = client.post(
+        "/api/datasets/import-imagefolder",
+        json={
+            "path": str(dataset_dir),
+            "dataset_id": "train-toy",
+            "dataset_version_id": "dataset@train-toy-001",
+        },
+    )
+    assert import_response.status_code == 201
+
+    create_run_response = client.post(
+        "/api/training-runs",
+        json={
+            "dataset_version_id": "dataset@train-toy-001",
+            "extractor": "color_stats",
+            "backbone_id": "color_stats_v1",
+            "head_config": {"head_type": "ridge_linear", "ridge_lambda": 0.01},
+        },
+    )
+    assert create_run_response.status_code == 202
+    created_run = create_run_response.json()["training_run"]
+    assert created_run["status"] == "queued"
+    assert created_run["dataset_version_id"] == "dataset@train-toy-001"
+
+    completed_job = run_next_job()
+    assert completed_job is not None
+    assert completed_job.type == "train_classifier"
+    assert completed_job.status == "succeeded"
+    assert completed_job.result["training_run_id"] == created_run["run_id"]
+    assert completed_job.result["model_version_id"] is not None
+
+    detail_response = client.get(f"/api/training-runs/{created_run['run_id']}")
+    assert detail_response.status_code == 200
+    stored_run = detail_response.json()["training_run"]
+    assert stored_run["status"] == "succeeded"
+    assert stored_run["feature_artifact_id"].startswith("feature:dataset@train-toy-001:color_stats_v1:")
+    assert stored_run["model_artifact_id"] == f"dataset@train-toy-001-{created_run['run_id']}-linear-head"
+    assert stored_run["model_version_id"] is not None
+    assert stored_run["metrics"]["accuracy"] >= 0.0
+    assert stored_run["metrics"]["macro_f1"] >= 0.0
+    assert Path(artifact_dir / "features" / "dataset@train-toy-001-color_stats_v1" / "features.npz").exists()
+
+    list_response = client.get("/api/training-runs")
+    assert list_response.status_code == 200
+    assert [run["run_id"] for run in list_response.json()["training_runs"]] == [created_run["run_id"]]
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        artifact_types = set(conn.execute(sa.select(artifacts.c.artifact_type)).scalars().all())
+        assert conn.scalar(sa.select(sa.func.count()).select_from(training_runs)) == 1
+        assert conn.scalar(sa.select(sa.func.count()).select_from(model_versions)) == 1
+    assert {
+        "dataset_manifest",
+        "feature_matrix",
+        "model_artifact",
+        "training_report",
+        "calibration_report",
+        "threshold_sweep",
+        "threshold_strategy",
+    }.issubset(artifact_types)
+
+
 def _reset_database(database_url: str) -> None:
     engine = create_engine(database_url)
     with engine.begin() as conn:
         conn.execute(
             sa.text(
-                "TRUNCATE TABLE job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE model_versions, training_runs, job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
         )

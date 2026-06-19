@@ -511,9 +511,16 @@ Deferred to Iteration 2:
 
 ### Iteration 2: Training Metadata
 
-- Add `feature_artifacts`, `feature_indexes`, `training_runs`, and `model_versions`.
-- Convert feature extraction, training, evaluation, calibration, and threshold strategy generation into worker jobs.
-- Register every output file in `artifacts`.
+- Implemented: `20260619_0002` adds `training_runs` and `model_versions`.
+- Implemented: `train_classifier` worker jobs run feature extraction, linear-head training, evaluation, calibration, threshold sweep, and threshold strategy selection.
+- Implemented: feature matrix, model artifact, training report, calibration report, threshold sweep, and threshold strategy outputs are registered in `artifacts`.
+- Implemented: completed training runs create `model_versions.status = candidate`.
+- Implemented: feature reuse keys include dataset version, backbone, and extractor config hash.
+
+Current deliberate simplification:
+
+- Feature artifacts are represented in the generic `artifacts` table as `artifact_type = feature_matrix`; a dedicated `feature_artifacts` table is deferred until feature search/index lifecycle needs richer query semantics.
+- Feature indexes are deferred to Iteration 3, where inference needs nearest-neighbor evidence and OOD distance.
 
 ### Iteration 3: Inference And Review
 

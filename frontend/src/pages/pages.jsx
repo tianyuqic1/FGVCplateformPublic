@@ -1,7 +1,8 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { datasets, modelVersions, pipelineNodes, reviewItems, trainingRuns } from "../data/mockData.js";
+import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
+import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
 import { Icon } from "../components/icons.jsx";
 import {
   CandidateBar,
@@ -39,6 +40,14 @@ function jobStatus(job) {
 
 function jobTarget(job) {
   return job.datasetVersionId ?? job.datasetId ?? "未绑定数据集";
+}
+
+function trainingStatus(run) {
+  if (run.status === "succeeded" || run.status === "done") return { label: "完成", tone: "default", icon: "Check" };
+  if (run.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
+  if (run.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
+  if (run.status === "cancelled") return { label: "已取消", tone: "neutral", icon: "Ban" };
+  return { label: "排队中", tone: "info", icon: "Clock" };
 }
 
 function ReviewCard({ item }) {
@@ -97,11 +106,12 @@ function DatasetTable({ items = datasets }) {
 }
 
 function RunRow({ run }) {
-  const done = run.status === "done";
+  const state = trainingStatus(run);
+  const done = run.status === "succeeded" || run.status === "done";
   return (
     <Link className="timeline-item clickable" to={`/training/${run.id}`}>
       <div className="timeline-icon">
-        <Icon name={done ? "Check" : "LoaderCircle"} size={18} />
+        <Icon name={state.icon} size={18} />
       </div>
       <div>
         <strong>{run.name}</strong>
@@ -110,7 +120,7 @@ function RunRow({ run }) {
         </div>
         <ProgressBar value={run.progress} fill={done ? "#0f766e" : "#a15c07"} shimmer={!done} />
       </div>
-      <StatusChip tone={done ? "default" : "warn"}>{done ? "完成" : "运行中"}</StatusChip>
+      <StatusChip tone={state.tone}>{state.label}</StatusChip>
     </Link>
   );
 }
@@ -464,12 +474,14 @@ function ClassRow({ title, description, label, tone = "default" }) {
 }
 
 export function TrainingPage() {
+  const { trainingRuns: runItems, source, loading } = useTrainingRuns();
+  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
   return (
     <>
       <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<Link className="primary-button" to="/training/run-042"><Icon name="Plus" size={16} />新建训练</Link>} />
       <div className="grid two">
-        <Panel title="训练队列" caption="点击进入运行详情。">
-          <div className="timeline">{trainingRuns.map((run) => <RunRow run={run} key={run.id} />)}</div>
+        <Panel title="训练队列" caption={`${sourceLabel} · 点击进入运行详情。`}>
+          <div className="timeline">{runItems.map((run) => <RunRow run={run} key={run.id} />)}</div>
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
           <div className="code-panel">backbone: dinov3_vitl<br />feature_cache: true<br />head: linear<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
@@ -481,24 +493,30 @@ export function TrainingPage() {
 
 export function TrainingDetailPage({ showToast }) {
   const { runId = "run-042" } = useParams();
-  const run = trainingRuns.find((item) => item.id === runId) ?? trainingRuns[0];
+  const { trainingRun: run, source, loading } = useTrainingRun(runId);
+  const metrics = run.metrics ?? {};
+  const accuracy = Number.isFinite(Number(metrics.accuracy)) ? Math.round(Number(metrics.accuracy) * 1000) / 10 : 91.9;
+  const macroF1 = Number.isFinite(Number(metrics.macro_f1)) ? Math.round(Number(metrics.macro_f1) * 1000) / 10 : 88.4;
+  const coverage = Number.isFinite(Number(metrics.expected_coverage)) ? Math.round(Number(metrics.expected_coverage) * 100) : 86;
+  const reviewCost = Number.isFinite(Number(metrics.expected_selective_risk)) ? `${(Number(metrics.expected_selective_risk) * 100).toFixed(2)}% risk` : "+4%";
+  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
   return (
     <>
-      <PageHero title={run.name} description={`${run.datasetName} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已打开 TensorBoard 日志")}><Icon name="ExternalLink" size={16} />日志</button></>} />
+      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已打开训练产物")}><Icon name="ExternalLink" size={16} />产物</button></>} />
       <div className="grid metrics">
-        <MetricCard title="进度" value={`${run.progress}%`} caption="epoch 13 / 18" fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
-        <MetricCard title="Val Acc" value="91.9%" caption="比 v4 +0.3%" fill="#0f766e" percent={91} icon="Target" />
-        <MetricCard title="Macro F1" value="88.4%" caption="长尾类仍偏低" fill="#315fbd" percent={88} icon="BarChart3" />
-        <MetricCard title="复核压力" value="+4%" caption="覆盖率提高带来的成本" fill="#b4233c" percent={44} icon="UserCheck" />
+        <MetricCard title="进度" value={`${run.progress}%`} caption={trainingStatus(run).label} fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
+        <MetricCard title="Val Acc" value={`${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy} icon="Target" />
+        <MetricCard title="Macro F1" value={`${macroF1}%`} caption={run.reportArtifactId ?? "报告待生成"} fill="#315fbd" percent={macroF1} icon="BarChart3" />
+        <MetricCard title="复核压力" value={reviewCost} caption="selective risk / review cost" fill="#b4233c" percent={coverage} icon="UserCheck" />
       </div>
       <div className="grid two section-gap">
         <Panel title="运行步骤" caption="每一步都应有产物和失败恢复点。">
-          <div className="timeline"><GateRow title="数据快照" description="dataset@014 locked" /><GateRow title="特征缓存" description="embedding@014 loaded" /><GateRow title="分类头训练" description="epoch 13 / 18 running" result="pending" /><GateRow title="阈值扫描" description="等待训练完成" result="pending" /></div>
+          <div className="timeline"><GateRow title="数据快照" description={`${run.datasetVersionId} locked`} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
         </Panel>
         <Panel title="候选发布判断" caption="不要只看 accuracy。">
-          <CurveRow label="accuracy" value="91.9%" percent={91} fill="#0f766e" />
-          <CurveRow label="coverage" value="86%" percent={86} fill="#315fbd" />
-          <CurveRow label="review cost" value="预计 +¥32/day" percent={54} fill="#a15c07" />
+          <CurveRow label="accuracy" value={`${accuracy}%`} percent={accuracy} fill="#0f766e" />
+          <CurveRow label="coverage" value={`${coverage}%`} percent={coverage} fill="#315fbd" />
+          <CurveRow label="review cost" value={reviewCost} percent={54} fill="#a15c07" />
         </Panel>
       </div>
     </>

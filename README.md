@@ -128,6 +128,9 @@ GET  /api/dataset-versions/{dataset_version_id}/readiness
 POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
+POST /api/training-runs
+GET  /api/training-runs
+GET  /api/training-runs/{run_id}
 ```
 
 Run the local service boundary:
@@ -154,7 +157,17 @@ DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevisio
 Run PostgreSQL-backed repository tests:
 
 ```text
+docker compose stop ml-worker
 FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run pytest backend/tests/test_db_stores.py
+```
+
+Run frontend API client smoke checks:
+
+```text
+cd frontend
+npm run smoke:api-client
+npm run smoke:jobs-client
+npm run smoke:training-client
 ```
 
 More detail:

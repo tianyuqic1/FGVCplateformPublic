@@ -89,3 +89,53 @@ job_events = sa.Table(
     sa.Column("payload", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
+
+training_runs = sa.Table(
+    "training_runs",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("run_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("job_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("jobs.id"), nullable=False),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("backbone_id", sa.Text(), nullable=False),
+    sa.Column("extractor_config", postgresql.JSONB(), nullable=False),
+    sa.Column("head_config", postgresql.JSONB(), nullable=False),
+    sa.Column("feature_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("model_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("report_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("calibration_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("threshold_strategy_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("metrics", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("error_message", sa.Text()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True)),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "status in ('queued', 'running', 'succeeded', 'failed', 'cancelled')",
+        name="ck_training_runs_status",
+    ),
+)
+
+model_versions = sa.Table(
+    "model_versions",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("model_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
+    sa.Column("training_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("training_runs.id"), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("model_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id"), nullable=False),
+    sa.Column("calibration_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("threshold_strategy_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("metrics", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "status in ('candidate', 'staging', 'production', 'archived', 'failed')",
+        name="ck_model_versions_status",
+    ),
+)

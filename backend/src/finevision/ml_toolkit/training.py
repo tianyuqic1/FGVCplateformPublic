@@ -39,6 +39,7 @@ def train_linear_head(
     artifact_root: str | Path,
     run_id: str = "run-smoke",
     ridge_lambda: float = 1e-2,
+    artifact_id: str | None = None,
 ) -> tuple[ModelArtifact, TrainingRunReport, np.ndarray]:
     labels = list(feature_artifact.labels)
     classes = sorted(set(labels))
@@ -74,7 +75,7 @@ def train_linear_head(
         },
     )
 
-    artifact_id = f"{feature_artifact.dataset_version_id}-linear-head"
+    artifact_id = artifact_id or f"{feature_artifact.dataset_version_id}-linear-head"
     artifact_dir = Path(artifact_root) / artifact_id
     model_artifact = ModelArtifact(
         artifact_id=artifact_id,

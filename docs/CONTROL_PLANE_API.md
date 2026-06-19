@@ -1,6 +1,6 @@
 # Control-plane API
 
-This document records the Iteration 1 and 1.5 control-plane API slices.
+This document records the Iteration 1 through Iteration 2 control-plane API slices.
 
 ## Boundary
 
@@ -14,11 +14,13 @@ Current scope:
 - Dataset readiness reads
 - Job creation and job status reads
 - Worker execution for queued ImageFolder import jobs
-- Local JSON metadata persistence
+- Worker execution for queued training jobs
+- PostgreSQL metadata persistence when `DATABASE_URL` is configured
 - Frontend dataset pages connected to the API with mock fallback
 - Frontend pipeline page connected to job status with mock fallback
+- Frontend training pages connected to training-run status with mock fallback
 
-The ML/data toolkit remains the compute kernel. Iteration 1.5 introduces a worker process that calls toolkit functions outside the request path.
+The ML/data toolkit remains the compute kernel. API request handlers create metadata and queued jobs; the worker executes feature extraction, classifier-head training, calibration, threshold sweeps, and artifact writes outside the request path.
 
 ## Run
 
@@ -77,6 +79,9 @@ POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
 POST /api/jobs/{job_id}/cancel
+POST /api/training-runs
+GET  /api/training-runs
+GET  /api/training-runs/{run_id}
 ```
 
 Import request:
@@ -127,6 +132,51 @@ Job status values:
 queued, running, succeeded, failed, cancelled
 ```
 
+Training run request:
+
+```json
+{
+  "dataset_version_id": "dataset@cifar10-mini-001",
+  "backbone_id": "color_stats_v1",
+  "extractor": "color_stats",
+  "head_config": {
+    "head_type": "ridge_linear",
+    "ridge_lambda": 0.01
+  },
+  "target_selective_risk": 0.01,
+  "review_cost_per_item": 1.0
+}
+```
+
+Training run response shape:
+
+```json
+{
+  "training_run": {
+    "run_id": "run-abc123",
+    "status": "queued",
+    "job_id": "job-def456",
+    "dataset_id": "cifar10-mini",
+    "dataset_version_id": "dataset@cifar10-mini-001",
+    "backbone_id": "color_stats_v1",
+    "feature_artifact_id": null,
+    "model_artifact_id": null,
+    "model_version_id": null,
+    "report_artifact_id": null,
+    "calibration_artifact_id": null,
+    "threshold_strategy_artifact_id": null,
+    "metrics": {}
+  },
+  "job": {
+    "job_id": "job-def456",
+    "type": "train_classifier",
+    "status": "queued"
+  }
+}
+```
+
+Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent.
+
 Dataset summary response shape:
 
 ```json
@@ -157,6 +207,8 @@ dataset_versions
 artifacts
 jobs
 job_events
+training_runs
+model_versions
 ```
 
 Dataset manifests are kept as `dataset_manifest` artifacts. The full manifest JSON is stored in
@@ -166,6 +218,11 @@ keeping large future artifacts outside the database.
 
 Jobs are stored in `jobs`. Job lifecycle transitions append rows to `job_events` so the UI can later
 show durable pipeline history without parsing worker stdout.
+
+Training runs are stored in `training_runs`. Completed runs register feature, model, report,
+calibration, threshold sweep, and threshold strategy artifacts in `artifacts`, then create a
+candidate row in `model_versions`. Feature reuse uses an artifact key containing dataset version,
+backbone, and an extractor config hash.
 
 Run migrations before starting API and worker against a fresh database:
 
@@ -213,6 +270,7 @@ now flows through PostgreSQL by default.
 uv run --group dev pytest
 cd frontend && npm run smoke:api-client
 cd frontend && npm run smoke:jobs-client
+cd frontend && npm run smoke:training-client
 cd frontend && npm run build
 cd frontend && npm run smoke:routes
 docker compose config
@@ -221,10 +279,11 @@ docker compose config
 Current verified result:
 
 ```text
-backend: 8 passed, 5 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
-db integration: 5 passed against local PostgreSQL
+backend: 10 passed, 6 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
+db integration: 6 passed against local PostgreSQL
 frontend api client: passed
 frontend jobs client: passed
+frontend training client: passed
 frontend build: passed
 frontend routes: 16 x 200
 docker compose config: passed
@@ -233,4 +292,4 @@ worker --once CLI smoke: passed
 
 ## Next
 
-Iteration 2 should move feature extraction, training, evaluation, calibration, and threshold strategy generation behind the database-backed worker job lifecycle. The API should continue to create jobs and expose metadata/status; the worker should own compute execution and artifact writes.
+Iteration 3 should connect scoped inference and abstention to the model/version metadata produced by Iteration 2.

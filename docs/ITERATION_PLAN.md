@@ -357,6 +357,8 @@ Suggested checkpoint pushes:
 
 Objective: turn the toolkit training flow into tracked platform operations executed by the worker and observed through the API.
 
+Status: implemented as the first database-backed training/evaluation slice.
+
 Scope:
 
 - Bind feature extraction to dataset versions.
@@ -378,10 +380,21 @@ Deliverables:
 
 Acceptance:
 
-- A training run has a dataset version, feature artifact, backbone, head config, report, and status.
-- Completed runs produce candidate model versions.
-- Reports include accuracy, macro F1, top-k/candidate recall, per-class metrics, confusion information, and run configuration.
-- Tests cover feature reuse, training metadata, report content, calibration metadata, threshold strategy output, and threshold sweep outputs.
+- Done: a training run has a dataset version, feature artifact, backbone, head config, report, metrics, and status.
+- Done: completed runs produce candidate model versions.
+- Done: reports include accuracy, macro F1, per-class metrics, confusion information, and run configuration through the training report artifact.
+- Done: worker execution registers feature matrix, model artifact, training report, calibration report, threshold sweep, and threshold strategy artifacts.
+- Done: feature reuse keys include dataset version, backbone, and extractor config hash.
+- Done: training queue and detail views read `/api/training-runs` with mock fallback.
+- Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
+
+Implementation notes:
+
+- `20260619_0002` adds `training_runs` and `model_versions`.
+- `POST /api/training-runs` creates a business training run plus a `train_classifier` worker job.
+- `GET /api/training-runs` and `GET /api/training-runs/{run_id}` serve training queue/detail metadata.
+- `train_classifier` jobs are intentionally rejected through raw `POST /api/jobs`; they must be created through the training-run API so job and training metadata stay consistent.
+- Training services require PostgreSQL-backed persistence. The JSON adapter remains for dataset/job compatibility tests only.
 
 Suggested checkpoint pushes:
 

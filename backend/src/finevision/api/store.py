@@ -12,7 +12,7 @@ from finevision.ml_toolkit.artifacts import read_dataset_manifest, write_dataset
 from finevision.schemas.artifacts import DatasetManifest
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-JobType = Literal["import_imagefolder"]
+JobType = Literal["import_imagefolder", "train_classifier"]
 
 
 @dataclass(frozen=True)
