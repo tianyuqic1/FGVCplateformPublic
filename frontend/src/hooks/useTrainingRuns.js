@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getTrainingRun, listTrainingRuns } from "../api/trainingRuns.js";
 import { trainingRuns as mockTrainingRuns } from "../data/mockData.js";
 
@@ -24,7 +24,7 @@ export function useTrainingRuns() {
     error: null,
   });
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     let active = true;
     setState({ trainingRuns: fallbackRuns, source: "mock", loading: true, error: null });
 
@@ -48,7 +48,9 @@ export function useTrainingRuns() {
     };
   }, [fallbackRuns]);
 
-  return state;
+  useEffect(() => refresh(), [refresh]);
+
+  return { ...state, refresh };
 }
 
 export function useTrainingRun(runId) {

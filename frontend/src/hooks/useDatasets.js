@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDataset, listDatasets } from "../api/datasets.js";
 import { datasets as mockDatasets } from "../data/mockData.js";
 
@@ -19,15 +19,15 @@ export function useDatasets() {
     error: null,
   });
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     let active = true;
 
     listDatasets()
       .then((items) => {
         if (!active) return;
         setState({
-          datasets: items.length > 0 ? items.map(mergeDataset) : mockDatasets,
-          source: items.length > 0 ? "api" : "mock",
+          datasets: items.map(mergeDataset),
+          source: "api",
           loading: false,
           error: null,
         });
@@ -42,7 +42,9 @@ export function useDatasets() {
     };
   }, []);
 
-  return state;
+  useEffect(() => refresh(), [refresh]);
+
+  return { ...state, refresh };
 }
 
 export function useDataset(datasetId) {

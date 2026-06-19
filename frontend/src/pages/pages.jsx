@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
+import { importImagefolder } from "../api/datasets.js";
 import { runInference } from "../api/inference.js";
+import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
@@ -197,9 +199,9 @@ export function DashboardPage({ showToast }) {
         description="这里不再是展示页，而是每天打开后能行动的算法平台工作台：看待处理队列、训练状态、数据风险、模型发布门禁和 OOD 告警。"
         actions={
           <>
-            <button className="ghost-button" onClick={() => showToast("已刷新生产状态")}>
+            <button className="ghost-button" disabled>
               <Icon name="RefreshCw" size={16} />
-              刷新
+              生产刷新待接入
             </button>
             <Link className="primary-button" to="/review">
               <Icon name="UserCheck" size={16} />
@@ -227,7 +229,7 @@ export function DashboardPage({ showToast }) {
         >
           <div className="timeline">
             <TaskItem icon="AlertTriangle" title="处理 17 条高风险复核样本" description="其中 5 条疑似 OOD，可能影响生产指标。" action="现在处理" to="/review" tone="risk" />
-            <TaskItem icon="CircleGauge" title="确认 bird-cls-v5 阈值策略" description="候选模型准确率略升，但复核压力增加 4%。" action="打开训练" to="/training/run-042" tone="warn" />
+            <TaskItem icon="CircleGauge" title="确认候选模型阈值策略" description="候选模型准确率略升，但复核压力增加 4%。" action="打开训练" to="/training" tone="warn" />
             <TaskItem icon="DatabaseZap" title="工业零件数据集特征漂移" description="近 24 小时 embedding 分布偏离训练集。" action="看数据集" to="/datasets/defect" tone="info" />
           </div>
         </Panel>
@@ -262,8 +264,42 @@ export function DashboardPage({ showToast }) {
 }
 
 export function DatasetsPage({ showToast }) {
-  const { datasets: datasetItems, source, loading } = useDatasets();
+  const { datasets: datasetItems, source, loading, refresh } = useDatasets();
+  const [showImport, setShowImport] = useState(false);
+  const [importForm, setImportForm] = useState({
+    path: "/app/data/test/cifar10-mini-imagefolder",
+    datasetId: "cifar10-mini",
+    datasetVersionId: "dataset@cifar10-mini-001",
+  });
+  const [importState, setImportState] = useState({ status: "idle", result: null, error: null });
   const sourceLabel = source === "api" ? "Control-plane API" : "本地预览数据";
+  const canImport =
+    importState.status !== "running" &&
+    importForm.path.trim() &&
+    importForm.datasetId.trim() &&
+    importForm.datasetVersionId.trim();
+
+  function updateImportField(field, value) {
+    setImportForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleImportDataset() {
+    if (!canImport) return;
+    setImportState({ status: "running", result: null, error: null });
+    try {
+      const result = await importImagefolder({
+        path: importForm.path.trim(),
+        dataset_id: importForm.datasetId.trim(),
+        dataset_version_id: importForm.datasetVersionId.trim(),
+      });
+      setImportState({ status: "succeeded", result, error: null });
+      refresh();
+      showToast("数据集导入完成，列表已刷新");
+    } catch (error) {
+      setImportState({ status: "failed", result: null, error });
+      showToast("数据集导入失败");
+    }
+  }
 
   return (
     <>
@@ -271,12 +307,51 @@ export function DatasetsPage({ showToast }) {
         title="每个分类任务都是一个独立资产。"
         description="数据集不仅是图片目录，还包括类别体系、样本质量、特征索引、OOD 压力集、阈值策略和模型版本绑定。"
         actions={
-          <button className="primary-button" onClick={() => showToast("打开数据集导入向导")}>
+          <button className="primary-button" onClick={() => setShowImport((value) => !value)}>
             <Icon name="FolderInput" size={16} />
             导入数据集
           </button>
         }
       />
+      {showImport && (
+        <Panel
+          title="导入 ImageFolder"
+          caption="Docker 环境默认挂载 ./data 到 /app/data，只能导入 API 容器可访问的路径。"
+          action={<StatusChip tone={importState.status === "failed" ? "risk" : importState.status === "succeeded" ? "default" : "info"}>{importState.status}</StatusChip>}
+        >
+          <div className="field-grid">
+            <div className="field">
+              <label>路径</label>
+              <input value={importForm.path} onChange={(event) => updateImportField("path", event.target.value)} placeholder="/app/data/..." />
+            </div>
+            <div className="field">
+              <label>dataset_id</label>
+              <input value={importForm.datasetId} onChange={(event) => updateImportField("datasetId", event.target.value)} placeholder="cifar10-mini" />
+            </div>
+            <div className="field">
+              <label>dataset_version_id</label>
+              <input value={importForm.datasetVersionId} onChange={(event) => updateImportField("datasetVersionId", event.target.value)} placeholder="dataset@cifar10-mini-001" />
+            </div>
+            <div className="field">
+              <label>执行</label>
+              <button className="primary-button" onClick={handleImportDataset} disabled={!canImport}>
+                <Icon name={importState.status === "running" ? "LoaderCircle" : "FolderInput"} size={16} />
+                {importState.status === "running" ? "导入中" : "开始导入"}
+              </button>
+            </div>
+          </div>
+          {importState.result?.version && (
+            <div className="chips section-gap-small">
+              <StatusChip tone={importState.result.version.readiness?.ready ? "default" : "warn"}>
+                {importState.result.version.readiness?.ready ? "ready" : "not ready"}
+              </StatusChip>
+              <StatusChip tone="info">{importState.result.version.sample_count ?? 0} samples</StatusChip>
+              <StatusChip tone="info">{importState.result.version.class_count ?? 0} classes</StatusChip>
+            </div>
+          )}
+          {importState.error && <div className="row-meta section-gap-small">{importState.error.message}</div>}
+        </Panel>
+      )}
       <Panel
         title="数据集列表"
         caption={`${loading ? "正在连接 Control-plane API" : sourceLabel} · 点击行进入数据集详情。`}
@@ -361,9 +436,9 @@ function DatasetTab({ dataset, tab, showToast }) {
             <textarea defaultValue="关注喉部色块、胸侧颜色、尾羽形状；不要把背景或拍摄地点作为类别依据。" />
           </div>
           <div className="toolbar section-gap-small">
-            <button className="primary-button" onClick={() => showToast("类别定义已保存")}>
+            <button className="primary-button" disabled>
               <Icon name="Save" size={16} />
-              保存定义
+              类别保存待接入
             </button>
             <button className="ghost-button">
               <Icon name="Wand2" size={16} />
@@ -429,9 +504,9 @@ function DatasetTab({ dataset, tab, showToast }) {
             <div className="field"><label>Embedding Distance</label><input defaultValue="0.42" /></div>
             <div className="field"><label>OOD 压力集</label><select defaultValue="stress@002"><option>stress@002</option></select></div>
           </div>
-          <button className="primary-button section-gap-small" onClick={() => showToast("阈值策略已保存为 selective-v5")}>
+          <button className="primary-button section-gap-small" disabled>
             <Icon name="Save" size={16} />
-            保存策略
+            策略保存待接入
           </button>
         </Panel>
         <Panel title="Coverage / Risk" caption="阈值越严格，复核越多，但错误越少。">
@@ -481,12 +556,97 @@ function ClassRow({ title, description, label, tone = "default" }) {
   );
 }
 
-export function TrainingPage() {
-  const { trainingRuns: runItems, source, loading } = useTrainingRuns();
+export function TrainingPage({ showToast }) {
+  const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
+  const { datasets: datasetOptions } = useDatasets();
+  const [showCreate, setShowCreate] = useState(false);
+  const [trainingForm, setTrainingForm] = useState({
+    datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "dataset@cifar10-mini-001",
+    extractor: "color_stats",
+    ridgeLambda: "0.01",
+  });
+  const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
+  const canCreate =
+    createState.status !== "running" &&
+    trainingForm.datasetVersionId.trim() &&
+    Number(trainingForm.ridgeLambda) > 0;
+
+  function updateTrainingField(field, value) {
+    setTrainingForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleCreateTrainingRun() {
+    if (!canCreate) return;
+    setCreateState({ status: "running", run: null, error: null });
+    try {
+      const run = await createTrainingRun({
+        dataset_version_id: trainingForm.datasetVersionId.trim(),
+        extractor: trainingForm.extractor,
+        head_config: {
+          head_type: "ridge_linear",
+          ridge_lambda: Number(trainingForm.ridgeLambda),
+        },
+      });
+      setCreateState({ status: "succeeded", run, error: null });
+      refresh();
+      showToast(`训练已创建：${run.id}`);
+    } catch (error) {
+      setCreateState({ status: "failed", run: null, error });
+      showToast("训练创建失败");
+    }
+  }
+
   return (
     <>
-      <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<Link className="primary-button" to="/training/run-042"><Icon name="Plus" size={16} />新建训练</Link>} />
+      <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<button className="primary-button" onClick={() => setShowCreate((value) => !value)}><Icon name="Plus" size={16} />新建训练</button>} />
+      {showCreate && (
+        <Panel
+          title="创建训练运行"
+          caption="只允许 ready 的 dataset version 进入训练，训练任务会由 ml-worker 执行。"
+          action={<StatusChip tone={createState.status === "failed" ? "risk" : createState.status === "succeeded" ? "default" : "info"}>{createState.status}</StatusChip>}
+        >
+          <div className="field-grid">
+            <div className="field">
+              <label>dataset_version_id</label>
+              <input list="training-dataset-version-options" value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} placeholder="dataset@..." />
+              <datalist id="training-dataset-version-options">
+                {datasetOptions.map((dataset) => (
+                  <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>{dataset.datasetVersionId}</option>
+                ))}
+              </datalist>
+            </div>
+            <div className="field">
+              <label>extractor</label>
+              <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
+                <option value="color_stats">color_stats</option>
+                <option value="dinov3_vitl">dinov3_vitl</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>ridge_lambda</label>
+              <input type="number" min="0.000001" step="0.001" value={trainingForm.ridgeLambda} onChange={(event) => updateTrainingField("ridgeLambda", event.target.value)} />
+            </div>
+            <div className="field">
+              <label>执行</label>
+              <button className="primary-button" onClick={handleCreateTrainingRun} disabled={!canCreate}>
+                <Icon name={createState.status === "running" ? "LoaderCircle" : "Play"} size={16} />
+                {createState.status === "running" ? "创建中" : "创建训练"}
+              </button>
+            </div>
+          </div>
+          {createState.run && (
+            <div className="chips section-gap-small">
+              <StatusChip tone="default">{createState.run.id}</StatusChip>
+              <Link className="ghost-button" to={`/training/${createState.run.id}`}>
+                <Icon name="ExternalLink" size={16} />
+                打开详情
+              </Link>
+            </div>
+          )}
+          {createState.error && <div className="row-meta section-gap-small">{createState.error.message}</div>}
+        </Panel>
+      )}
       <div className="grid two">
         <Panel title="训练队列" caption={`${sourceLabel} · 点击进入运行详情。`}>
           <div className="timeline">
@@ -520,7 +680,7 @@ export function TrainingDetailPage({ showToast }) {
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
   return (
     <>
-      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已打开训练产物")}><Icon name="ExternalLink" size={16} />产物</button></>} />
+      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="ExternalLink" size={16} />产物 API 待接入</button></>} />
       <div className="grid metrics">
         <MetricCard title="进度" value={`${run.progress}%`} caption={trainingStatus(run).label} fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
         <MetricCard title="Val Acc" value={`${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy} icon="Target" />
@@ -622,7 +782,7 @@ export function InferencePage({ showToast }) {
         </div>
         <div className="toolbar section-gap-small">
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
-          <button className="ghost-button"><Icon name="ScissorsLineDashed" size={16} />启用 SAM3</button>
+          <button className="ghost-button" disabled><Icon name="ScissorsLineDashed" size={16} />SAM3 后续接入</button>
         </div>
       </Panel>
       <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
@@ -710,7 +870,7 @@ export function ReviewDetailPage({ showToast }) {
   const item = reviewItems.find((row) => row.id === reviewItemId) ?? reviewItems[0];
   return (
     <>
-      <PageHero title={item.title} description={item.assistance} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><button className="primary-button" onClick={() => showToast("复核结果已提交并进入回流池")}><Icon name="Check" size={16} />提交复核</button></>} />
+      <PageHero title={item.title} description={item.assistance} actions={<><Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link><button className="primary-button" disabled><Icon name="Check" size={16} />复核提交待接入</button></>} />
       <div className="grid detail">
         <Panel title="图像对比" caption="原图、主体裁剪、SAM3 mask 和近邻。">
           <VisualPlaceholder type={item.visualType} label="原图" low={item.route !== "ood"} />
@@ -751,7 +911,7 @@ export function ModelDetailPage({ showToast }) {
   const model = modelVersions.find((item) => item.id === modelId) ?? modelVersions[0];
   return (
     <>
-      <PageHero title={model.id} description="模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。" actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已提交灰度发布申请")}><Icon name="Rocket" size={16} />灰度发布</button></>} />
+      <PageHero title={model.id} description="模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。" actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="Rocket" size={16} />发布流程待接入</button></>} />
       <div className="grid two">
         <Panel title="版本元数据" caption="可追溯是算法平台的底线。"><div className="code-panel">model: {model.id}<br />dataset: bird/dataset@014<br />features: embedding@014<br />backbone: dinov3_vitl<br />head: linear<br />threshold: selective-v4<br />artifact: weights/{model.id}.safetensors</div></Panel>
         <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率。"><CurveRow label="top-1 accuracy" value={`${model.accuracy}%`} percent={Math.round(model.accuracy)} fill="#0f766e" /><CurveRow label="coverage" value={`${model.coverage}%`} percent={model.coverage} fill="#315fbd" /><CurveRow label="selective risk" value={`${model.selectiveRisk}%`} percent={41} fill="#a15c07" /></Panel>
@@ -763,7 +923,7 @@ export function ModelDetailPage({ showToast }) {
 export function PipelinesPage() {
   return (
     <>
-      <PageHero title="把数据、训练、弃权和发布串成可重跑流程。" description="流水线视图面向工程实现：每个节点都有输入产物、输出产物、日志和失败恢复点。" actions={<Link className="primary-button" to="/pipelines/pipe-014"><Icon name="Play" size={16} />运行流水线</Link>} />
+      <PageHero title="把数据、训练、弃权和发布串成可重跑流程。" description="流水线视图面向工程实现：每个节点都有输入产物、输出产物、日志和失败恢复点。" actions={<button className="primary-button" disabled><Icon name="Play" size={16} />流水线执行待接入</button>} />
       <Panel title="模板：DINOv3 分类头训练" caption="点击节点查看运行样式。">
         <div className="pipeline">{pipelineNodes.map((node) => <PipelineNode node={node} key={node.id} />)}</div>
       </Panel>
@@ -780,7 +940,7 @@ export function PipelinesPage() {
 export function PipelineRunPage({ showToast }) {
   return (
     <>
-      <PageHero title="DINOv3 分类头训练运行中" description="当前卡在分类头训练和阈值扫描。正式实现里这里会显示日志、产物链接和失败重试。" actions={<><Link className="ghost-button" to="/pipelines"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" onClick={() => showToast("已暂停流水线")}><Icon name="Pause" size={16} />暂停</button></>} />
+      <PageHero title="DINOv3 分类头训练运行中" description="当前卡在分类头训练和阈值扫描。正式实现里这里会显示日志、产物链接和失败重试。" actions={<><Link className="ghost-button" to="/pipelines"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="Pause" size={16} />暂停待接入</button></>} />
       <div className="grid two">
         <Panel title="运行节点" caption="正在持续更新。"><div className="timeline"><GateRow title="数据导入" description="dataset@014" /><GateRow title="特征提取" description="embedding@014" /><GateRow title="分类头训练" description="epoch 13 / 18" result="pending" /><GateRow title="阈值扫描" description="等待模型权重" result="pending" /></div></Panel>
         <Panel title="日志预览" caption="保留给后端任务系统。"><div className="code-panel">[12:41:03] load feature cache embedding@014<br />[12:41:18] start linear head training<br />[12:46:55] epoch 13 val_acc=0.919 macro_f1=0.884<br />[12:47:02] waiting for calibration sweep...</div></Panel>

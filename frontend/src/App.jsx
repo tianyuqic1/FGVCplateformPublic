@@ -133,7 +133,7 @@ export default function App() {
           <Route path="/dashboard" element={<Navigate to="/" replace />} />
           <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
           <Route path="/datasets/:datasetId" element={<DatasetTitleRoute showToast={showToast} />} />
-          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/training" element={<TrainingPage showToast={showToast} />} />
           <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
           <Route path="/inference" element={<InferencePage showToast={showToast} />} />
           <Route path="/review" element={<ReviewPage />} />

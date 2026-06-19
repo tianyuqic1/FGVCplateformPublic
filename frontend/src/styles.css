@@ -277,6 +277,17 @@ a {
   background: #ffffff;
 }
 
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled,
+.icon-button:disabled,
+.tab-button:disabled,
+.seg-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  box-shadow: none;
+}
+
 .icon-button {
   width: 34px;
   min-height: 34px;

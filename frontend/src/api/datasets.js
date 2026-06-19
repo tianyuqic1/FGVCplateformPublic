@@ -5,9 +5,14 @@ function apiBaseUrl() {
   return configured ? configured.replace(/\/$/, "") : "";
 }
 
-async function fetchJson(path, { signal } = {}) {
+async function fetchJson(path, { method = "GET", body, signal } = {}) {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
-    headers: { Accept: "application/json" },
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
     signal,
   });
 
@@ -47,6 +52,13 @@ export function extractDatasetList(payload) {
 
 export function extractDataset(payload) {
   return payload?.dataset ?? payload?.data ?? payload;
+}
+
+export function extractImportedDataset(payload) {
+  return {
+    dataset: payload?.dataset ?? null,
+    version: payload?.version ?? null,
+  };
 }
 
 export function normalizeDataset(raw) {
@@ -93,4 +105,11 @@ export async function getDataset(datasetId) {
     const payload = await fetchJson(`/api/datasets/${encodeURIComponent(datasetId)}`, { signal });
     return normalizeDataset(extractDataset(payload));
   });
+}
+
+export async function importImagefolder(input) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson("/api/datasets/import-imagefolder", { method: "POST", body: input, signal });
+    return extractImportedDataset(payload);
+  }, 10000);
 }
