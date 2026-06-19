@@ -1150,20 +1150,34 @@ export function ReviewDetailPage({ showToast }) {
               <div className="row-meta">没有 top-k 候选。</div>
             )}
           </div>
-          <div className="panel-title embedded"><div><h2>近邻证据</h2><span>辅助解释，不作为真值。</span></div></div>
-          {item.nearestNeighbors.length > 0 ? (
-            <div className="timeline">
-              {item.nearestNeighbors.map((neighbor) => (
-                <div className="timeline-item" key={neighbor.sampleId}>
-                  <div className="timeline-icon"><Icon name="GitCompare" size={18} /></div>
-                  <div><strong>{neighbor.sampleId}</strong><div className="row-meta">{neighbor.label} · distance {neighbor.distance?.toFixed(4) ?? "n/a"}</div></div>
-                  <StatusChip tone="info">NN</StatusChip>
+          <details className="evidence-details section-gap-small">
+            <summary>
+              <span><Icon name="GitCompare" size={16} />高级证据：近邻样本</span>
+              <StatusChip tone="neutral">{item.nearestNeighbors.length} 条</StatusChip>
+            </summary>
+            <div className="neighbor-list">
+              {item.nearestNeighbors.length > 0 ? (
+                item.nearestNeighbors.map((neighbor, index) => (
+                  <div className="neighbor-row" key={neighbor.sampleId || `${neighbor.label}-${index}`}>
+                    <div className="neighbor-rank">{index + 1}</div>
+                    <div>
+                      <strong>{neighbor.label}</strong>
+                      <div className="row-meta">{neighbor.sampleId || "unknown sample"}</div>
+                    </div>
+                    <div className="neighbor-distance">
+                      <span>distance</span>
+                      <strong>{neighbor.distance?.toFixed(4) ?? "n/a"}</strong>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-evidence">
+                  <Icon name="ImageOff" size={18} />
+                  <span>暂无近邻证据。当前复核仍可基于原图、top-k 和阈值原因完成。</span>
                 </div>
-              ))}
+              )}
             </div>
-          ) : (
-            <div className="row-meta">暂无近邻证据。</div>
-          )}
+          </details>
         </Panel>
         <Panel title="人工复核" caption="人工结论进入反馈池；后续数据版本构建再决定是否采纳。" action={<StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>}>
           <div className="grid">

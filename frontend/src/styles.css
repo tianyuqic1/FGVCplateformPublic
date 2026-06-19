@@ -777,6 +777,90 @@ a {
   overflow-wrap: anywhere;
 }
 
+.evidence-details {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.evidence-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.evidence-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-details summary > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #344054;
+  font-weight: 900;
+}
+
+.neighbor-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.neighbor-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel-soft);
+}
+
+.neighbor-rank {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--blue);
+  background: #e5ecff;
+  font-weight: 900;
+}
+
+.neighbor-distance {
+  min-width: 92px;
+  text-align: right;
+}
+
+.neighbor-distance span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.neighbor-distance strong {
+  display: block;
+}
+
+.empty-evidence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .candidate {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr) 48px;
@@ -1058,6 +1142,7 @@ a {
   .data-row.head,
   .timeline-item,
   .sample-card,
+  .neighbor-row,
   .candidate {
     grid-template-columns: 1fr;
     align-items: start;
