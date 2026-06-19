@@ -96,6 +96,8 @@ function normalizeDecision(raw = {}) {
 export function normalizeInferenceResult(raw) {
   const result = raw?.result ?? raw;
   return {
+    inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    reviewItemId: raw?.reviewItemId ?? raw?.review_item_id ?? null,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? result?.dataset_id ?? null,
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? result?.dataset_version_id ?? null,
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,

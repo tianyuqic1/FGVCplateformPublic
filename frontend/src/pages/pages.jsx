@@ -118,6 +118,35 @@ function inferenceDecisionStatus(decision) {
   return { label: "进入复核", tone: "warn", icon: "UserCheck" };
 }
 
+function inferenceDecisionCopy(decision) {
+  if (decision?.value === "accept") {
+    return {
+      title: "模型接受该结果",
+      body: "置信度、类别间隔和 OOD 距离都满足当前阈值；系统只记录推理事件，不默认进入人工复核。",
+    };
+  }
+  if (decision?.value === "reject_ood") {
+    return {
+      title: "模型拒识为 OOD 候选",
+      body: "样本离训练特征空间过远，系统会把它送入人工复核；人工确认后才进入 OOD 压力池。",
+    };
+  }
+  return {
+    title: "模型选择弃权",
+    body: "模型没有达到自动直出的阈值，通常是低置信或 top-1/top-2 太接近；系统会把它送入人工复核。",
+  };
+}
+
+function reasonLabel(reason) {
+  const labels = {
+    confidence_below_threshold: "置信度低于阈值",
+    top1_top2_margin_below_threshold: "Top-1 / Top-2 间隔不足",
+    embedding_distance_above_threshold: "Embedding 距离超过 OOD 阈值",
+    meets_acceptance_thresholds: "满足自动直出阈值",
+  };
+  return labels[reason] ?? reason;
+}
+
 function ReviewCard({ item }) {
   const imageKey = item.route === "ood" ? "ood" : item.route === "bad-image" ? "defect" : "bird";
   return (
@@ -1005,6 +1034,7 @@ export function InferencePage({ showToast }) {
 
   const result = state.result;
   const decisionState = inferenceDecisionStatus(result?.decision);
+  const decisionCopy = inferenceDecisionCopy(result?.decision);
   const queryLabel = form.imageFile?.name || form.sampleId || form.imagePath || "query image";
   return (
     <div className="grid detail">
@@ -1069,7 +1099,7 @@ export function InferencePage({ showToast }) {
           <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
         </div>
       </Panel>
-      <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
+      <Panel title="推理结果" caption="MVP 推理实验室：结果会记录为 inference event；abstain / reject_ood 会路由到人工复核。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
         {state.status === "idle" && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
@@ -1093,37 +1123,76 @@ export function InferencePage({ showToast }) {
         )}
         {state.status === "succeeded" && result && (
           <>
-            <div className="grid two">
-              <div>
-                {result.topK.length > 0 ? (
-                  result.topK.map((candidate, index) => (
-                    <CandidateBar label={candidate.label} score={candidate.score} fill={index === 0 ? "#0891b2" : index === 1 ? "#a15c07" : "#315fbd"} key={`${candidate.label}-${index}`} />
+            <div className="decision-summary">
+              <div className="decision-callout">
+                <div className="timeline-icon"><Icon name={decisionState.icon} size={18} /></div>
+                <div>
+                  <strong>{decisionCopy.title}</strong>
+                  <div className="row-meta">{decisionCopy.body}</div>
+                </div>
+                <StatusChip tone={decisionState.tone}>{result.decision.value}</StatusChip>
+              </div>
+              <div className="evidence-metrics">
+                <div><span>confidence</span><strong>{result.decision.confidence.toFixed(4)}</strong></div>
+                <div><span>margin</span><strong>{result.decision.margin.toFixed(4)}</strong></div>
+                <div><span>ood score</span><strong>{result.decision.oodScore?.toFixed?.(4) ?? "n/a"}</strong></div>
+              </div>
+              <div className="reason-box">
+                <strong>触发原因</strong>
+                <span>{result.decision.reasons.length > 0 ? result.decision.reasons.map(reasonLabel).join("，") : "API 未返回阈值原因"}</span>
+              </div>
+              <div className="route-box">
+                <div>
+                  <strong>{result.reviewItemId ? "已创建人工复核项" : "未进入人工复核队列"}</strong>
+                  <div className="row-meta">
+                    {result.reviewItemId ? `${result.reviewItemId} · 可直接打开处理。` : "accept 结果只记录 inference event；需要抽检时可后续增加 accept audit 策略。"}
+                  </div>
+                </div>
+                {result.reviewItemId ? (
+                  <Link className="primary-button" to={`/review/${result.reviewItemId}?status=pending&dataset_id=${encodeURIComponent(result.datasetId ?? "")}`}>
+                    <Icon name="UserCheck" size={16} />
+                    打开复核项
+                  </Link>
+                ) : (
+                  <StatusChip tone="default">event recorded</StatusChip>
+                )}
+              </div>
+            </div>
+            <div className="section-gap-small">
+              {result.topK.length > 0 ? (
+                result.topK.map((candidate, index) => (
+                  <CandidateBar label={candidate.label} score={candidate.score} fill={index === 0 ? "#0891b2" : index === 1 ? "#a15c07" : "#315fbd"} key={`${candidate.label}-${index}`} />
+                ))
+              ) : (
+                <div className="row-meta">API 未返回候选类别。</div>
+              )}
+            </div>
+            <details className="evidence-details section-gap-small">
+              <summary>
+                <span><Icon name="GitCompare" size={16} />高级证据：近邻样本</span>
+                <StatusChip tone="neutral">{result.nearestNeighbors.length} 条</StatusChip>
+              </summary>
+              <div className="neighbor-list">
+                {result.nearestNeighbors.length > 0 ? (
+                  result.nearestNeighbors.map((neighbor, index) => (
+                    <div className="neighbor-row" key={neighbor.sampleId || `${neighbor.label}-${index}`}>
+                      <div className="neighbor-rank">{index + 1}</div>
+                      <div><strong>{neighbor.label}</strong><div className="row-meta">{neighbor.sampleId || "unknown sample"}</div></div>
+                      <div className="neighbor-distance"><span>distance</span><strong>{neighbor.distance?.toFixed(4) ?? "n/a"}</strong></div>
+                    </div>
                   ))
                 ) : (
-                  <div className="row-meta">API 未返回候选类别。</div>
-                )}
-                <div className="chips section-gap-small">
-                  <StatusChip tone={decisionState.tone}>confidence {result.decision.confidence.toFixed(2)}</StatusChip>
-                  <StatusChip tone="info">margin {result.decision.margin.toFixed(2)}</StatusChip>
-                  <StatusChip tone={result.decision.value === "accept" ? "default" : "warn"}>{decisionState.label}</StatusChip>
-                </div>
-              </div>
-              <div className="code-panel">decision: {result.decision.value}<br />reason: {result.decision.reasons.join(", ") || "none"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />ood_score: {result.decision.oodScore ?? "n/a"}</div>
-            </div>
-            <div className="panel-title embedded"><div><h2>近邻样本</h2><span>辅助解释，不作为真值。</span></div></div>
-            {result.nearestNeighbors.length > 0 ? (
-              <div className="timeline">
-                {result.nearestNeighbors.map((neighbor) => (
-                  <div className="timeline-item" key={neighbor.sampleId}>
-                    <div className="timeline-icon"><Icon name="GitCompare" size={18} /></div>
-                    <div><strong>{neighbor.sampleId}</strong><div className="row-meta">{neighbor.label} · distance {neighbor.distance?.toFixed(4) ?? "n/a"}</div></div>
-                    <StatusChip tone="info">NN</StatusChip>
+                  <div className="empty-evidence">
+                    <Icon name="ImageOff" size={18} />
+                    <span>暂无近邻证据。当前结果仍可基于 top-k 和阈值原因判断。</span>
                   </div>
-                ))}
+                )}
               </div>
-            ) : (
-              <div className="row-meta">暂无近邻证据。</div>
-            )}
+            </details>
+            <details className="advanced-fields section-gap-small">
+              <summary>调试信息</summary>
+              <div className="code-panel section-gap-small">event: {result.inferenceEventId ?? "n/a"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />feature: {result.featureArtifactId ?? "n/a"}</div>
+            </details>
           </>
         )}
       </Panel>

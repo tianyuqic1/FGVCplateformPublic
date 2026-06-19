@@ -11,6 +11,8 @@ const payload = {
     model_artifact_id: "dataset@toy-001-run-001-linear-head",
     feature_artifact_id: "dataset@toy-001-color_stats_v1-cff1350237",
     threshold_strategy_id: "dataset@toy-001-run-001-threshold-strategy",
+    inference_event_id: "inference-001",
+    review_item_id: "review-001",
     input: { sample_id: "sample-001" },
     result: {
       top_k: [
@@ -35,6 +37,8 @@ const payload = {
 const result = normalizeInferenceResult(extractInferenceResult(payload));
 if (result.datasetVersionId !== "dataset@toy-001") throw new Error("Dataset version id missing");
 if (result.modelVersionId !== "toy-run-001-candidate") throw new Error("Model version id missing");
+if (result.inferenceEventId !== "inference-001") throw new Error("Inference event id missing");
+if (result.reviewItemId !== "review-001") throw new Error("Review item id missing");
 if (result.modelArtifactId !== "dataset@toy-001-run-001-linear-head") throw new Error("Model artifact id missing");
 if (result.thresholdStrategyId !== "dataset@toy-001-run-001-threshold-strategy") {
   throw new Error("Threshold strategy id missing");

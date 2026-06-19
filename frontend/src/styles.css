@@ -1024,6 +1024,35 @@ a {
   overflow-wrap: anywhere;
 }
 
+.decision-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.decision-callout,
+.route-box {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.route-box {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--panel-soft);
+}
+
+.decision-callout strong,
+.route-box strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .queue-collapsed {
   display: flex;
   align-items: center;
@@ -1319,6 +1348,8 @@ a {
   .data-row.head,
   .timeline-item,
   .sample-card,
+  .decision-callout,
+  .route-box,
   .neighbor-row,
   .candidate {
     grid-template-columns: 1fr;
