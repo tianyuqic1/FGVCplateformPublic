@@ -24,6 +24,7 @@ import { PageHero } from "../components/AppShell.jsx";
 
 function datasetStatus(dataset) {
   if (dataset.status === "production") return { label: "生产可推理", tone: "default" };
+  if (dataset.status === "ready") return { label: "可训练", tone: "default" };
   if (dataset.status === "calibrating") return { label: "待校准", tone: "warn" };
   return { label: "训练中", tone: "info" };
 }
@@ -681,6 +682,25 @@ export function TrainingPage({ showToast }) {
 export function TrainingDetailPage({ showToast }) {
   const { runId = "run-042" } = useParams();
   const { trainingRun: run, source, loading } = useTrainingRun(runId);
+  if (!loading && !run) {
+    return (
+      <>
+        <PageHero
+          title="训练运行不存在"
+          description={`${runId} 没有在 Training API 中找到。请从训练队列打开真实运行，或先创建一条训练。`}
+          actions={<Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回训练队列</Link>}
+        />
+        <Panel title="未找到运行" caption="旧的 mock run id 不会再伪装成真实训练结果。">
+          <div className="timeline-item">
+            <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+            <div><strong>{runId}</strong><div className="row-meta">Training API 返回 404。</div></div>
+            <StatusChip tone="risk">not found</StatusChip>
+          </div>
+        </Panel>
+      </>
+    );
+  }
+
   const metrics = run.metrics ?? {};
   const accuracy = Number.isFinite(Number(metrics.accuracy)) ? Math.round(Number(metrics.accuracy) * 1000) / 10 : 91.9;
   const macroF1 = Number.isFinite(Number(metrics.macro_f1)) ? Math.round(Number(metrics.macro_f1) * 1000) / 10 : 88.4;

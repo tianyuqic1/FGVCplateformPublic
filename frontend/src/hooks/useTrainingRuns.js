@@ -74,6 +74,10 @@ export function useTrainingRun(runId) {
       })
       .catch((error) => {
         if (!active) return;
+        if (String(error?.message ?? "").startsWith("404 ")) {
+          setState({ trainingRun: null, source: "api", loading: false, error });
+          return;
+        }
         setState({ trainingRun: nextFallback, source: "mock", loading: false, error });
       });
 

@@ -21,7 +21,7 @@ const normalized = normalizeDataset(list[0]);
 assert(normalized.id === "cifar10-mini", "normalizes dataset_id");
 assert(normalized.classes === 10, "normalizes class_count");
 assert(normalized.images === 460, "normalizes sample_count");
-assert(normalized.status === "production", "maps ready status");
+assert(normalized.status === "ready", "keeps ready dataset status distinct from production");
 assert(normalized.version === "dataset@cifar10-mini-001", "keeps dataset version");
 
 const detail = normalizeDataset(extractDataset({ dataset: { id: "bird", classes: ["a", "b"] } }));

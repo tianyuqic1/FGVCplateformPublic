@@ -45,7 +45,8 @@ function firstNumber(...values) {
 
 function normalizeStatus(value) {
   if (["production", "calibrating", "training"].includes(value)) return value;
-  if (["ready", "published", "active"].includes(value)) return "production";
+  if (value === "ready") return "ready";
+  if (["published", "active"].includes(value)) return "production";
   if (["needs_attention", "needs_calibration", "pending_calibration", "evaluating"].includes(value)) return "calibrating";
   return "training";
 }
