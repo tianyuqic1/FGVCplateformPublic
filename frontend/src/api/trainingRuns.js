@@ -77,6 +77,7 @@ export function normalizeTrainingRun(raw) {
     datasetName: raw?.datasetName ?? raw?.dataset_name ?? raw?.dataset_id ?? "数据集版本",
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,
     featureArtifactId: raw?.featureArtifactId ?? raw?.feature_artifact_id ?? null,
+    modelArtifactId: raw?.modelArtifactId ?? raw?.model_artifact_id ?? null,
     reportArtifactId: raw?.reportArtifactId ?? raw?.report_artifact_id ?? null,
     calibrationArtifactId: raw?.calibrationArtifactId ?? raw?.calibration_artifact_id ?? null,
     thresholdStrategyArtifactId: raw?.thresholdStrategyArtifactId ?? raw?.threshold_strategy_artifact_id ?? null,

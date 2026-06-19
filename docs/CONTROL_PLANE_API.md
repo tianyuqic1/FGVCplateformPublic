@@ -175,7 +175,7 @@ Training run response shape:
 }
 ```
 
-Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent.
+Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent. The API rejects dataset versions whose readiness report is not ready, canonicalizes `backbone_id` from the selected extractor when omitted, and synchronizes queued training-run cancellation through `POST /api/jobs/{job_id}/cancel`.
 
 Dataset summary response shape:
 

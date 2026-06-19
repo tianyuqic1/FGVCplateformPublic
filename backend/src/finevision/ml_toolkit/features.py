@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from pathlib import Path
 from typing import Protocol
 
@@ -105,7 +107,8 @@ def extract_features(
 ) -> tuple[FeatureArtifact, np.ndarray]:
     paths = [sample.path for sample in manifest.samples]
     features = extractor.extract_paths(paths)
-    artifact_id = artifact_id or f"{manifest.dataset_version_id}-{extractor.backbone_id}"
+    config_hash = hashlib.sha1(json.dumps(extractor.config, sort_keys=True).encode("utf-8")).hexdigest()[:10]
+    artifact_id = artifact_id or f"{manifest.dataset_version_id}-{extractor.backbone_id}-{config_hash}"
     artifact_dir = Path(artifact_root) / artifact_id
     artifact = FeatureArtifact(
         artifact_id=artifact_id,

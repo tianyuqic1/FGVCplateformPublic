@@ -32,8 +32,8 @@ export function useTrainingRuns() {
       .then((items) => {
         if (!active) return;
         setState({
-          trainingRuns: items.length > 0 ? items.map(mergeTrainingRun) : fallbackRuns,
-          source: items.length > 0 ? "api" : "mock",
+          trainingRuns: items.map(mergeTrainingRun),
+          source: "api",
           loading: false,
           error: null,
         });

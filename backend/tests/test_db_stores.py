@@ -277,7 +277,6 @@ def test_database_backed_training_run_executes_toolkit_flow(
     assert stored_run["model_version_id"] is not None
     assert stored_run["metrics"]["accuracy"] >= 0.0
     assert stored_run["metrics"]["macro_f1"] >= 0.0
-    assert Path(artifact_dir / "features" / "dataset@train-toy-001-color_stats_v1" / "features.npz").exists()
 
     list_response = client.get("/api/training-runs")
     assert list_response.status_code == 200
@@ -286,8 +285,18 @@ def test_database_backed_training_run_executes_toolkit_flow(
     engine = create_engine(database_url)
     with engine.begin() as conn:
         artifact_types = set(conn.execute(sa.select(artifacts.c.artifact_type)).scalars().all())
+        feature_uri = conn.execute(
+            sa.select(artifacts.c.uri).where(artifacts.c.artifact_key == stored_run["feature_artifact_id"])
+        ).scalar_one()
+        training_report = conn.execute(
+            sa.select(artifacts.c.artifact_metadata).where(artifacts.c.artifact_key == stored_run["report_artifact_id"])
+        ).scalar_one()["training_report"]
         assert conn.scalar(sa.select(sa.func.count()).select_from(training_runs)) == 1
         assert conn.scalar(sa.select(sa.func.count()).select_from(model_versions)) == 1
+    assert Path(feature_uri).exists()
+    assert training_report["evaluation"]["per_class"]
+    assert training_report["evaluation"]["confusion_matrix"]
+    assert training_report["run_config"]["ridge_lambda"] == 0.01
     assert {
         "dataset_manifest",
         "feature_matrix",
@@ -297,6 +306,164 @@ def test_database_backed_training_run_executes_toolkit_flow(
         "threshold_sweep",
         "threshold_strategy",
     }.issubset(artifact_types)
+
+
+def test_training_run_rejects_dataset_version_that_is_not_ready(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "not-ready-imagefolder", samples_per_class=2)
+    client = TestClient(create_app(database_url=database_url))
+
+    import_response = client.post(
+        "/api/datasets/import-imagefolder",
+        json={
+            "path": str(dataset_dir),
+            "dataset_id": "not-ready-toy",
+            "dataset_version_id": "dataset@not-ready-toy-001",
+        },
+    )
+    assert import_response.status_code == 201
+    assert import_response.json()["version"]["readiness"]["ready"] is False
+
+    create_run_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@not-ready-toy-001"},
+    )
+    assert create_run_response.status_code == 409
+    assert create_run_response.json()["detail"]["readiness"]["ready"] is False
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        assert conn.scalar(sa.select(sa.func.count()).select_from(training_runs)) == 0
+        assert conn.scalar(sa.select(sa.func.count()).select_from(jobs)) == 0
+
+
+def test_dinov3_training_request_uses_canonical_backbone_metadata(
+    database_url: str,
+    tmp_path: Path,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "dinov3-imagefolder", samples_per_class=5)
+    client = TestClient(create_app(database_url=database_url))
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "dinov3-toy",
+                "dataset_version_id": "dataset@dinov3-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+
+    create_run_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@dinov3-toy-001", "extractor": "dinov3_vitl"},
+    )
+    assert create_run_response.status_code == 202
+    created_run = create_run_response.json()["training_run"]
+    assert created_run["backbone_id"] == "dinov3_vitl16"
+    assert created_run["extractor_config"]["type"] == "timm_dinov3"
+    assert created_run["extractor_config"]["model_name"] == "vit_large_patch16_dinov3.lvd1689m"
+
+
+def test_training_run_cancel_tracks_business_run_status(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "cancel-training-imagefolder", samples_per_class=5)
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "cancel-training-toy",
+                "dataset_version_id": "dataset@cancel-training-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+    create_run_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@cancel-training-toy-001"},
+    )
+    assert create_run_response.status_code == 202
+    body = create_run_response.json()
+    run_id = body["training_run"]["run_id"]
+    job_id = body["job"]["job_id"]
+
+    cancel_response = client.post(f"/api/jobs/{job_id}/cancel")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["job"]["status"] == "cancelled"
+
+    detail_response = client.get(f"/api/training-runs/{run_id}")
+    assert detail_response.status_code == 200
+    stored_run = detail_response.json()["training_run"]
+    assert stored_run["status"] == "cancelled"
+    assert stored_run["error"] == "Training job was cancelled before worker execution."
+    assert run_next_job() is None
+
+
+def test_training_run_reuses_feature_artifact_for_same_dataset_and_extractor_config(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "reuse-imagefolder", samples_per_class=5)
+    artifact_dir = tmp_path / "artifacts"
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("FINEVISION_ARTIFACT_DIR", str(artifact_dir))
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "reuse-toy",
+                "dataset_version_id": "dataset@reuse-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+
+    run_ids = []
+    for _ in range(2):
+        create_run_response = client.post(
+            "/api/training-runs",
+            json={
+                "dataset_version_id": "dataset@reuse-toy-001",
+                "extractor": "color_stats",
+                "head_config": {"head_type": "ridge_linear", "ridge_lambda": 0.01},
+            },
+        )
+        assert create_run_response.status_code == 202
+        run_ids.append(create_run_response.json()["training_run"]["run_id"])
+        completed_job = run_next_job()
+        assert completed_job is not None
+        assert completed_job.status == "succeeded"
+
+    first = client.get(f"/api/training-runs/{run_ids[0]}").json()["training_run"]
+    second = client.get(f"/api/training-runs/{run_ids[1]}").json()["training_run"]
+    assert first["feature_artifact_id"] == second["feature_artifact_id"]
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        assert (
+            conn.scalar(
+                sa.select(sa.func.count()).select_from(artifacts).where(artifacts.c.artifact_type == "feature_matrix")
+            )
+            == 1
+        )
+        assert conn.scalar(sa.select(sa.func.count()).select_from(model_versions)) == 2
 
 
 def _reset_database(database_url: str) -> None:

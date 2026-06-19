@@ -481,7 +481,17 @@ export function TrainingPage() {
       <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<Link className="primary-button" to="/training/run-042"><Icon name="Plus" size={16} />新建训练</Link>} />
       <div className="grid two">
         <Panel title="训练队列" caption={`${sourceLabel} · 点击进入运行详情。`}>
-          <div className="timeline">{runItems.map((run) => <RunRow run={run} key={run.id} />)}</div>
+          <div className="timeline">
+            {runItems.length > 0 ? (
+              runItems.map((run) => <RunRow run={run} key={run.id} />)
+            ) : (
+              <div className="timeline-item">
+                <div className="timeline-icon"><Icon name="Inbox" size={18} /></div>
+                <div><strong>暂无训练运行</strong><div className="row-meta">导入 ready 数据集后，通过 Training API 创建第一条训练。</div></div>
+                <StatusChip tone="info">空队列</StatusChip>
+              </div>
+            )}
+          </div>
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
           <div className="code-panel">backbone: dinov3_vitl<br />feature_cache: true<br />head: linear<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>

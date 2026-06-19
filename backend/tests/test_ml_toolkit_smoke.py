@@ -25,7 +25,7 @@ def test_smoke_flow_writes_artifacts_and_inference(tmp_path: Path) -> None:
     summary = run_smoke_flow(tmp_path / "work")
 
     assert Path(summary["dataset_manifest"]).exists()
-    assert summary["feature_artifact"] == "dataset@toy-001-color_stats_v1"
+    assert summary["feature_artifact"].startswith("dataset@toy-001-color_stats_v1-")
     assert summary["model_artifact"] == "dataset@toy-001-linear-head"
     assert summary["accuracy"] >= 0.8
     assert summary["macro_f1"] >= 0.8

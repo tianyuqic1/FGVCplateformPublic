@@ -121,6 +121,7 @@ For other environments or a different API port, set `VITE_API_BASE_URL`.
 Control-plane endpoints:
 
 ```text
+GET  /api/health
 GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
@@ -128,15 +129,19 @@ GET  /api/dataset-versions/{dataset_version_id}/readiness
 POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
+POST /api/jobs/{job_id}/cancel
 POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
 ```
 
-Run the local service boundary:
+For a fresh local database, start PostgreSQL first and apply migrations before
+starting the API/worker containers:
 
 ```text
-docker compose up --build
+docker compose up -d postgres
+DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+docker compose up -d --build
 ```
 
 This starts:
@@ -148,7 +153,7 @@ adminer:  http://localhost:8081
 postgres: localhost:5432
 ```
 
-Apply database migrations:
+Re-apply migrations after schema changes:
 
 ```text
 DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head

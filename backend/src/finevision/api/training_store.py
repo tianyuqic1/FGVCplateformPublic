@@ -111,11 +111,27 @@ class DatabaseTrainingStore:
     def mark_failed(self, run_id: str, error: str) -> None:
         now = _now()
         with self.engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 training_runs.update()
                 .where(training_runs.c.run_key == run_id)
                 .values(status="failed", error_message=error, finished_at=now, updated_at=now)
             )
+        if result.rowcount == 0:
+            raise ValueError(f"Training run not found: {run_id}")
+
+    def mark_cancelled_by_job(self, job_id: str, reason: str) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                training_runs.update()
+                .where(
+                    training_runs.c.job_id == sa.select(jobs.c.id).where(jobs.c.job_key == job_id).scalar_subquery(),
+                    training_runs.c.status == "queued",
+                )
+                .values(status="cancelled", error_message=reason, finished_at=now, updated_at=now)
+            )
+        if result.rowcount == 0:
+            raise ValueError(f"Queued training run not found for job: {job_id}")
 
     def find_feature_artifact(
         self,

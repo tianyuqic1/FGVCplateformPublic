@@ -27,11 +27,11 @@ class CreateJobRequest(BaseModel):
 
 class CreateTrainingRunRequest(BaseModel):
     dataset_version_id: str = Field(..., min_length=1)
-    backbone_id: str = "color_stats_v1"
+    backbone_id: str | None = None
     extractor: Literal["color_stats", "dinov3_vitl"] = "color_stats"
     head_config: dict[str, Any] = Field(default_factory=lambda: {"head_type": "ridge_linear", "ridge_lambda": 1e-2})
-    target_selective_risk: float = 0.01
-    review_cost_per_item: float = 1.0
+    target_selective_risk: float = Field(default=0.01, ge=0.0, le=1.0)
+    review_cost_per_item: float = Field(default=1.0, ge=0.0)
 
 
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
@@ -117,7 +117,13 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
         if job.status not in {"queued"}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued jobs can be cancelled")
-        return {"job": job_store.cancel_job(job).__dict__}
+        cancelled_job = job_store.cancel_job(job)
+        if job.type == "train_classifier" and training_store is not None:
+            try:
+                training_store.mark_cancelled_by_job(job_id, "Training job was cancelled before worker execution.")
+            except ValueError:
+                pass
+        return {"job": cancelled_job.__dict__}
 
     @api.get("/api/dataset-versions/{dataset_version_id}/readiness")
     def get_dataset_version_readiness(dataset_version_id: str) -> dict[str, object]:
@@ -140,15 +146,26 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         manifest = store.get_dataset_version(request.dataset_version_id)
         if manifest is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        if manifest.readiness.get("ready") is not True:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Dataset version is not ready for training",
+                    "readiness": manifest.readiness,
+                },
+            )
+
+        backbone_id = request.backbone_id or _default_backbone_id(request.extractor)
+        _validate_training_config(request.extractor, backbone_id, request.head_config)
 
         run_id = f"run-{uuid4().hex[:12]}"
         payload = {
             "training_run_id": run_id,
             "dataset_id": manifest.dataset_id,
             "dataset_version_id": manifest.dataset_version_id,
-            "backbone_id": request.backbone_id,
+            "backbone_id": backbone_id,
             "extractor": request.extractor,
-            "extractor_config": {"type": request.extractor, "backbone_id": request.backbone_id},
+            "extractor_config": _extractor_config(request.extractor, backbone_id),
             "head_config": request.head_config,
             "target_selective_risk": request.target_selective_risk,
             "review_cost_per_item": request.review_cost_per_item,
@@ -210,6 +227,49 @@ def _validate_train_classifier_payload(payload: dict[str, Any]) -> dict[str, Any
         "training_run_id": str(payload["training_run_id"]),
         "dataset_version_id": str(payload["dataset_version_id"]),
     }
+
+
+def _default_backbone_id(extractor: str) -> str:
+    if extractor == "dinov3_vitl":
+        return "dinov3_vitl16"
+    return "color_stats_v1"
+
+
+def _extractor_config(extractor: str, backbone_id: str) -> dict[str, Any]:
+    if extractor == "dinov3_vitl":
+        return {
+            "type": "timm_dinov3",
+            "model_name": "vit_large_patch16_dinov3.lvd1689m",
+            "pretrained": True,
+            "backbone_id": backbone_id,
+        }
+    return {"type": "color_stats", "bins": 8, "backbone_id": backbone_id}
+
+
+def _validate_training_config(extractor: str, backbone_id: str, head_config: dict[str, Any]) -> None:
+    expected_backbone = _default_backbone_id(extractor)
+    if backbone_id != expected_backbone:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"backbone_id must be {expected_backbone} for extractor {extractor}",
+        )
+    if head_config.get("head_type", "ridge_linear") != "ridge_linear":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only ridge_linear head_config.head_type is supported",
+        )
+    try:
+        ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="head_config.ridge_lambda must be a positive number",
+        ) from exc
+    if ridge_lambda <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="head_config.ridge_lambda must be greater than 0",
+        )
 
 
 app = create_app()

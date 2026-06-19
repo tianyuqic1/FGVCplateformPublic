@@ -63,16 +63,17 @@ def train_linear_head(
 
     logits = apply_linear_head(features, weights, bias, mean, std)
     y_pred = logits[eval_mask].argmax(axis=1)
+    run_config = {
+        "run_id": run_id,
+        "head_type": "ridge_linear",
+        "ridge_lambda": ridge_lambda,
+        "feature_artifact_id": feature_artifact.artifact_id,
+    }
     report = classification_report(
         y_true=y[eval_mask],
         y_pred=y_pred,
         classes=classes,
-        run_config={
-            "run_id": run_id,
-            "head_type": "ridge_linear",
-            "ridge_lambda": ridge_lambda,
-            "feature_artifact_id": feature_artifact.artifact_id,
-        },
+        run_config=run_config,
     )
 
     artifact_id = artifact_id or f"{feature_artifact.dataset_version_id}-linear-head"
@@ -95,6 +96,7 @@ def train_linear_head(
         dataset_version_id=feature_artifact.dataset_version_id,
         feature_artifact_id=feature_artifact.artifact_id,
         model_artifact_id=model_artifact.artifact_id,
+        run_config=run_config,
         evaluation=report,
     )
     write_json(artifact_dir / "training_report.json", run_report)

@@ -385,7 +385,10 @@ Acceptance:
 - Done: reports include accuracy, macro F1, per-class metrics, confusion information, and run configuration through the training report artifact.
 - Done: worker execution registers feature matrix, model artifact, training report, calibration report, threshold sweep, and threshold strategy artifacts.
 - Done: feature reuse keys include dataset version, backbone, and extractor config hash.
-- Done: training queue and detail views read `/api/training-runs` with mock fallback.
+- Done: training queue and detail views read `/api/training-runs`; mock data is only a fallback when the API is unavailable.
+- Done: `POST /api/training-runs` rejects dataset versions whose readiness report is not ready.
+- Done: training job cancellation synchronizes the business training run to `cancelled`.
+- Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vitl16` instead of the color-stats default.
 - Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
 
 Implementation notes:
@@ -394,7 +397,9 @@ Implementation notes:
 - `POST /api/training-runs` creates a business training run plus a `train_classifier` worker job.
 - `GET /api/training-runs` and `GET /api/training-runs/{run_id}` serve training queue/detail metadata.
 - `train_classifier` jobs are intentionally rejected through raw `POST /api/jobs`; they must be created through the training-run API so job and training metadata stay consistent.
+- Dataset readiness is a hard gate for training creation. Use `/api/dataset-versions/{dataset_version_id}/readiness` to inspect the report before enqueueing.
 - Training services require PostgreSQL-backed persistence. The JSON adapter remains for dataset/job compatibility tests only.
+- Remaining hardening before production promotion: atomic job/run creation, expired worker lease recovery, model promotion/rollback invariants, and richer progress events.
 
 Suggested checkpoint pushes:
 
@@ -546,7 +551,7 @@ Suggested checkpoint pushes:
 
 ## Current Corrections To The Existing Plan
 
-- The current `fineVision` folder contains documents and an HTML prototype, not a fully migrated implementation. Implementation planning should start from that reality.
+- Historical correction: the project started from documents and an HTML prototype, then Iteration 0-2 migrated it into a runnable frontend, API, worker, database schema, and training candidate flow.
 - The HTML prototype is the UI source of truth for the workbench shape.
 - The toolkit prototype should happen before durable dataset APIs, so backend contracts can wrap real callable functionality instead of imagined behavior.
 - DINOv3 should be a configured backbone option behind an extractor interface, not a hard-coded platform assumption.

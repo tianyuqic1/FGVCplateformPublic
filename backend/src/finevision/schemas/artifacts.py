@@ -107,6 +107,7 @@ class TrainingRunReport:
     dataset_version_id: str
     feature_artifact_id: str
     model_artifact_id: str
+    run_config: dict[str, Any]
     evaluation: EvaluationReport
 
 
