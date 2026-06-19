@@ -339,6 +339,30 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "feedback_item": _feedback_item_payload(feedback_item, review_item_id=review_item.review_item_id),
         }
 
+    @api.get("/api/feedback-items")
+    def list_feedback_items(
+        destination: str | None = Query(default=None),
+        dataset_id: str | None = Query(default=None),
+        limit: int = 100,
+    ) -> dict[str, object]:
+        review_store: DatabaseReviewStore | None = api.state.review_store
+        if review_store is None:
+            return {"feedback_items": []}
+        allowed_destinations = {None, "", "all", "training_candidate", "ood_stress", "bad_image", "taxonomy_dispute", "ignore"}
+        if destination not in allowed_destinations:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported feedback destination filter")
+        normalized_destination = None if destination in {None, "", "all"} else destination
+        return {
+            "feedback_items": [
+                _feedback_item_payload(item)
+                for item in review_store.list_feedback_items(
+                    destination=normalized_destination,
+                    dataset_id=dataset_id,
+                    limit=max(1, min(limit, 300)),
+                )
+            ]
+        }
+
     return api
 
 
@@ -485,6 +509,13 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
     return {
         "feedback_item_id": item.feedback_item_id,
         "review_item_id": review_item_id or item.review_item_id,
+        "inference_event_id": item.inference_event_id,
+        "dataset_id": item.dataset_id,
+        "dataset_version_id": item.dataset_version_id,
+        "model_version_id": item.model_version_id,
+        "sample_id": item.sample_id,
+        "input_ref": item.input_ref,
+        "image_url": _uploaded_image_url(item.input_ref),
         "final_outcome": item.final_outcome,
         "destination": item.destination,
         "final_label": item.final_label,

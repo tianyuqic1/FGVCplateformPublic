@@ -43,6 +43,12 @@ class FeedbackItemRecord:
     reviewer_note: str | None
     created_by: str | None
     created_at: str
+    inference_event_id: str | None = None
+    dataset_id: str | None = None
+    dataset_version_id: str | None = None
+    model_version_id: str | None = None
+    sample_id: str | None = None
+    input_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -253,6 +259,22 @@ class DatabaseReviewStore:
             ).mappings().first()
         return _feedback_item_from_row(row) if row else None
 
+    def list_feedback_items(
+        self,
+        *,
+        destination: str | None = None,
+        dataset_id: str | None = None,
+        limit: int = 100,
+    ) -> list[FeedbackItemRecord]:
+        query = _feedback_item_select().order_by(feedback_items.c.created_at.desc()).limit(limit)
+        if destination:
+            query = query.where(feedback_items.c.destination == destination)
+        if dataset_id:
+            query = query.where(datasets.c.dataset_key == dataset_id)
+        with self.engine.begin() as conn:
+            rows = conn.execute(query).mappings().all()
+        return [_feedback_item_from_row(row) for row in rows]
+
 
 def _review_context_select() -> sa.Select[Any]:
     return (
@@ -342,6 +364,34 @@ def _review_item_select() -> sa.Select[Any]:
             .join(dataset_versions, dataset_versions.c.id == review_items.c.dataset_version_id)
             .join(model_versions, model_versions.c.id == review_items.c.model_version_id)
             .outerjoin(feedback_subquery, feedback_subquery.c.review_item_id == review_items.c.id)
+        )
+    )
+
+
+def _feedback_item_select() -> sa.Select[Any]:
+    return (
+        sa.select(
+            feedback_items.c.feedback_key,
+            review_items.c.review_key,
+            inference_events.c.event_key,
+            datasets.c.dataset_key,
+            dataset_versions.c.version_key,
+            model_versions.c.model_key,
+            feedback_items.c.sample_id,
+            review_items.c.input_ref,
+            feedback_items.c.final_outcome,
+            feedback_items.c.destination,
+            feedback_items.c.final_label,
+            feedback_items.c.reviewer_note,
+            feedback_items.c.created_by,
+            feedback_items.c.created_at,
+        )
+        .select_from(
+            feedback_items.join(review_items, review_items.c.id == feedback_items.c.review_item_id)
+            .join(inference_events, inference_events.c.id == feedback_items.c.inference_event_id)
+            .join(datasets, datasets.c.id == feedback_items.c.dataset_id)
+            .join(dataset_versions, dataset_versions.c.id == feedback_items.c.dataset_version_id)
+            .join(model_versions, model_versions.c.id == feedback_items.c.model_version_id)
         )
     )
 
@@ -456,7 +506,13 @@ def _review_item_from_row(row: Any) -> ReviewItemRecord:
 def _feedback_item_from_row(row: Any) -> FeedbackItemRecord:
     return FeedbackItemRecord(
         feedback_item_id=row["feedback_key"],
-        review_item_id=str(row["review_item_id"]),
+        review_item_id=row.get("review_key") or str(row["review_item_id"]),
+        inference_event_id=row.get("event_key"),
+        dataset_id=row.get("dataset_key"),
+        dataset_version_id=row.get("version_key"),
+        model_version_id=row.get("model_key"),
+        sample_id=row["sample_id"],
+        input_ref=row.get("input_ref"),
         final_outcome=row["final_outcome"],
         destination=row["destination"],
         final_label=row["final_label"],

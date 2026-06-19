@@ -61,6 +61,10 @@ export function extractReviewItem(payload) {
   return payload?.review_item ?? payload?.item ?? payload;
 }
 
+export function extractFeedbackItemList(payload) {
+  return payload?.feedback_items ?? payload?.items ?? [];
+}
+
 function normalizeCandidate(raw) {
   return {
     label: raw?.label ?? "unknown",
@@ -119,6 +123,28 @@ export function normalizeReviewItem(raw = {}) {
   };
 }
 
+export function normalizeFeedbackItem(raw = {}) {
+  const inputRef = raw?.inputRef ?? raw?.input_ref ?? null;
+  const rawImageUrl = raw?.imageUrl ?? raw?.image_url ?? imageUrlFromInputRef(inputRef);
+  return {
+    id: raw?.id ?? raw?.feedbackItemId ?? raw?.feedback_item_id ?? "feedback-preview",
+    reviewItemId: raw?.reviewItemId ?? raw?.review_item_id ?? null,
+    inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    datasetId: raw?.datasetId ?? raw?.dataset_id ?? null,
+    datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? null,
+    modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,
+    sampleId: raw?.sampleId ?? raw?.sample_id ?? null,
+    inputRef,
+    imageUrl: toAssetUrl(rawImageUrl),
+    finalOutcome: raw?.finalOutcome ?? raw?.final_outcome ?? "uncertain",
+    destination: raw?.destination ?? "taxonomy_dispute",
+    finalLabel: raw?.finalLabel ?? raw?.final_label ?? null,
+    reviewerNote: raw?.reviewerNote ?? raw?.reviewer_note ?? null,
+    createdBy: raw?.createdBy ?? raw?.created_by ?? null,
+    createdAt: raw?.createdAt ?? raw?.created_at ?? null,
+  };
+}
+
 export async function listReviewItems({ status = "pending", datasetId, limit = 50 } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
@@ -127,6 +153,17 @@ export async function listReviewItems({ status = "pending", datasetId, limit = 5
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/review-items?${params.toString()}`, { signal });
     return extractReviewItemList(payload).map(normalizeReviewItem);
+  });
+}
+
+export async function listFeedbackItems({ destination = "all", datasetId, limit = 100 } = {}) {
+  const params = new URLSearchParams();
+  if (destination) params.set("destination", destination);
+  if (datasetId) params.set("dataset_id", datasetId);
+  if (limit) params.set("limit", String(limit));
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/feedback-items?${params.toString()}`, { signal });
+    return extractFeedbackItemList(payload).map(normalizeFeedbackItem);
   });
 }
 

@@ -13,6 +13,7 @@ const routes = [
   "/inference",
   "/review",
   "/review/sample-0817",
+  "/feedback",
   "/models",
   "/models/bird-cls-v4",
   "/pipelines",

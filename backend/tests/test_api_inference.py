@@ -181,6 +181,18 @@ def test_abstain_inference_creates_review_item_and_feedback(
     assert completed_response.status_code == 200
     assert [item["review_item_id"] for item in completed_response.json()["review_items"]] == [review_item_id]
 
+    feedback_response = client.get("/api/feedback-items?destination=training_candidate&dataset_id=infer-toy")
+    assert feedback_response.status_code == 200
+    feedback_items_payload = feedback_response.json()["feedback_items"]
+    assert [item["review_item_id"] for item in feedback_items_payload] == [review_item_id]
+    assert feedback_items_payload[0]["feedback_item_id"] == submit_body["feedback_item"]["feedback_item_id"]
+    assert feedback_items_payload[0]["inference_event_id"] == body["inference_event_id"]
+    assert feedback_items_payload[0]["dataset_id"] == "infer-toy"
+    assert feedback_items_payload[0]["dataset_version_id"] == "dataset@infer-toy-001"
+    assert feedback_items_payload[0]["model_version_id"] == model_version_id
+    assert feedback_items_payload[0]["destination"] == "training_candidate"
+    assert feedback_items_payload[0]["final_label"] == "red_square"
+
     all_response = client.get("/api/review-items?status=all")
     assert all_response.status_code == 200
     assert [item["review_item_id"] for item in all_response.json()["review_items"]] == [review_item_id]
@@ -191,6 +203,9 @@ def test_abstain_inference_creates_review_item_and_feedback(
 
     invalid_status_response = client.get("/api/review-items?status=unknown")
     assert invalid_status_response.status_code == 422
+
+    invalid_destination_response = client.get("/api/feedback-items?destination=unknown")
+    assert invalid_destination_response.status_code == 422
 
     duplicate_response = client.post(
         f"/api/review-items/{review_item_id}/submit",

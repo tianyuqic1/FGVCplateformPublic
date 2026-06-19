@@ -8,6 +8,7 @@ const navItems = [
   { id: "training", label: "训练", icon: "FlaskConical", to: "/training" },
   { id: "inference", label: "推理实验室", icon: "ImageUp", to: "/inference" },
   { id: "review", label: "人工复核", icon: "UserCheck", to: "/review" },
+  { id: "feedback", label: "反馈池", icon: "DatabaseZap", to: "/feedback" },
   { id: "models", label: "模型版本", icon: "Boxes", to: "/models" },
   { id: "pipelines", label: "流水线", icon: "Route", to: "/pipelines" },
 ];
@@ -18,8 +19,9 @@ const searchItems = [
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
-  { label: "人工复核", hint: "待复核、历史、反馈池", to: "/review?status=pending" },
+  { label: "人工复核", hint: "待复核、历史、人工提交", to: "/review?status=pending" },
   { label: "复核历史", hint: "feedbacked review items", to: "/review?status=feedbacked" },
+  { label: "反馈池", hint: "training_candidate、OOD、坏图、争议", to: "/feedback" },
   { label: "模型版本", hint: "候选模型、发布门禁", to: "/models" },
   { label: "流水线", hint: "任务节点、worker 边界", to: "/pipelines" },
 ];
@@ -29,6 +31,7 @@ function navKey(pathname) {
   if (pathname.startsWith("/training")) return "training";
   if (pathname.startsWith("/inference")) return "inference";
   if (pathname.startsWith("/review")) return "review";
+  if (pathname.startsWith("/feedback")) return "feedback";
   if (pathname.startsWith("/models")) return "models";
   if (pathname.startsWith("/pipelines")) return "pipelines";
   return "dashboard";
@@ -131,7 +134,7 @@ export function AppShell({ title, crumb, children, onToast }) {
               <Icon name="ImageUp" size={16} />
               推理
             </button>
-            <button className="primary-button" onClick={() => onToast("训练任务创建入口将在下一迭代接入")}>
+            <button className="primary-button" onClick={() => navigate("/training?create=1")}>
               <Icon name="Play" size={16} />
               新建训练
             </button>

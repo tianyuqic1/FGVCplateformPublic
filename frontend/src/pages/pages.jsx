@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
+import { datasets, modelVersions, pipelineNodes } from "../data/mockData.js";
 import { importImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
 import { listReviewItems } from "../api/reviews.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
-import { useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
+import { useFeedbackItems, useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
 import { Icon } from "../components/icons.jsx";
 import {
@@ -67,10 +67,35 @@ function destinationOptionsForOutcome(outcome) {
   return [["training_candidate", "训练候选池"]];
 }
 
+function feedbackDestinationLabel(destination) {
+  return FEEDBACK_DESTINATIONS.find(([value]) => value === destination)?.[1] ?? destination;
+}
+
+function feedbackOutcomeLabel(outcome) {
+  const labels = {
+    confirmed_label: "确认类别",
+    corrected_label: "纠正类别",
+    ood: "确认 OOD",
+    bad_image: "坏图",
+    uncertain: "仍不确定",
+    ignore: "忽略",
+  };
+  return labels[outcome] ?? outcome;
+}
+
 const REVIEW_STATUS_TABS = [
   ["pending", "待复核"],
   ["feedbacked", "已完成"],
   ["all", "全部"],
+];
+
+const FEEDBACK_DESTINATIONS = [
+  ["all", "全部反馈", "人工复核后的完整反馈池"],
+  ["training_candidate", "训练候选", "可进入下一轮数据集策展，但不会自动训练"],
+  ["ood_stress", "OOD 压力池", "用于构造拒识/压力测试候选"],
+  ["bad_image", "坏图池", "用于数据清洗和采集质量回溯"],
+  ["taxonomy_dispute", "类别争议", "用于 taxonomy 讨论和标注规范修正"],
+  ["ignore", "忽略池", "明确不进入后续数据版本的记录"],
 ];
 
 const SAMPLE_IMAGES = {
@@ -340,6 +365,8 @@ function PipelineNode({ node }) {
 
 export function DashboardPage({ showToast }) {
   const { datasets: datasetItems } = useDatasets();
+  const { reviewItems: pendingReviewItems, loading: reviewLoading } = useReviewItems({ status: "pending", limit: 3 });
+  const reviewCountLabel = reviewLoading ? "..." : String(pendingReviewItems.length);
 
   return (
     <>
@@ -360,7 +387,7 @@ export function DashboardPage({ showToast }) {
         }
       />
       <div className="grid metrics">
-        <MetricCard title="待复核样本" value="128" caption="高风险 17 · 人工待处理" fill="#a15c07" percent={48} icon="UserCheck" to="/review" />
+        <MetricCard title="待复核样本" value={reviewCountLabel} caption="Review API · abstain/OOD" fill="#a15c07" percent={Math.min(100, pendingReviewItems.length * 18)} icon="UserCheck" to="/review" />
         <MetricCard title="运行中训练" value="2" caption="1 个候选版本可灰度" fill="#315fbd" percent={72} icon="FlaskConical" to="/training" />
         <MetricCard title="生产覆盖率" value="82%" caption="阈值策略 selective-v4" fill="#0f766e" percent={82} icon="Gauge" to="/models" />
         <MetricCard title="OOD 告警" value="3" caption="工业零件数据集漂移" fill="#b4233c" percent={34} icon="ShieldAlert" to="/review" />
@@ -384,7 +411,7 @@ export function DashboardPage({ showToast }) {
         </Panel>
         <Panel
           title="最近低置信样本"
-          caption="点击进入审核详情。"
+          caption="来自真实 Review API；没有样本时不会跳转到 mock 详情。"
           action={
             <Link className="ghost-button" to="/review">
               <Icon name="ListFilter" size={16} />
@@ -392,7 +419,15 @@ export function DashboardPage({ showToast }) {
             </Link>
           }
         >
-          <div className="grid">{reviewItems.map((item) => <ReviewCard item={item} key={item.id} />)}</div>
+          {pendingReviewItems.length > 0 ? (
+            <div className="grid">{pendingReviewItems.map((item) => <ApiReviewCard item={item} key={item.id} />)}</div>
+          ) : (
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
+              <div><strong>{reviewLoading ? "正在读取复核队列" : "暂无真实待复核样本"}</strong><div className="row-meta">上传推理产生 abstain / reject_ood 后会进入这里。</div></div>
+              <Link className="ghost-button" to="/review">打开队列</Link>
+            </div>
+          )}
         </Panel>
       </div>
       <div className="grid two section-gap">
@@ -730,6 +765,7 @@ function filterTrainingRuns(runs, statusFilter, sortMode) {
 }
 
 export function TrainingPage({ showToast }) {
+  const [trainingSearchParams, setTrainingSearchParams] = useSearchParams();
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
   const { datasets: datasetOptions, source: datasetSource } = useDatasets();
   const [showCreate, setShowCreate] = useState(false);
@@ -760,6 +796,10 @@ export function TrainingPage({ showToast }) {
     });
   }, [datasetSource, datasetVersionOptions.join("|")]);
 
+  useEffect(() => {
+    if (trainingSearchParams.get("create") === "1") setShowCreate(true);
+  }, [trainingSearchParams]);
+
   function updateTrainingField(field, value) {
     setTrainingForm((current) => ({ ...current, [field]: value }));
   }
@@ -787,7 +827,14 @@ export function TrainingPage({ showToast }) {
 
   return (
     <>
-      <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<button className="primary-button" onClick={() => setShowCreate((value) => !value)}><Icon name="Plus" size={16} />新建训练</button>} />
+      <PageHero title="冻结视觉基座，快速训练分类头。" description="训练页聚焦数据版本、backbone、分类头、阈值校准和报告产物，避免把实验结果变成不可追踪的文件。" actions={<button className="primary-button" onClick={() => {
+        const nextVisible = !showCreate;
+        setShowCreate(nextVisible);
+        const next = new URLSearchParams(trainingSearchParams);
+        if (nextVisible) next.set("create", "1");
+        else next.delete("create");
+        setTrainingSearchParams(next);
+      }}><Icon name="Plus" size={16} />新建训练</button>} />
       {showCreate && (
         <Panel
           title="创建训练运行"
@@ -1501,6 +1548,140 @@ export function ReviewDetailPage({ showToast }) {
                 </div>
               </>
             )}
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+function FeedbackCard({ item }) {
+  const visualKey =
+    item.destination === "ood_stress" ? "ood" : item.destination === "bad_image" ? "defect" : item.finalLabel || item.sampleId || "bird";
+  return (
+    <div className="feedback-card">
+      {item.imageUrl ? (
+        <div className="review-image">
+          <img src={item.imageUrl} alt={item.sampleId || item.id} />
+          <span>{item.sampleId || item.id}</span>
+        </div>
+      ) : (
+        <SampleImage src={sampleImageFor(visualKey)} label={item.sampleId || item.id} compact low={item.destination !== "ood_stress"} />
+      )}
+      <div className="feedback-card-body">
+        <div className="chips">
+          <StatusChip tone={item.destination === "ood_stress" ? "risk" : item.destination === "training_candidate" ? "default" : "warn"}>
+            {feedbackDestinationLabel(item.destination)}
+          </StatusChip>
+          <StatusChip tone="info">{feedbackOutcomeLabel(item.finalOutcome)}</StatusChip>
+        </div>
+        <h3>{item.finalLabel || item.sampleId || item.id}</h3>
+        <p className="small">{item.datasetVersionId || item.datasetId || "unknown dataset"} · {item.modelVersionId || "unknown model"}</p>
+        <p className="small review-reason">{item.reviewerNote || "暂无人工备注。"}</p>
+        <div className="toolbar spread section-gap-small">
+          <span className="row-meta">{item.createdBy || "local-reviewer"} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : "unknown time"}</span>
+          {item.reviewItemId && (
+            <Link className="ghost-button" to={`/review/${item.reviewItemId}?status=feedbacked`}>
+              <Icon name="ExternalLink" size={16} />
+              复核记录
+            </Link>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function FeedbackPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const destinationFilter = searchParams.get("destination") || "all";
+  const datasetFilter = searchParams.get("dataset_id") || "";
+  const { datasets: datasetItems } = useDatasets();
+  const { feedbackItems, loading, error, refresh } = useFeedbackItems({
+    destination: destinationFilter,
+    datasetId: datasetFilter || undefined,
+    limit: 120,
+  });
+  const poolCounts = FEEDBACK_DESTINATIONS.filter(([value]) => value !== "all").map(([value, label]) => [
+    value,
+    label,
+    feedbackItems.filter((item) => item.destination === value).length,
+  ]);
+  const datasetOptions = Array.from(
+    new Map(
+      [
+        ...datasetItems.map((dataset) => [dataset.id, dataset.name || dataset.id]),
+        ...feedbackItems.map((item) => [item.datasetId, item.datasetId]),
+        datasetFilter ? [datasetFilter, datasetFilter] : null,
+      ].filter((entry) => entry?.[0]),
+    ),
+  );
+
+  function updateFeedbackFilter(field, value) {
+    const next = new URLSearchParams(searchParams);
+    if (field === "destination") next.set("destination", value || "all");
+    if (field === "dataset_id") {
+      if (value) next.set("dataset_id", value);
+      else next.delete("dataset_id");
+    }
+    setSearchParams(next);
+  }
+
+  return (
+    <>
+      <PageHero
+        title="反馈池"
+        description="复核结论在这里作为下一轮数据集版本的候选输入；当前不会自动写回训练集，也不会自动触发训练。"
+        actions={<><Link className="ghost-button" to="/review?status=feedbacked"><Icon name="UserCheck" size={16} />复核历史</Link><button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button></>}
+      />
+      <div className="grid detail">
+        <Panel title="反馈池列表" caption={loading ? "正在连接 Feedback API。" : `${feedbackItems.length} 条反馈。`}>
+          <div className="review-filter-bar">
+            <div className="tabs">
+              {FEEDBACK_DESTINATIONS.map(([value, label]) => (
+                <button className={`tab-button ${destinationFilter === value ? "active" : ""}`} key={value} onClick={() => updateFeedbackFilter("destination", value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="filter-select">
+              <span>数据集</span>
+              <select value={datasetFilter} onChange={(event) => updateFeedbackFilter("dataset_id", event.target.value)}>
+                <option value="">全部数据集</option>
+                {datasetOptions.map(([id, label]) => (
+                  <option value={id} key={id}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {error && (
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+              <div><strong>Feedback API 请求失败</strong><div className="row-meta">{error.message}</div></div>
+              <StatusChip tone="risk">error</StatusChip>
+            </div>
+          )}
+          {!error && feedbackItems.length === 0 && (
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="DatabaseZap" size={18} /></div>
+              <div><strong>{loading ? "正在加载反馈池" : "当前筛选下没有反馈"}</strong><div className="row-meta">完成人工复核后，反馈会按目的地进入这里。</div></div>
+              <StatusChip tone={loading ? "info" : "default"}>{loading ? "loading" : "empty"}</StatusChip>
+            </div>
+          )}
+          <div className="feedback-list">
+            {feedbackItems.map((item) => <FeedbackCard item={item} key={item.id} />)}
+          </div>
+        </Panel>
+        <Panel title="策展门禁" caption="MVP 只做候选池可见，不自动生成新数据集版本。">
+          <div className="feedback-summary">
+            {poolCounts.map(([value, label, count]) => (
+              <div key={value}><span>{label}</span><strong>{count}</strong></div>
+            ))}
+          </div>
+          <div className="timeline section-gap">
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldCheck" size={18} /></div><div><strong>不会直接污染训练集</strong><div className="row-meta">训练仍只能选择不可变 dataset_version。</div></div><StatusChip tone="default">guarded</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Database" size={18} /></div><div><strong>下一步：数据策展</strong><div className="row-meta">后续会把已采纳反馈冻结成新的 dataset version。</div></div><StatusChip tone="warn">deferred</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Route" size={18} /></div><div><strong>发布前再消费</strong><div className="row-meta">模型发布门禁应检查 OOD 压力池、坏图池和争议池处理状态。</div></div><StatusChip tone="info">gate</StatusChip></div>
           </div>
         </Panel>
       </div>

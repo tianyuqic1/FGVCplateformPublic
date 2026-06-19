@@ -442,6 +442,12 @@ ignore
 Feedback pools are candidate inputs to later dataset curation/versioning. They must not directly
 rewrite the immutable source dataset version or trigger retraining by themselves.
 
+The MVP exposes these pools through `GET /api/feedback-items`. This makes completed review outcomes
+visible by `destination` and `dataset_id`, but it does not yet mark entries as consumed. The next
+database hardening slice should add a curation state such as `new`, `accepted_for_next_dataset`,
+`rejected`, and `included_in_dataset_version`, plus a reference to the derived dataset version that
+consumed the feedback.
+
 ## Vector Database Position
 
 Do not introduce a standalone vector database in the MVP.
@@ -563,11 +569,13 @@ Current deliberate simplification:
 - Feature artifacts are represented in the generic `artifacts` table as `artifact_type = feature_matrix`; a dedicated `feature_artifacts` table is deferred until feature search/index lifecycle needs richer query semantics.
 - Feature indexes are deferred to Iteration 3, where inference needs nearest-neighbor evidence and OOD distance.
 
-### Iteration 3: Inference And Review
+### Iteration 3-4: Inference, Review, And Feedback
 
-- Add `inference_events`, `review_items`, and `feedback_items`.
-- Use `feature_indexes` for nearest-neighbor evidence and OOD decisions.
-- Feed reviewed outcomes back into future dataset versions.
+- Implemented: `20260619_0003` adds `inference_events`, `review_items`, and `feedback_items`.
+- Implemented: inference records events and routes `abstain` / `reject_ood` to human review.
+- Implemented: completed reviews create typed feedback entries, visible through the feedback pool API.
+- Deferred: `feature_indexes` table and FAISS index lifecycle; MVP nearest-neighbor evidence scans the feature artifact.
+- Deferred: consuming feedback into a new immutable dataset version.
 
 ## Non-Goals For Now
 

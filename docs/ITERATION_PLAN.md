@@ -464,6 +464,7 @@ Deliverables:
 - Review detail API.
 - Review completion API.
 - Feedback pool storage.
+- Feedback pool read API and UI grouped by destination.
 - UI for final label, feedback destination, reviewer note, and submission.
 
 Implementation status:
@@ -473,7 +474,9 @@ Implementation status:
 - Done: `abstain` and `reject_ood` decisions create pending review items; `accept` only records the inference event.
 - Done: `GET /api/review-items`, `GET /api/review-items/{id}`, and `POST /api/review-items/{id}/submit` serve the Review Workflow MVP.
 - Done: `/review` and `/review/:id` read the Review API and submit typed human feedback.
+- Done: `GET /api/feedback-items` and `/feedback` make completed feedback visible by destination.
 - Done: feedback pool entries do not mutate dataset versions or trigger retraining.
+- Deferred: data curation job that consumes selected feedback into a new immutable dataset version.
 
 Acceptance:
 
@@ -481,6 +484,7 @@ Acceptance:
 - A review cannot complete without a human final outcome.
 - LLM/VLM assistance is deferred; current UI shows model evidence and human notes only.
 - Completed outcomes enter the correct typed feedback pool.
+- Users can inspect the feedback pool without confusing it for automatic training data ingestion.
 - Tests cover queue ordering, completion, typed routing, and audit trail retention.
 
 Suggested checkpoint pushes:

@@ -1,7 +1,9 @@
 import {
   extractReviewItem,
   extractReviewItemList,
+  listFeedbackItems,
   listReviewItems,
+  normalizeFeedbackItem,
   normalizeReviewItem,
 } from "../src/api/reviews.js";
 
@@ -67,6 +69,24 @@ const completed = normalizeReviewItem(
 );
 if (completed.feedback.destination !== "training_candidate") throw new Error("Feedback destination missing");
 
+const feedback = normalizeFeedbackItem({
+  feedback_item_id: "feedback-001",
+  review_item_id: "review-001",
+  inference_event_id: "inference-001",
+  dataset_id: "toy",
+  dataset_version_id: "dataset@toy-001",
+  model_version_id: "toy-run-001-candidate",
+  input_ref: "/data/uploads/query-001.jpg",
+  image_url: "/api/uploads/query-001.jpg",
+  final_outcome: "corrected_label",
+  destination: "training_candidate",
+  final_label: "red_square",
+});
+if (feedback.id !== "feedback-001") throw new Error("Feedback id missing");
+if (feedback.reviewItemId !== "review-001") throw new Error("Feedback review id missing");
+if (feedback.datasetId !== "toy") throw new Error("Feedback dataset missing");
+if (!feedback.imageUrl.endsWith("/api/uploads/query-001.jpg")) throw new Error("Feedback image url missing");
+
 let requestedUrl = "";
 globalThis.window = {
   setTimeout,
@@ -85,5 +105,11 @@ if (!requestedUrl.includes("/api/review-items?")) throw new Error("Review list e
 if (!requestedUrl.includes("status=all")) throw new Error("Review status filter missing");
 if (!requestedUrl.includes("dataset_id=toy")) throw new Error("Review dataset filter missing");
 if (!requestedUrl.includes("limit=80")) throw new Error("Review limit missing");
+
+await listFeedbackItems({ destination: "training_candidate", datasetId: "toy", limit: 120 });
+if (!requestedUrl.includes("/api/feedback-items?")) throw new Error("Feedback list endpoint missing");
+if (!requestedUrl.includes("destination=training_candidate")) throw new Error("Feedback destination filter missing");
+if (!requestedUrl.includes("dataset_id=toy")) throw new Error("Feedback dataset filter missing");
+if (!requestedUrl.includes("limit=120")) throw new Error("Feedback limit missing");
 
 console.log("review api client smoke passed");

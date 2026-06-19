@@ -1024,6 +1024,41 @@ a {
   overflow-wrap: anywhere;
 }
 
+.feedback-list {
+  display: grid;
+  gap: 10px;
+}
+
+.feedback-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.feedback-card .review-image,
+.feedback-card .sample-image {
+  min-height: 132px;
+}
+
+.feedback-card .review-image img {
+  height: 132px;
+}
+
+.feedback-card-body {
+  min-width: 0;
+}
+
+.feedback-card h3 {
+  margin: 8px 0 6px;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
 .decision-summary {
   display: grid;
   gap: 10px;

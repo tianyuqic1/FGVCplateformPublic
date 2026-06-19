@@ -9,6 +9,7 @@ import {
   DatasetDetailPage,
   DatasetsPage,
   InferencePage,
+  FeedbackPage,
   ModelDetailPage,
   ModelsPage,
   PipelineRunPage,
@@ -28,6 +29,7 @@ const legacyPageMap = {
   inference: "/inference",
   review: "/review",
   "review-detail": ({ id = "sample-0817" }) => `/review/${id}`,
+  feedback: "/feedback",
   models: "/models",
   "model-detail": ({ id = "bird-cls-v4" }) => `/models/${id}`,
   pipelines: "/pipelines",
@@ -49,6 +51,7 @@ function titleForPath(pathname) {
   if (pathname === "/inference") return "推理实验室";
   if (pathname.startsWith("/review/")) return "复核详情";
   if (pathname === "/review") return "人工复核";
+  if (pathname === "/feedback") return "反馈池";
   if (pathname.startsWith("/models/")) return "模型详情";
   if (pathname === "/models") return "模型版本";
   if (pathname.startsWith("/pipelines/")) return "流水线运行";
@@ -64,6 +67,7 @@ function crumbForPath(pathname) {
   if (pathname === "/inference") return "推理";
   if (pathname.startsWith("/review/")) return "复核 / 样本详情";
   if (pathname === "/review") return "复核队列";
+  if (pathname === "/feedback") return "复核 / 反馈池";
   if (pathname.startsWith("/models/")) return "模型 / 版本详情";
   if (pathname === "/models") return "模型注册表";
   if (pathname.startsWith("/pipelines/")) return "流水线 / 运行详情";
@@ -140,6 +144,7 @@ export default function App() {
           <Route path="/inference" element={<InferencePage showToast={showToast} />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/models/:modelId" element={<ModelDetailPage showToast={showToast} />} />
           <Route path="/pipelines" element={<PipelinesPage />} />

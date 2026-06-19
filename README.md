@@ -60,6 +60,7 @@ Main routes:
 /inference
 /review
 /review/sample-0817
+/feedback
 /models
 /models/bird-cls-v4
 /pipelines
@@ -202,10 +203,10 @@ docs/DATABASE_DESIGN.md
 
 ## Next Step
 
-Continue the MVP with Iteration 4:
+Continue the MVP after Iteration 4 with feedback curation:
 
 ```text
-Human Review And Typed Feedback
+Feedback pool -> curated dataset version -> retraining gate
 ```
 
 Use the OpenSpec task list as the detailed backlog:

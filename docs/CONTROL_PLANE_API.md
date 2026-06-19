@@ -256,6 +256,7 @@ Review queue endpoints:
 GET  /api/review-items?status=pending&limit=50
 GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/submit
+GET  /api/feedback-items?destination=training_candidate&dataset_id=cifar10-mini&limit=100
 ```
 
 Review submit request:
@@ -275,6 +276,36 @@ Review submit request:
 `taxonomy_dispute`, or `ignore`. The submit operation creates a typed feedback item and marks the
 review as `feedbacked` in one database transaction. Feedback pool entries do not rewrite dataset
 versions or trigger retraining.
+
+Feedback pool responses are read-only MVP curation inputs:
+
+```json
+{
+  "feedback_items": [
+    {
+      "feedback_item_id": "feedback-001",
+      "review_item_id": "review-001",
+      "inference_event_id": "inference-001",
+      "dataset_id": "cifar10-mini",
+      "dataset_version_id": "dataset@cifar10-mini-001",
+      "model_version_id": "cifar10-mini-run-001-candidate",
+      "sample_id": null,
+      "input_ref": "/data/uploads/query.jpg",
+      "image_url": "/api/uploads/query.jpg",
+      "final_outcome": "corrected_label",
+      "destination": "training_candidate",
+      "final_label": "deer",
+      "reviewer_note": "human correction",
+      "created_by": "local-reviewer",
+      "created_at": "2026-06-19T00:00:00Z"
+    }
+  ]
+}
+```
+
+`GET /api/feedback-items` supports `destination=all|training_candidate|ood_stress|bad_image|taxonomy_dispute|ignore`,
+`dataset_id`, and `limit`. The next platform slice should add a dataset curation job that consumes
+selected feedback into a new immutable dataset version.
 
 Dataset summary response shape:
 
@@ -377,6 +408,7 @@ cd frontend && npm run smoke:api-client
 cd frontend && npm run smoke:jobs-client
 cd frontend && npm run smoke:training-client
 cd frontend && npm run smoke:inference-client
+cd frontend && npm run smoke:review-client
 cd frontend && npm run build
 cd frontend && npm run smoke:routes
 docker compose config

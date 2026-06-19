@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getReviewItem, listReviewItems, submitReviewOutcome } from "../api/reviews.js";
+import { getReviewItem, listFeedbackItems, listReviewItems, submitReviewOutcome } from "../api/reviews.js";
 
 export function useReviewItems(filters = {}) {
   const [state, setState] = useState({
@@ -84,4 +84,36 @@ export function useSubmitReviewOutcome(reviewItemId) {
   );
 
   return { ...state, submit };
+}
+
+export function useFeedbackItems(filters = {}) {
+  const [state, setState] = useState({
+    feedbackItems: [],
+    source: "api",
+    loading: true,
+    error: null,
+  });
+
+  const refresh = useCallback(() => {
+    let active = true;
+    setState((current) => ({ ...current, loading: true, error: null }));
+
+    listFeedbackItems(filters)
+      .then((items) => {
+        if (!active) return;
+        setState({ feedbackItems: items, source: "api", loading: false, error: null });
+      })
+      .catch((error) => {
+        if (!active) return;
+        setState({ feedbackItems: [], source: "api", loading: false, error });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [filters.destination, filters.datasetId, filters.limit]);
+
+  useEffect(() => refresh(), [refresh]);
+
+  return { ...state, refresh };
 }
