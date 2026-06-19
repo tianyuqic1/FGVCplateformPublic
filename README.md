@@ -133,6 +133,7 @@ POST /api/jobs/{job_id}/cancel
 POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
+POST /api/inference
 ```
 
 For a fresh local database, start PostgreSQL first and apply migrations before
@@ -163,7 +164,7 @@ Run PostgreSQL-backed repository tests:
 
 ```text
 docker compose stop ml-worker
-FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run pytest backend/tests/test_db_stores.py
+FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run pytest backend/tests/test_db_stores.py backend/tests/test_api_inference.py
 ```
 
 Run frontend API client smoke checks:
@@ -173,6 +174,7 @@ cd frontend
 npm run smoke:api-client
 npm run smoke:jobs-client
 npm run smoke:training-client
+npm run smoke:inference-client
 ```
 
 More detail:
@@ -184,10 +186,10 @@ docs/DATABASE_DESIGN.md
 
 ## Next Step
 
-Start implementation from:
+Continue the MVP with Iteration 4:
 
 ```text
-docs/ITERATION_PLAN.md
+Human Review And Typed Feedback
 ```
 
 Use the OpenSpec task list as the detailed backlog:

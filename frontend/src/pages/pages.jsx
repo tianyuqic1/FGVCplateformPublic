@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
+import { runInference } from "../api/inference.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
@@ -48,6 +50,12 @@ function trainingStatus(run) {
   if (run.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
   if (run.status === "cancelled") return { label: "已取消", tone: "neutral", icon: "Ban" };
   return { label: "排队中", tone: "info", icon: "Clock" };
+}
+
+function inferenceDecisionStatus(decision) {
+  if (decision?.value === "accept") return { label: "可直出", tone: "default", icon: "Check" };
+  if (decision?.value === "reject_ood") return { label: "OOD 拦截", tone: "risk", icon: "ShieldAlert" };
+  return { label: "进入复核", tone: "warn", icon: "UserCheck" };
 }
 
 function ReviewCard({ item }) {
@@ -534,31 +542,146 @@ export function TrainingDetailPage({ showToast }) {
 }
 
 export function InferencePage({ showToast }) {
+  const { datasets: apiDatasets } = useDatasets();
+  const datasetOptions = apiDatasets.length > 0 ? apiDatasets : datasets;
+  const [form, setForm] = useState({
+    datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "",
+    modelVersionId: datasetOptions[0]?.productionModelVersionId ?? modelVersions[0]?.id ?? "",
+    imagePath: "",
+    sampleId: "",
+    topK: 3,
+    evidenceK: 3,
+  });
+  const [state, setState] = useState({ status: "idle", result: null, error: null });
+  const canRun =
+    state.status !== "running" &&
+    form.datasetVersionId.trim() &&
+    form.modelVersionId.trim() &&
+    (form.imagePath.trim() || form.sampleId.trim());
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleRun() {
+    if (!canRun) return;
+    setState({ status: "running", result: null, error: null });
+    try {
+      const result = await runInference({
+        dataset_version_id: form.datasetVersionId.trim(),
+        model_version_id: form.modelVersionId.trim(),
+        image_path: form.imagePath.trim() || null,
+        sample_id: form.sampleId.trim() || null,
+        top_k: Number(form.topK),
+        evidence_k: Number(form.evidenceK),
+      });
+      setState({ status: "succeeded", result, error: null });
+      showToast("推理完成，结果已更新");
+    } catch (error) {
+      setState({ status: "failed", result: null, error });
+      showToast("Inference API 请求失败");
+    }
+  }
+
+  const result = state.result;
+  const decisionState = inferenceDecisionStatus(result?.decision);
   return (
     <div className="grid detail">
-      <Panel title="输入样本" caption="支持单图、批量和 API 回放。" action={<button className="ghost-button" onClick={() => showToast("已模拟上传样本")}><Icon name="Upload" size={16} />上传</button>}>
-        <VisualPlaceholder type="bird" label="query image" low />
+      <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
+        <VisualPlaceholder type="bird" label={form.sampleId || form.imagePath || "query image"} low />
         <div className="field-grid section-gap-small">
-          <div className="field"><label>数据集</label><select><option>鸟类细粒度分类</option><option>工业零件缺陷</option></select></div>
-          <div className="field"><label>模型版本</label><select><option>bird-cls-v4 production</option><option>bird-cls-v5 staging</option></select></div>
+          <div className="field">
+            <label>数据版本</label>
+            <input list="dataset-version-options" value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} placeholder="dataset@..." />
+            <datalist id="dataset-version-options">
+              {datasetOptions.map((dataset) => (
+                <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>{dataset.datasetVersionId}</option>
+              ))}
+            </datalist>
+          </div>
+          <div className="field">
+            <label>模型版本</label>
+            <input value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} placeholder="model_version_id" />
+          </div>
+          <div className="field">
+            <label>图片路径</label>
+            <input value={form.imagePath} onChange={(event) => updateField("imagePath", event.target.value)} placeholder="/absolute/path/to/image.png" />
+          </div>
+          <div className="field">
+            <label>样本 ID</label>
+            <input value={form.sampleId} onChange={(event) => updateField("sampleId", event.target.value)} placeholder="feature artifact sample_id" />
+          </div>
+          <div className="field">
+            <label>Top-k</label>
+            <input type="number" min="1" max="10" value={form.topK} onChange={(event) => updateField("topK", event.target.value)} />
+          </div>
+          <div className="field">
+            <label>近邻数</label>
+            <input type="number" min="0" max="10" value={form.evidenceK} onChange={(event) => updateField("evidenceK", event.target.value)} />
+          </div>
         </div>
         <div className="toolbar section-gap-small">
-          <button className="primary-button" onClick={() => showToast("推理完成，结果进入右侧面板")}><Icon name="Play" size={16} />运行推理</button>
+          <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
           <button className="ghost-button"><Icon name="ScissorsLineDashed" size={16} />启用 SAM3</button>
         </div>
       </Panel>
-      <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone="warn">进入复核</StatusChip>}>
-        <div className="grid two">
-          <div>
-            <CandidateBar label="黑喉石鵖" score={0.52} />
-            <CandidateBar label="普通石鵖" score={0.49} fill="#a15c07" />
-            <CandidateBar label="赭红尾鸲" score={0.21} fill="#315fbd" />
-            <div className="chips section-gap-small"><StatusChip tone="warn">margin 0.03</StatusChip><StatusChip tone="info">同域</StatusChip><StatusChip tone="risk">不直出</StatusChip></div>
+      <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
+        {state.status === "idle" && (
+          <div className="timeline-item">
+            <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
+            <div><strong>等待推理输入</strong><div className="row-meta">填写图片路径或样本 ID 后运行推理。</div></div>
+            <StatusChip tone="info">idle</StatusChip>
           </div>
-          <div className="code-panel">decision: abstain<br />reason: top1_top2_margin_below_threshold<br />next: create_review_item<br />llm_budget: low<br />sam3: optional</div>
-        </div>
-        <div className="panel-title embedded"><div><h2>近邻样本</h2><span>辅助解释，不作为真值。</span></div></div>
-        <div className="image-grid compact"><VisualCard type="bird" label="nn-1" /><VisualCard type="bird" label="nn-2" /><VisualCard type="ood" label="hard negative" /></div>
+        )}
+        {state.status === "running" && (
+          <div className="timeline-item">
+            <div className="timeline-icon"><Icon name="LoaderCircle" size={18} /></div>
+            <div><strong>正在运行推理</strong><div className="row-meta">{form.datasetVersionId} · {form.modelVersionId}</div><ProgressBar value={72} fill="#315fbd" shimmer /></div>
+            <StatusChip tone="info">running</StatusChip>
+          </div>
+        )}
+        {state.status === "failed" && (
+          <div className="timeline-item">
+            <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+            <div><strong>推理失败</strong><div className="row-meta">{state.error?.message ?? "Inference API 请求失败"}</div></div>
+            <StatusChip tone="risk">failed</StatusChip>
+          </div>
+        )}
+        {state.status === "succeeded" && result && (
+          <>
+            <div className="grid two">
+              <div>
+                {result.topK.length > 0 ? (
+                  result.topK.map((candidate, index) => (
+                    <CandidateBar label={candidate.label} score={candidate.score} fill={index === 0 ? "#0891b2" : index === 1 ? "#a15c07" : "#315fbd"} key={`${candidate.label}-${index}`} />
+                  ))
+                ) : (
+                  <div className="row-meta">API 未返回候选类别。</div>
+                )}
+                <div className="chips section-gap-small">
+                  <StatusChip tone={decisionState.tone}>confidence {result.decision.confidence.toFixed(2)}</StatusChip>
+                  <StatusChip tone="info">margin {result.decision.margin.toFixed(2)}</StatusChip>
+                  <StatusChip tone={result.decision.value === "accept" ? "default" : "warn"}>{decisionState.label}</StatusChip>
+                </div>
+              </div>
+              <div className="code-panel">decision: {result.decision.value}<br />reason: {result.decision.reasons.join(", ") || "none"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />ood_score: {result.decision.oodScore ?? "n/a"}</div>
+            </div>
+            <div className="panel-title embedded"><div><h2>近邻样本</h2><span>辅助解释，不作为真值。</span></div></div>
+            {result.nearestNeighbors.length > 0 ? (
+              <div className="timeline">
+                {result.nearestNeighbors.map((neighbor) => (
+                  <div className="timeline-item" key={neighbor.sampleId}>
+                    <div className="timeline-icon"><Icon name="GitCompare" size={18} /></div>
+                    <div><strong>{neighbor.sampleId}</strong><div className="row-meta">{neighbor.label} · distance {neighbor.distance?.toFixed(4) ?? "n/a"}</div></div>
+                    <StatusChip tone="info">NN</StatusChip>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="row-meta">暂无近邻证据。</div>
+            )}
+          </>
+        )}
       </Panel>
     </div>
   );

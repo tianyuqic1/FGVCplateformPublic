@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.datasets import scan_imagefolder
+from finevision.ml_toolkit.features import build_extractor_from_config
+from finevision.ml_toolkit.inference import run_image_inference, run_inference
+from finevision.schemas.artifacts import InferenceResult, to_jsonable
 
 
 class ImportImageFolderRequest(BaseModel):
@@ -32,6 +38,18 @@ class CreateTrainingRunRequest(BaseModel):
     head_config: dict[str, Any] = Field(default_factory=lambda: {"head_type": "ridge_linear", "ridge_lambda": 1e-2})
     target_selective_risk: float = Field(default=0.01, ge=0.0, le=1.0)
     review_cost_per_item: float = Field(default=1.0, ge=0.0)
+
+
+class RunInferenceRequest(BaseModel):
+    dataset_version_id: str = Field(..., min_length=1)
+    model_version_id: str = Field(..., min_length=1)
+    image_path: str | None = Field(default=None, min_length=1)
+    sample_id: str | None = Field(default=None, min_length=1)
+    top_k: int = Field(default=3, ge=1, le=10)
+    evidence_k: int = Field(default=3, ge=0, le=10)
+    accept_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    margin_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    ood_distance_threshold: float | None = Field(default=None, ge=0.0)
 
 
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
@@ -57,6 +75,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.metadata_store = store
     api.state.job_store = job_store
     api.state.training_store = training_store
+    api.state.inference_store = DatabaseInferenceStore(resolved_database_url) if resolved_database_url else None
 
     @api.get("/api/health")
     def health() -> dict[str, str]:
@@ -192,6 +211,66 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Training run not found")
         return {"training_run": training_run.__dict__}
 
+    @api.post("/api/inference")
+    def run_scoped_inference(request: RunInferenceRequest) -> dict[str, object]:
+        inference_store: DatabaseInferenceStore | None = api.state.inference_store
+        if inference_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Inference requires DATABASE_URL-backed model metadata",
+            )
+        if not request.image_path and not request.sample_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Either image_path or sample_id is required",
+            )
+
+        context = inference_store.load_context(
+            dataset_version_id=request.dataset_version_id,
+            model_version_id=request.model_version_id,
+        )
+        if context is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found for dataset version")
+
+        strategy = context.threshold_strategy
+        if request.accept_threshold is not None or request.margin_threshold is not None:
+            strategy = replace(
+                strategy,
+                accept_threshold=request.accept_threshold
+                if request.accept_threshold is not None
+                else strategy.accept_threshold,
+                margin_threshold=request.margin_threshold
+                if request.margin_threshold is not None
+                else strategy.margin_threshold,
+            )
+
+        try:
+            result = _run_inference_from_context(
+                context=context,
+                request=request,
+                strategy=strategy,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+        payload = {
+            "dataset_id": context.dataset_id,
+            "dataset_version_id": context.dataset_version_id,
+            "model_version_id": context.model_version_id,
+            "model_status": context.model_status,
+            "model_artifact_id": context.model_artifact.artifact_id,
+            "feature_artifact_id": context.feature_artifact.artifact_id,
+            "threshold_strategy_id": result.threshold_strategy_id,
+            "input": {
+                "image_path": request.image_path,
+                "sample_id": request.sample_id,
+            },
+            "result": to_jsonable(result),
+        }
+        return {"inference_result": payload}
+
     return api
 
 
@@ -227,6 +306,54 @@ def _validate_train_classifier_payload(payload: dict[str, Any]) -> dict[str, Any
         "training_run_id": str(payload["training_run_id"]),
         "dataset_version_id": str(payload["dataset_version_id"]),
     }
+
+
+def _run_inference_from_context(
+    *,
+    context: InferenceContext,
+    request: RunInferenceRequest,
+    strategy: Any,
+) -> InferenceResult:
+    if request.sample_id:
+        try:
+            sample_index = context.feature_artifact.sample_ids.index(request.sample_id)
+        except ValueError as exc:
+            raise ValueError(f"Sample id not found in feature artifact: {request.sample_id}") from exc
+        query_features = np.asarray(context.features[sample_index], dtype=np.float32)
+        return run_inference(
+            context.model_artifact,
+            context.model_state,
+            strategy,
+            query_features,
+            context.features,
+            context.feature_artifact.sample_ids,
+            context.feature_artifact.labels,
+            ood_distance_threshold=request.ood_distance_threshold,
+            top_k=request.top_k,
+            evidence_k=request.evidence_k,
+            exclude_sample_ids={request.sample_id},
+        )
+
+    image_path = Path(str(request.image_path)).expanduser()
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image path not found: {image_path}")
+    if not image_path.is_file():
+        raise ValueError(f"Image path must be a file: {image_path}")
+
+    extractor = build_extractor_from_config(context.feature_artifact.extractor_config)
+    return run_image_inference(
+        image_path=str(image_path),
+        extractor=extractor,
+        model_artifact=context.model_artifact,
+        model_state=context.model_state,
+        threshold_strategy=strategy,
+        reference_features=context.features,
+        reference_sample_ids=context.feature_artifact.sample_ids,
+        reference_labels=context.feature_artifact.labels,
+        ood_distance_threshold=request.ood_distance_threshold,
+        top_k=request.top_k,
+        evidence_k=request.evidence_k,
+    )
 
 
 def _default_backbone_id(extractor: str) -> str:

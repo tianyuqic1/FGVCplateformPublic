@@ -429,10 +429,14 @@ Deliverables:
 
 Acceptance:
 
-- High-confidence in-domain samples can return `accept`.
-- Low-confidence or low-margin samples return `abstain`.
-- Out-of-domain samples can return `reject_ood`.
-- Tests cover accept, abstain, low-margin abstain, OOD reject, and nearest-neighbor response shape.
+- Done: `POST /api/inference` requires `dataset_version_id` and `model_version_id`.
+- Done: inference can use either a local `image_path` or an existing feature artifact `sample_id`.
+- Done: top-k candidates are capped by model class count.
+- Done: calibrated scores use the threshold strategy temperature when available.
+- Done: abstention output includes decision, reasons, thresholds, margin, confidence, and OOD score.
+- Done: tests cover accept, low-confidence abstain, low-margin abstain, OOD reject, top-k cap, and nearest-neighbor response shape.
+- Partial: nearest-neighbor evidence is an exact scan over the feature artifact; FAISS/vector index serving is deferred.
+- Partial: inference request persistence and batch/async inference jobs are deferred until review/operations workflows need them.
 
 Suggested checkpoint pushes:
 

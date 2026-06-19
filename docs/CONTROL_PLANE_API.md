@@ -82,6 +82,7 @@ POST /api/jobs/{job_id}/cancel
 POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
+POST /api/inference
 ```
 
 Import request:
@@ -177,6 +178,69 @@ Training run response shape:
 
 Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent. The API rejects dataset versions whose readiness report is not ready, canonicalizes `backbone_id` from the selected extractor when omitted, and synchronizes queued training-run cancellation through `POST /api/jobs/{job_id}/cancel`.
 
+Scoped inference request:
+
+```json
+{
+  "dataset_version_id": "dataset@cifar10-mini-001",
+  "model_version_id": "cifar10-mini-run-abc123-candidate",
+  "image_path": "/absolute/path/to/query.png",
+  "sample_id": null,
+  "top_k": 3,
+  "evidence_k": 3,
+  "ood_distance_threshold": 1.5
+}
+```
+
+`POST /api/inference` requires PostgreSQL-backed model metadata and uses the `model_versions`
+row produced by Iteration 2. Input can be either `image_path` or `sample_id`. `sample_id`
+reuses the stored feature matrix; `image_path` restores the extractor from the feature artifact
+metadata and extracts a single query feature. Batch inference and uploaded file storage are deferred.
+
+Scoped inference response shape:
+
+```json
+{
+  "inference_result": {
+    "dataset_id": "cifar10-mini",
+    "dataset_version_id": "dataset@cifar10-mini-001",
+    "model_version_id": "cifar10-mini-run-abc123-candidate",
+    "model_status": "candidate",
+    "model_artifact_id": "dataset@cifar10-mini-001-run-abc123-linear-head",
+    "feature_artifact_id": "dataset@cifar10-mini-001-color_stats_v1-cff1350237",
+    "threshold_strategy_id": "dataset@cifar10-mini-001-run-abc123-threshold-strategy",
+    "input": {
+      "image_path": "/absolute/path/to/query.png",
+      "sample_id": null
+    },
+    "result": {
+      "top_k": [
+        { "label": "airplane", "score": 0.92 }
+      ],
+      "decision": {
+        "decision": "accept",
+        "reasons": ["meets_acceptance_thresholds"],
+        "thresholds": {
+          "confidence": 0.8,
+          "margin": 0.15,
+          "ood_distance": 1.5
+        },
+        "margin": 0.31,
+        "confidence": 0.92,
+        "ood_score": 0.4
+      },
+      "nearest_neighbors": [
+        { "sample_id": "sample-456", "label": "airplane", "distance": 0.4 }
+      ]
+    }
+  }
+}
+```
+
+The `decision.decision` value is one of `accept`, `abstain`, or `reject_ood`. `top_k` is capped by
+the model class count. Nearest-neighbor evidence is an exact scan over the feature artifact for MVP;
+ANN/vector index serving is deferred.
+
 Dataset summary response shape:
 
 ```json
@@ -271,6 +335,7 @@ uv run --group dev pytest
 cd frontend && npm run smoke:api-client
 cd frontend && npm run smoke:jobs-client
 cd frontend && npm run smoke:training-client
+cd frontend && npm run smoke:inference-client
 cd frontend && npm run build
 cd frontend && npm run smoke:routes
 docker compose config
@@ -279,11 +344,12 @@ docker compose config
 Current verified result:
 
 ```text
-backend: 10 passed, 6 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
-db integration: 6 passed against local PostgreSQL
+backend: 10 passed, 14 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
+db integration: 14 passed against local PostgreSQL
 frontend api client: passed
 frontend jobs client: passed
 frontend training client: passed
+frontend inference client: passed
 frontend build: passed
 frontend routes: 16 x 200
 docker compose config: passed
@@ -292,4 +358,4 @@ worker --once CLI smoke: passed
 
 ## Next
 
-Iteration 3 should connect scoped inference and abstention to the model/version metadata produced by Iteration 2.
+Iteration 4 should turn abstain and reject_ood inference decisions into typed human review work.

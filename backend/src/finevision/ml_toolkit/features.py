@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 from PIL import Image
@@ -97,6 +97,21 @@ class TimmDinoV3Extractor:
                     output = output[0]
                 batches.append(output.detach().cpu().float().numpy())
         return np.vstack(batches).astype(np.float32)
+
+
+def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any] | None = None) -> ImageFeatureExtractor:
+    merged = {**config, **(overrides or {})}
+    extractor_type = str(merged.get("type") or "color_stats")
+    if extractor_type == "color_stats":
+        return ColorStatsExtractor(bins=int(merged.get("bins", 8)))
+    if extractor_type in {"timm_dinov3", "dinov3_vitl"}:
+        return TimmDinoV3Extractor(
+            model_name=str(merged.get("model_name", "vit_large_patch16_dinov3.lvd1689m")),
+            pretrained=bool(merged.get("pretrained", True)),
+            device=str(merged.get("device", "cpu")),
+            batch_size=int(merged.get("batch_size", 8)),
+        )
+    raise ValueError(f"Unsupported extractor config type: {extractor_type}")
 
 
 def extract_features(
