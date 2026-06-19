@@ -33,8 +33,7 @@ services:
   ml-worker:
     build:
       context: .
-      dockerfile: Dockerfile.api
-    command: ["python", "-m", "finevision.worker.jobs", "--poll-interval-seconds", "2"]
+      dockerfile: Dockerfile.worker
     environment:
       DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata
@@ -48,6 +47,8 @@ services:
       - finevision-metadata:/data/metadata
       - finevision-artifacts:/data/artifacts
       - ./data:/app/data:ro
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/torch:/root/.cache/torch
 
   postgres:
     image: postgres:16-alpine
