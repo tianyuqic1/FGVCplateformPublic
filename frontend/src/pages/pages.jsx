@@ -19,7 +19,6 @@ import {
   ProgressBar,
   StatusChip,
   TaskItem,
-  VisualCard,
   VisualPlaceholder,
 } from "../components/ui.jsx";
 import { PageHero } from "../components/AppShell.jsx";
@@ -74,6 +73,25 @@ const REVIEW_STATUS_TABS = [
   ["all", "全部"],
 ];
 
+const SAMPLE_IMAGES = {
+  bird: "/api/sample-assets/test/bird/bird_001.png",
+  ship: "/api/sample-assets/test/ship/ship_001.png",
+  deer: "/api/sample-assets/test/deer/deer_001.png",
+  automobile: "/api/sample-assets/test/automobile/automobile_001.png",
+  frog: "/api/sample-assets/test/frog/frog_001.png",
+  ood: "/api/sample-assets/test/ship/ship_003.png",
+  defect: "/api/sample-assets/test/automobile/automobile_003.png",
+};
+
+function apiAssetUrl(path) {
+  const base = import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+  return path?.startsWith("/") ? `${base}${path}` : path;
+}
+
+function sampleImageFor(key = "bird") {
+  return apiAssetUrl(SAMPLE_IMAGES[key] ?? SAMPLE_IMAGES.bird);
+}
+
 function jobStatus(job) {
   if (job.status === "succeeded") return { label: "完成", tone: "default", icon: "Check" };
   if (job.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
@@ -101,9 +119,10 @@ function inferenceDecisionStatus(decision) {
 }
 
 function ReviewCard({ item }) {
+  const imageKey = item.route === "ood" ? "ood" : item.route === "bad-image" ? "defect" : "bird";
   return (
     <Link className="sample-card clickable" to={`/review/${item.id}`}>
-      <VisualPlaceholder type={item.visualType} label={item.id} low={item.route !== "ood"} />
+      <SampleImage src={sampleImageFor(imageKey)} label={item.id} compact low={item.route !== "ood"} />
       <div>
         <div className="chips">
           <StatusChip tone={riskTone(item.route)}>{item.risk}</StatusChip>
@@ -117,6 +136,27 @@ function ReviewCard({ item }) {
         <p className="small">{item.assistance}</p>
       </div>
     </Link>
+  );
+}
+
+function SampleImage({ src, label, compact = false, low = false }) {
+  return (
+    <div className={`sample-image ${compact ? "compact" : ""} ${low ? "low" : ""}`}>
+      <img src={src} alt={label} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function SampleVisualCard({ src, label, low = false }) {
+  return (
+    <div className="image-card">
+      <SampleImage src={src} label={label} low={low} />
+      <div className="caption">
+        <strong>{label}</strong>
+        <div className="row-meta">来自当前测试数据集，可替换为真实样本预览</div>
+      </div>
+    </div>
   );
 }
 
@@ -546,11 +586,11 @@ function DatasetTab({ dataset, tab, showToast }) {
         }
       >
         <div className="image-grid">
-          <VisualCard type="bird" label="黑喉石鵖" />
-          <VisualCard type="bird" label="普通石鵖" />
-          <VisualCard type="bird" label="低光照" low />
-          <VisualCard type="ood" label="疑似 OOD" />
-          <VisualCard type="defect" label="遮挡坏图" low />
+          <SampleVisualCard src={sampleImageFor("bird")} label="bird sample" />
+          <SampleVisualCard src={sampleImageFor("deer")} label="deer sample" />
+          <SampleVisualCard src={sampleImageFor("frog")} label="low confidence" low />
+          <SampleVisualCard src={sampleImageFor("ship")} label="OOD-like" />
+          <SampleVisualCard src={sampleImageFor("automobile")} label="ambiguous" low />
         </div>
       </Panel>
     );
@@ -565,9 +605,9 @@ function DatasetTab({ dataset, tab, showToast }) {
         </Panel>
         <Panel title="最近邻检查" caption="用于解释预测和发现离群样本。">
           <div className="image-grid compact">
-            <VisualCard type="bird" label="query" />
-            <VisualCard type="bird" label="nn-1" />
-            <VisualCard type="ood" label="far" />
+            <SampleVisualCard src={sampleImageFor("bird")} label="query" />
+            <SampleVisualCard src={sampleImageFor("deer")} label="nn-1" />
+            <SampleVisualCard src={sampleImageFor("ship")} label="far" />
           </div>
         </Panel>
       </div>
@@ -616,9 +656,9 @@ function DatasetTab({ dataset, tab, showToast }) {
         </Panel>
         <Panel title="样本预览" caption="真实实现应替换为图片和 mask 对比。">
           <div className="image-grid compact">
-            <VisualCard type="bird" label="高置信" />
-            <VisualCard type="bird" label="低置信" low />
-            <VisualCard type="ood" label="OOD" />
+            <SampleVisualCard src={sampleImageFor("bird")} label="高置信" />
+            <SampleVisualCard src={sampleImageFor("frog")} label="低置信" low />
+            <SampleVisualCard src={sampleImageFor("ship")} label="OOD" />
           </div>
         </Panel>
       </div>
@@ -636,10 +676,37 @@ function ClassRow({ title, description, label, tone = "default" }) {
   );
 }
 
+function runTimeValue(run) {
+  const value = run.updatedAt ?? run.finishedAt ?? run.startedAt ?? run.createdAt ?? "";
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function filterTrainingRuns(runs, statusFilter, sortMode) {
+  const filtered = runs.filter((run) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "failed") return run.status === "failed";
+    if (statusFilter === "active") return ["queued", "running"].includes(run.status);
+    if (statusFilter === "succeeded") return run.status === "succeeded";
+    return true;
+  });
+  return [...filtered].sort((a, b) => {
+    if (sortMode === "failed_first") {
+      const failedDelta = Number(b.status === "failed") - Number(a.status === "failed");
+      if (failedDelta !== 0) return failedDelta;
+    }
+    if (sortMode === "oldest") return runTimeValue(a) - runTimeValue(b);
+    return runTimeValue(b) - runTimeValue(a);
+  });
+}
+
 export function TrainingPage({ showToast }) {
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
   const { datasets: datasetOptions, source: datasetSource } = useDatasets();
   const [showCreate, setShowCreate] = useState(false);
+  const [queueCollapsed, setQueueCollapsed] = useState(false);
+  const [queueStatusFilter, setQueueStatusFilter] = useState("all");
+  const [queueSortMode, setQueueSortMode] = useState("recent");
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "dataset@cifar10-mini-001",
     extractor: "color_stats",
@@ -648,6 +715,9 @@ export function TrainingPage({ showToast }) {
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "本地预览训练";
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
+  const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
+  const failedRunCount = runItems.filter((run) => run.status === "failed").length;
+  const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
   const canCreate =
     createState.status !== "running" &&
     trainingForm.datasetVersionId.trim() &&
@@ -737,18 +807,52 @@ export function TrainingPage({ showToast }) {
         </Panel>
       )}
       <div className="grid two">
-        <Panel title="训练队列" caption={`${sourceLabel} · 点击进入运行详情。`}>
-          <div className="timeline">
-            {runItems.length > 0 ? (
-              runItems.map((run) => <RunRow run={run} key={run.id} />)
+        <Panel
+          title="训练队列"
+          caption={`${sourceLabel} · ${filteredRuns.length}/${runItems.length} 条显示 · 失败 ${failedRunCount} · 活跃 ${activeRunCount}`}
+          action={<button className="ghost-button" onClick={() => setQueueCollapsed((value) => !value)}><Icon name={queueCollapsed ? "ChevronRight" : "ListFilter"} size={16} />{queueCollapsed ? "展开" : "折叠"}</button>}
+        >
+          <div className="review-filter-bar">
+            <div className="tabs">
+              {[
+                ["all", "全部"],
+                ["failed", "失败"],
+                ["active", "运行中"],
+                ["succeeded", "完成"],
+              ].map(([value, label]) => (
+                <button className={`tab-button ${queueStatusFilter === value ? "active" : ""}`} key={value} onClick={() => setQueueStatusFilter(value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="filter-select">
+              <span>排序</span>
+              <select value={queueSortMode} onChange={(event) => setQueueSortMode(event.target.value)}>
+                <option value="recent">最近更新</option>
+                <option value="oldest">最早创建</option>
+                <option value="failed_first">失败优先</option>
+              </select>
+            </label>
+          </div>
+          {queueCollapsed ? (
+            <div className="queue-collapsed">
+              <StatusChip tone={failedRunCount ? "risk" : "default"}>{failedRunCount} failed</StatusChip>
+              <StatusChip tone={activeRunCount ? "warn" : "neutral"}>{activeRunCount} active</StatusChip>
+              <StatusChip tone="info">{runItems.length} total</StatusChip>
+            </div>
+          ) : (
+            <div className="timeline">
+              {filteredRuns.length > 0 ? (
+                filteredRuns.map((run) => <RunRow run={run} key={run.id} />)
             ) : (
               <div className="timeline-item">
                 <div className="timeline-icon"><Icon name="Inbox" size={18} /></div>
-                <div><strong>暂无训练运行</strong><div className="row-meta">导入 ready 数据集后，通过 Training API 创建第一条训练。</div></div>
-                <StatusChip tone="info">空队列</StatusChip>
+                <div><strong>当前筛选下没有训练运行</strong><div className="row-meta">可以切回全部，或新建一条训练任务。</div></div>
+                <StatusChip tone="info">empty</StatusChip>
               </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
           <div className="code-panel">backbone: dinov3_vitl<br />feature_cache: true<br />head: linear<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
@@ -911,7 +1015,7 @@ export function InferencePage({ showToast }) {
             <span>{queryLabel}</span>
           </div>
         ) : (
-          <VisualPlaceholder type="bird" label={queryLabel} low />
+          <SampleImage src={sampleImageFor("bird")} label={queryLabel} low />
         )}
         <div className="field-grid section-gap-small">
           <div className="field">

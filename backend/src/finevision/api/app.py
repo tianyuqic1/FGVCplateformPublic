@@ -99,6 +99,11 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
     api.state.upload_dir.mkdir(parents=True, exist_ok=True)
     api.mount("/api/uploads", StaticFiles(directory=str(api.state.upload_dir)), name="uploads")
+    sample_asset_dir = Path(os.environ.get("FINEVISION_SAMPLE_ASSET_DIR", "/app/data/test/cifar10-mini-imagefolder"))
+    if not sample_asset_dir.exists():
+        sample_asset_dir = Path("data/test/cifar10-mini-imagefolder")
+    if sample_asset_dir.exists():
+        api.mount("/api/sample-assets", StaticFiles(directory=str(sample_asset_dir)), name="sample-assets")
 
     @api.get("/api/health")
     def health() -> dict[str, str]:

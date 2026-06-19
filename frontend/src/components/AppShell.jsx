@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "./icons.jsx";
 
@@ -9,6 +10,18 @@ const navItems = [
   { id: "review", label: "人工复核", icon: "UserCheck", to: "/review" },
   { id: "models", label: "模型版本", icon: "Boxes", to: "/models" },
   { id: "pipelines", label: "流水线", icon: "Route", to: "/pipelines" },
+];
+
+const searchItems = [
+  { label: "工作台", hint: "生产概览、优先任务、低置信样本", to: "/" },
+  { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
+  { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
+  { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
+  { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
+  { label: "人工复核", hint: "待复核、历史、反馈池", to: "/review?status=pending" },
+  { label: "复核历史", hint: "feedbacked review items", to: "/review?status=feedbacked" },
+  { label: "模型版本", hint: "候选模型、发布门禁", to: "/models" },
+  { label: "流水线", hint: "任务节点、worker 边界", to: "/pipelines" },
 ];
 
 function navKey(pathname) {
@@ -24,7 +37,30 @@ function navKey(pathname) {
 export function AppShell({ title, crumb, children, onToast }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const active = navKey(location.pathname);
+  const filteredSearchItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return searchItems.slice(0, 5);
+    return searchItems
+      .filter((item) => `${item.label} ${item.hint}`.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [searchQuery]);
+
+  function goSearch(item) {
+    navigate(item.to);
+    setSearchQuery("");
+    setSearchFocused(false);
+  }
+
+  function handleSearchKeyDown(event) {
+    if (event.key !== "Enter") return;
+    const first = filteredSearchItems[0];
+    if (!first) return;
+    event.preventDefault();
+    goSearch(first);
+  }
 
   return (
     <div className="app-shell">
@@ -64,10 +100,33 @@ export function AppShell({ title, crumb, children, onToast }) {
             <h1>{title}</h1>
           </div>
           <div className="topbar-actions">
-            <label className="search-box">
-              <Icon name="Search" size={16} />
-              <input placeholder="搜索数据集、样本、模型版本" />
-            </label>
+            <div className="search-wrap">
+              <label className="search-box">
+                <Icon name="Search" size={16} />
+                <input
+                  value={searchQuery}
+                  onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  onFocus={() => setSearchFocused(true)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="搜索页面、数据集、复核历史"
+                />
+              </label>
+              {searchFocused && (
+                <div className="search-results">
+                  {filteredSearchItems.length > 0 ? (
+                    filteredSearchItems.map((item) => (
+                      <button type="button" key={item.to} onMouseDown={(event) => event.preventDefault()} onClick={() => goSearch(item)}>
+                        <Icon name="Search" size={15} />
+                        <span><strong>{item.label}</strong><small>{item.hint}</small></span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="search-empty">没有匹配项</div>
+                  )}
+                </div>
+              )}
+            </div>
             <button className="secondary-button" onClick={() => navigate("/inference")}>
               <Icon name="ImageUp" size={16} />
               推理

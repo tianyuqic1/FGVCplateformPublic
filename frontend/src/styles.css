@@ -218,11 +218,16 @@ a {
   margin-bottom: 7px;
 }
 
+.search-wrap {
+  position: relative;
+  min-width: min(330px, 34vw);
+}
+
 .search-box {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: min(330px, 34vw);
+  width: 100%;
   min-height: 40px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -238,6 +243,55 @@ a {
   outline: 0;
   color: var(--ink);
   background: transparent;
+}
+
+.search-results {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  left: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: var(--shadow);
+}
+
+.search-results button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-top: 1px solid var(--line-2);
+  padding: 8px 10px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+}
+
+.search-results button:first-child {
+  border-top: 0;
+}
+
+.search-results button:hover {
+  background: #f6fbfd;
+}
+
+.search-results small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.search-empty {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .primary-button,
@@ -680,6 +734,53 @@ a {
   white-space: nowrap;
 }
 
+.sample-image {
+  position: relative;
+  overflow: hidden;
+  min-height: 128px;
+  border-radius: 8px;
+  background: #0f1b2d;
+}
+
+.sample-image.compact {
+  min-height: 126px;
+}
+
+.sample-image img {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  background: #0f1b2d;
+}
+
+.sample-image.compact img {
+  height: 126px;
+}
+
+.sample-image::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 42%;
+  background: linear-gradient(180deg, transparent, rgba(15, 27, 45, 0.72));
+}
+
+.sample-image span {
+  position: absolute;
+  z-index: 1;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+}
+
 .bird {
   --a: #447b70;
   --b: #d7b66f;
@@ -731,6 +832,10 @@ a {
 }
 
 .sample-card .visual {
+  min-height: 126px;
+}
+
+.sample-card .sample-image {
   min-height: 126px;
 }
 
@@ -917,6 +1022,17 @@ a {
 .feedback-summary strong {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.queue-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel-soft);
 }
 
 .candidate {
@@ -1177,6 +1293,7 @@ a {
   }
 
   .topbar-actions,
+  .search-wrap,
   .search-box,
   .primary-button,
   .secondary-button,
