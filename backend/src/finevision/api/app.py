@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 import os
 from pathlib import Path
+import shutil
 from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -76,6 +77,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.job_store = job_store
     api.state.training_store = training_store
     api.state.inference_store = DatabaseInferenceStore(resolved_database_url) if resolved_database_url else None
+    api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
 
     @api.get("/api/health")
     def health() -> dict[str, str]:
@@ -271,6 +273,37 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         }
         return {"inference_result": payload}
 
+    @api.post("/api/inference/upload")
+    def run_uploaded_image_inference(
+        dataset_version_id: str = Form(..., min_length=1),
+        model_version_id: str = Form(..., min_length=1),
+        image: UploadFile = File(...),
+        top_k: int = Form(default=3, ge=1, le=10),
+        evidence_k: int = Form(default=3, ge=0, le=10),
+        accept_threshold: float | None = Form(default=None, ge=0.0, le=1.0),
+        margin_threshold: float | None = Form(default=None, ge=0.0, le=1.0),
+        ood_distance_threshold: float | None = Form(default=None, ge=0.0),
+    ) -> dict[str, object]:
+        uploaded_path = _save_uploaded_image(api.state.upload_dir, image)
+        request = RunInferenceRequest(
+            dataset_version_id=dataset_version_id,
+            model_version_id=model_version_id,
+            image_path=str(uploaded_path),
+            sample_id=None,
+            top_k=top_k,
+            evidence_k=evidence_k,
+            accept_threshold=accept_threshold,
+            margin_threshold=margin_threshold,
+            ood_distance_threshold=ood_distance_threshold,
+        )
+        payload = run_scoped_inference(request)["inference_result"]
+        payload["input"] = {
+            **payload["input"],
+            "upload_filename": image.filename,
+            "uploaded_image_path": str(uploaded_path),
+        }
+        return {"inference_result": payload}
+
     return api
 
 
@@ -354,6 +387,22 @@ def _run_inference_from_context(
         top_k=request.top_k,
         evidence_k=request.evidence_k,
     )
+
+
+def _save_uploaded_image(upload_dir: Path, image: UploadFile) -> Path:
+    filename = image.filename or "query-image"
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded image must be jpg, jpeg, png, webp, or bmp",
+        )
+
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    destination = upload_dir / f"{uuid4().hex}{suffix}"
+    with destination.open("wb") as output:
+        shutil.copyfileobj(image.file, output)
+    return destination
 
 
 def _default_backbone_id(extractor: str) -> str:

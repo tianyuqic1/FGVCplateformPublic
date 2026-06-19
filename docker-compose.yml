@@ -20,6 +20,7 @@ services:
       DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/artifacts
+      FINEVISION_UPLOAD_DIR: /data/uploads
     ports:
       - "8001:8000"
     depends_on:
@@ -28,7 +29,10 @@ services:
     volumes:
       - finevision-metadata:/data/metadata
       - finevision-artifacts:/data/artifacts
+      - finevision-uploads:/data/uploads
       - ./data:/app/data:ro
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/torch:/root/.cache/torch
 
   ml-worker:
     build:
@@ -77,4 +81,5 @@ services:
 volumes:
   finevision-metadata:
   finevision-artifacts:
+  finevision-uploads:
   finevision-postgres:

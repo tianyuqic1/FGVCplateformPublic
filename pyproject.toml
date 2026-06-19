@@ -9,6 +9,7 @@ dependencies = [
   "numpy>=2.0",
   "pillow>=10.0",
   "psycopg[binary]>=3.2",
+  "python-multipart>=0.0.20",
   "sqlalchemy>=2.0",
   "uvicorn>=0.30",
 ]

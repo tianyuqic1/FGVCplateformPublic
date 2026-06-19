@@ -328,9 +328,11 @@ The `api` and `ml-worker` services share the PostgreSQL control-plane database. 
 metadata/artifact volumes for compatibility and future file artifacts, but job and dataset metadata
 now flows through PostgreSQL by default.
 
-The API service is intentionally built from the lightweight API image. The `ml-worker` service uses
-`Dockerfile.worker`, which installs the `dinov3` optional dependencies (`torch`, `torchvision`, and
-`timm`) and mounts the host model caches for DINOv3 feature extraction.
+The `ml-worker` service uses `Dockerfile.worker`, which installs the `dinov3` optional dependencies
+(`torch`, `torchvision`, and `timm`) and mounts the host model caches for DINOv3 feature extraction.
+The API image currently installs the same optional extractor dependencies because uploaded-image
+inference is still a synchronous MVP endpoint. Long-running or high-throughput image inference
+should move behind worker jobs before production hardening.
 
 ## Verification
 

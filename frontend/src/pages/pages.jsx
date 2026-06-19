@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { datasets, modelVersions, pipelineNodes, reviewItems } from "../data/mockData.js";
 import { importImagefolder } from "../api/datasets.js";
-import { runInference } from "../api/inference.js";
+import { runInference, runInferenceUpload } from "../api/inference.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
@@ -737,12 +737,14 @@ export function InferencePage({ showToast }) {
   const [form, setForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "",
     modelVersionId: datasetOptions[0]?.productionModelVersionId ?? modelVersions[0]?.id ?? "",
+    imageFile: null,
     imagePath: "",
     sampleId: "",
     topK: 3,
     evidenceK: 3,
   });
   const [state, setState] = useState({ status: "idle", result: null, error: null });
+  const [previewUrl, setPreviewUrl] = useState("");
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const modelVersionOptions = inferenceTrainingRuns
     .map((run) => run.modelVersionId)
@@ -751,7 +753,7 @@ export function InferencePage({ showToast }) {
     state.status !== "running" &&
     form.datasetVersionId.trim() &&
     form.modelVersionId.trim() &&
-    (form.imagePath.trim() || form.sampleId.trim());
+    (form.imageFile || form.imagePath.trim() || form.sampleId.trim());
 
   useEffect(() => {
     if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
@@ -767,22 +769,49 @@ export function InferencePage({ showToast }) {
     });
   }, [datasetSource, datasetVersionOptions.join("|"), modelVersionOptions.join("|")]);
 
+  useEffect(() => {
+    if (!form.imageFile) {
+      setPreviewUrl("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(form.imageFile);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [form.imageFile]);
+
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateImageFile(file) {
+    setForm((current) => ({
+      ...current,
+      imageFile: file,
+      imagePath: file ? "" : current.imagePath,
+      sampleId: file ? "" : current.sampleId,
+    }));
   }
 
   async function handleRun() {
     if (!canRun) return;
     setState({ status: "running", result: null, error: null });
     try {
-      const result = await runInference({
+      const commonInput = {
         dataset_version_id: form.datasetVersionId.trim(),
         model_version_id: form.modelVersionId.trim(),
-        image_path: form.imagePath.trim() || null,
-        sample_id: form.sampleId.trim() || null,
         top_k: Number(form.topK),
         evidence_k: Number(form.evidenceK),
-      });
+      };
+      const result = form.imageFile
+        ? await runInferenceUpload({
+            ...commonInput,
+            image: form.imageFile,
+          })
+        : await runInference({
+            ...commonInput,
+            image_path: form.imagePath.trim() || null,
+            sample_id: form.sampleId.trim() || null,
+          });
       setState({ status: "succeeded", result, error: null });
       showToast("推理完成，结果已更新");
     } catch (error) {
@@ -793,10 +822,18 @@ export function InferencePage({ showToast }) {
 
   const result = state.result;
   const decisionState = inferenceDecisionStatus(result?.decision);
+  const queryLabel = form.imageFile?.name || form.sampleId || form.imagePath || "query image";
   return (
     <div className="grid detail">
       <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
-        <VisualPlaceholder type="bird" label={form.sampleId || form.imagePath || "query image"} low />
+        {previewUrl ? (
+          <div className="uploaded-preview">
+            <img src={previewUrl} alt={queryLabel} />
+            <span>{queryLabel}</span>
+          </div>
+        ) : (
+          <VisualPlaceholder type="bird" label={queryLabel} low />
+        )}
         <div className="field-grid section-gap-small">
           <div className="field">
             <label>数据版本</label>
@@ -816,13 +853,17 @@ export function InferencePage({ showToast }) {
               ))}
             </datalist>
           </div>
-          <div className="field">
-            <label>图片路径</label>
-            <input value={form.imagePath} onChange={(event) => updateField("imagePath", event.target.value)} placeholder="/absolute/path/to/image.png" />
+          <div className="field full-span">
+            <label>上传图片</label>
+            <label className="file-picker">
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/bmp" onChange={(event) => updateImageFile(event.target.files?.[0] ?? null)} />
+              <Icon name="ImageUp" size={18} />
+              <span>{form.imageFile?.name || "选择一张图片作为 query"}</span>
+            </label>
           </div>
           <div className="field">
             <label>样本 ID</label>
-            <input value={form.sampleId} onChange={(event) => updateField("sampleId", event.target.value)} placeholder="feature artifact sample_id" />
+            <input value={form.sampleId} onChange={(event) => updateField("sampleId", event.target.value)} disabled={Boolean(form.imageFile)} placeholder="feature artifact sample_id" />
           </div>
           <div className="field">
             <label>Top-k</label>
@@ -833,16 +874,24 @@ export function InferencePage({ showToast }) {
             <input type="number" min="0" max="10" value={form.evidenceK} onChange={(event) => updateField("evidenceK", event.target.value)} />
           </div>
         </div>
+        <details className="advanced-fields">
+          <summary>高级：使用容器内图片路径</summary>
+          <div className="field section-gap-small">
+            <label>图片路径</label>
+            <input value={form.imagePath} onChange={(event) => updateField("imagePath", event.target.value)} disabled={Boolean(form.imageFile)} placeholder="/absolute/path/to/image.png" />
+          </div>
+        </details>
         <div className="toolbar section-gap-small">
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
+          <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
           <button className="ghost-button" disabled><Icon name="ScissorsLineDashed" size={16} />SAM3 后续接入</button>
         </div>
       </Panel>
       <Panel title="推理结果" caption="模型结果、弃权判断、近邻解释。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
         {state.status === "idle" && (
-          <div className="timeline-item">
-            <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
-            <div><strong>等待推理输入</strong><div className="row-meta">填写图片路径或样本 ID 后运行推理。</div></div>
+            <div className="timeline-item">
+              <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
+            <div><strong>等待推理输入</strong><div className="row-meta">上传图片，或填写样本 ID 后运行推理。</div></div>
             <StatusChip tone="info">idle</StatusChip>
           </div>
         )}

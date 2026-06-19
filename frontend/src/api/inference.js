@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 10000;
+const DEFAULT_TIMEOUT_MS = 120000;
 
 function apiBaseUrl() {
   const configured = import.meta.env?.VITE_API_BASE_URL;
@@ -13,6 +13,31 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  if (!response.ok) {
+    let detail = `${response.status} ${method} ${path}`;
+    try {
+      const payload = await response.json();
+      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      detail = message ? `${detail}: ${message}` : detail;
+    } catch {
+      // Keep the HTTP status fallback when the response body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
+async function fetchForm(path, formData, { method = "POST", signal } = {}) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+    },
+    body: formData,
     signal,
   });
 
@@ -88,6 +113,25 @@ export function normalizeInferenceResult(raw) {
 export async function runInference(input) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/inference", { method: "POST", body: input, signal });
+    return normalizeInferenceResult(extractInferenceResult(payload));
+  });
+}
+
+export async function runInferenceUpload(input) {
+  const formData = new FormData();
+  formData.append("dataset_version_id", input.dataset_version_id);
+  formData.append("model_version_id", input.model_version_id);
+  formData.append("image", input.image);
+  formData.append("top_k", String(input.top_k ?? 3));
+  formData.append("evidence_k", String(input.evidence_k ?? 3));
+  if (input.accept_threshold != null) formData.append("accept_threshold", String(input.accept_threshold));
+  if (input.margin_threshold != null) formData.append("margin_threshold", String(input.margin_threshold));
+  if (input.ood_distance_threshold != null) {
+    formData.append("ood_distance_threshold", String(input.ood_distance_threshold));
+  }
+
+  return withTimeout(async (signal) => {
+    const payload = await fetchForm("/api/inference/upload", formData, { signal });
     return normalizeInferenceResult(extractInferenceResult(payload));
   });
 }

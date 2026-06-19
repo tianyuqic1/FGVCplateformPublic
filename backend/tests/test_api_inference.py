@@ -128,6 +128,39 @@ def test_scoped_inference_can_reject_ood_image(
     assert decision["thresholds"]["ood_distance"] == 0.0
 
 
+def test_scoped_inference_accepts_uploaded_image(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    query_path = tmp_path / "query.png"
+    Image.new("RGB", (96, 96), (220, 40, 40)).save(query_path)
+
+    with query_path.open("rb") as image:
+        response = client.post(
+            "/api/inference/upload",
+            data={
+                "dataset_version_id": "dataset@infer-toy-001",
+                "model_version_id": model_version_id,
+                "top_k": "3",
+                "evidence_k": "2",
+                "accept_threshold": "0.0",
+                "margin_threshold": "0.0",
+            },
+            files={"image": ("query.png", image, "image/png")},
+        )
+
+    assert response.status_code == 200
+    body = response.json()["inference_result"]
+    result = body["result"]
+
+    assert body["input"]["upload_filename"] == "query.png"
+    assert body["input"]["uploaded_image_path"].endswith(".png")
+    assert len(result["top_k"]) == 3
+    assert result["nearest_neighbors"]
+
+
 def test_scoped_inference_rejects_unknown_model_version(
     database_url: str,
     tmp_path: Path,
