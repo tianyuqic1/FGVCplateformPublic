@@ -1,32 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getTrainingRun, listTrainingRuns } from "../api/trainingRuns.js";
-import { trainingRuns as mockTrainingRuns } from "../data/mockData.js";
-
-function normalizeMockStatus(run) {
-  return run.status === "done" ? { ...run, status: "succeeded", progress: 100 } : run;
-}
 
 function mergeTrainingRun(apiRun) {
-  const fallback = mockTrainingRuns.find((item) => item.id === apiRun.id) ?? {};
-  return { ...fallback, ...apiRun };
+  return apiRun;
 }
 
 function fallbackTrainingRun(runId) {
-  return normalizeMockStatus(mockTrainingRuns.find((item) => item.id === runId) ?? mockTrainingRuns[0]);
+  return runId ? { id: runId, name: runId, status: "loading", progress: 0, metrics: {} } : null;
 }
 
 export function useTrainingRuns() {
-  const fallbackRuns = useMemo(() => mockTrainingRuns.map(normalizeMockStatus), []);
   const [state, setState] = useState({
-    trainingRuns: fallbackRuns,
-    source: "mock",
+    trainingRuns: [],
+    source: "loading",
     loading: true,
     error: null,
   });
 
   const refresh = useCallback(() => {
     let active = true;
-    setState({ trainingRuns: fallbackRuns, source: "mock", loading: true, error: null });
+    setState({ trainingRuns: [], source: "loading", loading: true, error: null });
 
     listTrainingRuns()
       .then((items) => {
@@ -40,13 +33,13 @@ export function useTrainingRuns() {
       })
       .catch((error) => {
         if (!active) return;
-        setState({ trainingRuns: fallbackRuns, source: "mock", loading: false, error });
+        setState({ trainingRuns: [], source: "unavailable", loading: false, error });
       });
 
     return () => {
       active = false;
     };
-  }, [fallbackRuns]);
+  }, []);
 
   useEffect(() => refresh(), [refresh]);
 
@@ -57,7 +50,7 @@ export function useTrainingRun(runId) {
   const initialRun = useMemo(() => fallbackTrainingRun(runId), [runId]);
   const [state, setState] = useState({
     trainingRun: initialRun,
-    source: "mock",
+    source: "loading",
     loading: true,
     error: null,
   });
@@ -65,7 +58,7 @@ export function useTrainingRun(runId) {
   useEffect(() => {
     let active = true;
     const nextFallback = fallbackTrainingRun(runId);
-    setState({ trainingRun: nextFallback, source: "mock", loading: true, error: null });
+    setState({ trainingRun: nextFallback, source: "loading", loading: true, error: null });
 
     getTrainingRun(runId)
       .then((item) => {
@@ -78,7 +71,7 @@ export function useTrainingRun(runId) {
           setState({ trainingRun: null, source: "api", loading: false, error });
           return;
         }
-        setState({ trainingRun: nextFallback, source: "mock", loading: false, error });
+        setState({ trainingRun: null, source: "unavailable", loading: false, error });
       });
 
     return () => {

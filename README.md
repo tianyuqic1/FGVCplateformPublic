@@ -59,12 +59,10 @@ Main routes:
 /training/run-042
 /inference
 /review
-/review/sample-0817
 /feedback
 /models
-/models/bird-cls-v4
 /pipelines
-/pipelines/pipe-014
+/pipelines?job_id=<job_id>
 ```
 
 ## ML/Data Toolkit

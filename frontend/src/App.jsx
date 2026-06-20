@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell.jsx";
 import { Icon } from "./components/icons.jsx";
-import { datasets, trainingRuns } from "./data/mockData.js";
-import { useReviewItems } from "./hooks/useReviews.js";
 import {
   DashboardPage,
   DatasetDetailPage,
@@ -28,12 +26,12 @@ const legacyPageMap = {
   "training-detail": ({ id = "run-042" }) => `/training/${id}`,
   inference: "/inference",
   review: "/review",
-  "review-detail": ({ id = "sample-0817" }) => `/review/${id}`,
+  "review-detail": ({ id }) => (id ? `/review/${id}` : "/review"),
   feedback: "/feedback",
   models: "/models",
-  "model-detail": ({ id = "bird-cls-v4" }) => `/models/${id}`,
+  "model-detail": ({ id }) => (id ? `/models/${id}` : "/models"),
   pipelines: "/pipelines",
-  "pipeline-run": ({ id = "pipe-014" }) => `/pipelines/${id}`,
+  "pipeline-run": ({ id }) => (id ? `/pipelines/${id}` : "/pipelines"),
 };
 
 const legacyAliases = {
@@ -72,7 +70,7 @@ function crumbForPath(pathname) {
   if (pathname === "/models") return "模型注册表";
   if (pathname.startsWith("/pipelines/")) return "流水线 / 运行详情";
   if (pathname === "/pipelines") return "编排";
-  return "首页 / 生产概览";
+  return "首页 / MVP 概览";
 }
 
 function LegacyRouteBridge() {
@@ -103,9 +101,7 @@ function Toast({ message }) {
 }
 
 function DatasetTitleRoute({ showToast }) {
-  const { datasetId } = useParams();
-  const dataset = datasets.find((item) => item.id === datasetId);
-  return <DatasetDetailPage showToast={showToast} datasetName={dataset?.name} />;
+  return <DatasetDetailPage showToast={showToast} />;
 }
 
 export default function App() {
@@ -113,7 +109,6 @@ export default function App() {
   const [toast, setToast] = useState("");
   const title = titleForPath(location.pathname);
   const crumb = crumbForPath(location.pathname);
-  const { reviewItems: pendingReviewItems } = useReviewItems({ status: "pending", limit: 100 });
 
   function showToast(message) {
     setToast(message);
@@ -121,19 +116,10 @@ export default function App() {
     showToast.timer = window.setTimeout(() => setToast(""), 2200);
   }
 
-  const routeCounts = useMemo(
-    () => ({
-      datasets: datasets.length,
-      reviews: pendingReviewItems.length,
-      runs: trainingRuns.length,
-    }),
-    [pendingReviewItems.length],
-  );
-
   return (
     <>
       <LegacyRouteBridge />
-      <AppShell title={title} crumb={crumb} onToast={showToast} routeCounts={routeCounts}>
+      <AppShell title={title} crumb={crumb} onToast={showToast}>
         <Routes>
           <Route path="/" element={<DashboardPage showToast={showToast} />} />
           <Route path="/dashboard" element={<Navigate to="/" replace />} />

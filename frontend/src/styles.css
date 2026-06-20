@@ -294,6 +294,29 @@ a {
   font-size: 13px;
 }
 
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 170px;
+  padding: 22px;
+  color: var(--muted);
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(248, 251, 253, 0.72);
+}
+
+.empty-state strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.empty-state span {
+  max-width: 360px;
+  line-height: 1.5;
+}
+
 .primary-button,
 .secondary-button,
 .ghost-button,

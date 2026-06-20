@@ -1,49 +1,45 @@
 import { useEffect, useMemo, useState } from "react";
 import { getJob, listJobs } from "../api/jobs.js";
-import { jobs as mockJobs } from "../data/mockData.js";
 
 function mergeJob(apiJob) {
-  const fallback = mockJobs.find((item) => item.id === apiJob.id) ?? {};
-  return { ...fallback, ...apiJob };
+  return apiJob;
 }
 
 function fallbackJob(jobId) {
-  return mockJobs.find((item) => item.id === jobId) ?? mockJobs[0];
+  return jobId ? { id: jobId, jobType: "job", status: "loading", progress: 0 } : null;
 }
 
 export function useRecentJobs(limit = 5) {
-  const fallbackJobs = useMemo(() => mockJobs.slice(0, limit), [limit]);
   const [state, setState] = useState({
-    jobs: fallbackJobs,
-    source: "mock",
+    jobs: [],
+    source: "loading",
     loading: true,
     error: null,
   });
 
   useEffect(() => {
     let active = true;
-    setState({ jobs: fallbackJobs, source: "mock", loading: true, error: null });
+    setState({ jobs: [], source: "loading", loading: true, error: null });
 
     listJobs()
       .then((items) => {
         if (!active) return;
-        const nextJobs = items.length > 0 ? items.map(mergeJob).slice(0, limit) : fallbackJobs;
         setState({
-          jobs: nextJobs,
-          source: items.length > 0 ? "api" : "mock",
+          jobs: items.map(mergeJob).slice(0, limit),
+          source: "api",
           loading: false,
           error: null,
         });
       })
       .catch((error) => {
         if (!active) return;
-        setState({ jobs: fallbackJobs, source: "mock", loading: false, error });
+        setState({ jobs: [], source: "unavailable", loading: false, error });
       });
 
     return () => {
       active = false;
     };
-  }, [fallbackJobs, limit]);
+  }, [limit]);
 
   return state;
 }
@@ -52,7 +48,7 @@ export function useJob(jobId) {
   const initialJob = useMemo(() => fallbackJob(jobId), [jobId]);
   const [state, setState] = useState({
     job: initialJob,
-    source: "mock",
+    source: "loading",
     loading: true,
     error: null,
   });
@@ -60,7 +56,7 @@ export function useJob(jobId) {
   useEffect(() => {
     let active = true;
     const nextFallback = fallbackJob(jobId);
-    setState({ job: nextFallback, source: "mock", loading: true, error: null });
+    setState({ job: nextFallback, source: "loading", loading: true, error: null });
 
     getJob(jobId)
       .then((item) => {
@@ -69,7 +65,7 @@ export function useJob(jobId) {
       })
       .catch((error) => {
         if (!active) return;
-        setState({ job: nextFallback, source: "mock", loading: false, error });
+        setState({ job: null, source: "unavailable", loading: false, error });
       });
 
     return () => {

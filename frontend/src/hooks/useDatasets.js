@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDataset, listDatasets } from "../api/datasets.js";
-import { datasets as mockDatasets } from "../data/mockData.js";
 
 function mergeDataset(apiDataset) {
-  const fallback = mockDatasets.find((item) => item.id === apiDataset.id) ?? {};
-  return { ...fallback, ...apiDataset };
+  return apiDataset;
 }
 
 function fallbackDataset(datasetId) {
-  return mockDatasets.find((item) => item.id === datasetId) ?? mockDatasets[0];
+  return datasetId ? { id: datasetId, name: datasetId, description: "正在连接 Control-plane API" } : null;
 }
 
 export function useDatasets() {
   const [state, setState] = useState({
-    datasets: mockDatasets,
-    source: "mock",
+    datasets: [],
+    source: "loading",
     loading: true,
     error: null,
   });
@@ -34,7 +32,7 @@ export function useDatasets() {
       })
       .catch((error) => {
         if (!active) return;
-        setState({ datasets: mockDatasets, source: "mock", loading: false, error });
+        setState({ datasets: [], source: "unavailable", loading: false, error });
       });
 
     return () => {
@@ -51,7 +49,7 @@ export function useDataset(datasetId) {
   const initialDataset = useMemo(() => fallbackDataset(datasetId), [datasetId]);
   const [state, setState] = useState({
     dataset: initialDataset,
-    source: "mock",
+    source: "loading",
     loading: true,
     error: null,
   });
@@ -59,7 +57,7 @@ export function useDataset(datasetId) {
   useEffect(() => {
     let active = true;
     const nextFallback = fallbackDataset(datasetId);
-    setState({ dataset: nextFallback, source: "mock", loading: true, error: null });
+    setState({ dataset: nextFallback, source: "loading", loading: true, error: null });
 
     getDataset(datasetId)
       .then((item) => {
@@ -68,7 +66,11 @@ export function useDataset(datasetId) {
       })
       .catch((error) => {
         if (!active) return;
-        setState({ dataset: nextFallback, source: "mock", loading: false, error });
+        if (String(error?.message ?? "").startsWith("404 ")) {
+          setState({ dataset: null, source: "api", loading: false, error });
+          return;
+        }
+        setState({ dataset: null, source: "unavailable", loading: false, error });
       });
 
     return () => {

@@ -14,7 +14,7 @@ const navItems = [
 ];
 
 const searchItems = [
-  { label: "工作台", hint: "生产概览、优先任务、低置信样本", to: "/" },
+  { label: "工作台", hint: "MVP 概览、优先任务、低置信样本", to: "/" },
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
@@ -88,12 +88,12 @@ export function AppShell({ title, crumb, children, onToast }) {
         </nav>
         <div className="sidebar-card">
           <Icon name="ShieldCheck" size={18} />
-          <h3>生产策略</h3>
-          <p className="small">bird-cls-v4 · DINOv3-L · OOD Gate</p>
-          <div className="meter" style={{ "--fill": "#0f766e", "--value": "82%" }}>
+          <h3>MVP 边界</h3>
+          <p className="small">训练、推理、复核已连通；发布注册表待接入</p>
+          <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
             <i />
           </div>
-          <div className="row-meta">自动覆盖率 82%</div>
+          <div className="row-meta">Production registry 尚未启用</div>
         </div>
       </aside>
       <main className="main">
