@@ -35,6 +35,7 @@ services:
       - finevision-artifacts:/data/artifacts
       - finevision-uploads:/data/uploads
       - finevision-imported-datasets:/data/imported-datasets
+      - ./backend/src:/app/backend/src:ro
       - ./data:/app/data:ro
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.cache/torch:/root/.cache/torch
@@ -57,6 +58,7 @@ services:
       - finevision-metadata:/data/metadata
       - finevision-artifacts:/data/artifacts
       - finevision-imported-datasets:/data/imported-datasets
+      - ./backend/src:/app/backend/src:ro
       - ./data:/app/data:ro
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.cache/torch:/root/.cache/torch
