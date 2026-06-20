@@ -131,6 +131,8 @@ GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
+GET  /api/dataset-versions/{dataset_version_id}/card
+PUT  /api/dataset-versions/{dataset_version_id}/card
 POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
@@ -152,6 +154,11 @@ Inference requests are persisted as review-auditable events when routing is enab
 `reject_ood` decisions create pending review items; `accept` decisions are recorded but do not enter
 the human queue by default. Review submission writes typed feedback pool entries and does not mutate
 the immutable source dataset version.
+
+Dataset cards are version-level context documents used by advisory LLM assistance. They describe
+task, domain, class scope, OOD policy, and human review guidance so inference and review suggestions
+stay grounded in the dataset being evaluated. They are advisory context only and never replace human
+labels or feedback routing.
 
 For a fresh local database, start PostgreSQL first and apply migrations before
 starting the API/worker containers:

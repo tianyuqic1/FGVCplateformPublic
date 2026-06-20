@@ -496,3 +496,60 @@ LLM output is not a final label, does not update thresholds, and does not mutate
 The default request uses Responses `text.format` with `type=json_schema`, `strict=true`, and a
 schema requiring `summary`, `inspection_notes`, `suggested_actions`, `risk_flags`, and
 `confidence`.
+
+## Dataset Card LLM Context API
+
+Iteration 5A adds a version-level dataset card so LLM assistance can reason from explicit dataset
+scope instead of guessing from class names and model scores.
+
+Read the card for a dataset version:
+
+```text
+GET /api/dataset-versions/{dataset_version_id}/card
+```
+
+Update the card:
+
+```text
+PUT /api/dataset-versions/{dataset_version_id}/card
+```
+
+Request:
+
+```json
+{
+  "dataset_card": {
+    "task": "image classification",
+    "domain": "CIFAR-10 benchmark images",
+    "summary": "Small 10-class image classification dataset.",
+    "known_confusions": ["cat <> dog", "automobile <> truck"],
+    "ood_policy": "Inputs outside the configured class list should be reviewed as OOD/uncertain.",
+    "review_guidance": "Use the image content as the source of truth."
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "dataset_version_id": "dataset@cifar10-mini-001",
+  "dataset_card": {
+    "schema_version": 1,
+    "dataset_version_id": "dataset@cifar10-mini-001",
+    "task": "image classification",
+    "domain": "CIFAR-10 benchmark images",
+    "classes": ["airplane", "automobile", "bird"],
+    "source": "manual_update",
+    "updated_at": "2026-06-20T00:00:00Z"
+  }
+}
+```
+
+`GET /api/datasets/{dataset_id}` should include the latest version card and may include per-version
+card summaries. The backend injects `dataset_card` into `POST /api/llm/assist` when the request
+context includes `dataset_version_id`, and into `POST /api/review-items/{review_item_id}/assist`
+using the review item's dataset version.
+
+The card is advisory context only. It must not mutate review status, feedback items, thresholds,
+dataset versions, or model versions.

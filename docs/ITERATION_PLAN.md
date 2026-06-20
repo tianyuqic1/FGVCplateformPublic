@@ -529,6 +529,43 @@ Suggested checkpoint pushes:
 - `feat: connect review assistant panel`
 - `test: cover advisory-only llm workflow`
 
+## Iteration 5A: Dataset Card LLM Context MVP
+
+Objective: ground advisory LLM output in explicit dataset-version context before adding richer
+automation.
+
+Scope:
+
+- Add a compact `dataset_card` for each dataset version.
+- Generate an initial card deterministically from the imported manifest.
+- Let users edit task, domain, summary, known confusions, OOD policy, and review guidance from the
+  dataset detail page.
+- Inject the dataset card into generic inference assistance and review-item assistance.
+- Keep the card advisory-only; it must not change labels, feedback, thresholds, dataset versions, or
+  model versions.
+
+Deliverables:
+
+- `GET /api/dataset-versions/{dataset_version_id}/card`.
+- `PUT /api/dataset-versions/{dataset_version_id}/card`.
+- Dataset detail includes the latest version card.
+- Dataset detail `Dataset Card` tab.
+- LLM prompt/context contract documented in `docs/DATASET_CARD_LLM_CONTEXT_MVP.md`.
+
+Acceptance:
+
+- Imported datasets receive a deterministic dataset card.
+- Review assistance receives a card matching the review item's `dataset_version_id`.
+- Generic assistance receives a card when `dataset_version_id` is present in context.
+- LLM output stays advisory-only and cannot mutate operational state.
+- Tests cover import, card round-trip, LLM context injection, and frontend normalization.
+
+Suggested checkpoint pushes:
+
+- `feat: add dataset cards`
+- `feat: inject dataset cards into llm context`
+- `test: cover dataset card llm context`
+
 ## Iteration 5B: Model Registry And Release Gates
 
 Objective: make model promotion auditable and safe.
