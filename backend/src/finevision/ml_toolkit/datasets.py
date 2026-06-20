@@ -103,18 +103,25 @@ def scan_imagefolder(
 
     per_class = Counter(sample.label for sample in samples)
     low_sample_classes = [label for label, count in sorted(per_class.items()) if count < 3]
-    missing_split_classes = [
+    missing_train_classes = [
         label
         for label in sorted(classes)
-        if any(by_split_class[split][label] == 0 for split in EXPLICIT_SPLITS)
+        if by_split_class["train"][label] == 0
+    ]
+    missing_eval_classes = [
+        label
+        for label in sorted(classes)
+        if by_split_class["val"][label] == 0 and by_split_class["test"][label] == 0
     ]
     readiness = {
-        "ready": bool(samples) and not low_sample_classes and not missing_split_classes,
+        "ready": bool(samples) and not low_sample_classes and not missing_train_classes,
         "provided_splits": has_explicit_splits,
         "sample_count": len(samples),
         "class_count": len(classes),
         "low_sample_classes": low_sample_classes,
-        "missing_split_classes": missing_split_classes,
+        "missing_split_classes": missing_train_classes,
+        "missing_train_classes": missing_train_classes,
+        "missing_eval_classes": missing_eval_classes,
     }
 
     return DatasetManifest(

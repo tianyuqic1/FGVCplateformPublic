@@ -147,6 +147,36 @@ def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch
     assert image_response.content
 
 
+def test_dataset_asset_api_marks_train_test_split_dataset_ready(tmp_path: Path) -> None:
+    metadata_dir = tmp_path / "metadata"
+    dataset_dir = tmp_path / "train-test-imagefolder"
+    source = create_toy_imagefolder(tmp_path / "source-imagefolder", samples_per_class=4)
+    for class_dir in sorted(item for item in source.iterdir() if item.is_dir()):
+        for index, image_path in enumerate(sorted(class_dir.glob("*.png"))):
+            split = "train" if index < 3 else "test"
+            destination = dataset_dir / split / class_dir.name / image_path.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(image_path.read_bytes())
+    client = TestClient(create_app(metadata_dir=metadata_dir))
+
+    response = client.post(
+        "/api/datasets/import-imagefolder",
+        json={
+            "path": str(dataset_dir),
+            "dataset_id": "train-test-shapes",
+            "dataset_version_id": "dataset@train-test-shapes-001",
+        },
+    )
+
+    assert response.status_code == 201
+    readiness = response.json()["version"]["readiness"]
+    assert readiness["ready"] is True
+    assert readiness["provided_splits"] is True
+    assert readiness["missing_split_classes"] == []
+    assert readiness["missing_train_classes"] == []
+    assert readiness["missing_eval_classes"] == []
+
+
 def test_dataset_asset_api_accepts_more_than_default_multipart_file_limit(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("FINEVISION_IMPORTED_DATASET_DIR", str(tmp_path / "imported-datasets"))
     client = TestClient(create_app(metadata_dir=tmp_path / "metadata"))
