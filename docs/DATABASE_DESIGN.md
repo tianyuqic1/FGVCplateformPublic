@@ -598,6 +598,11 @@ Current deliberate simplification:
 
 - Feature artifacts are represented in the generic `artifacts` table as `artifact_type = feature_matrix`; a dedicated `feature_artifacts` table is deferred until feature search/index lifecycle needs richer query semantics.
 - Feature indexes are deferred to Iteration 3, where inference needs nearest-neighbor evidence and OOD distance.
+- DINOv3 pretrained weight cache state is not stored in PostgreSQL yet. Weight files remain in the
+  host Hugging Face cache; a future weight-management slice should add metadata for backbone id,
+  provider, cache state, expected size, checksum if available, and last validation time.
+- Model versions are currently candidate records produced by training runs. Production promotion,
+  rollback, archived states, and release-gate audit events remain a model-registry follow-up.
 
 ### Iteration 3-4: Inference, Review, And Feedback
 
@@ -614,3 +619,12 @@ Current deliberate simplification:
 - No image binaries or model weights inside PostgreSQL.
 - No standalone vector database until index scale or online query needs justify it.
 - No complex event-sourcing model beyond `job_events` until there is a clear audit requirement.
+
+## MVP Acceptance Reference
+
+The product/QA acceptance checklist for running cancellation, weight management, training-head
+limits, model registry boundaries, pipeline boundaries, and remaining risk is maintained in:
+
+```text
+docs/MVP_RESIDUALS_ACCEPTANCE.md
+```

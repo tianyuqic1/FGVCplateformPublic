@@ -100,6 +100,11 @@ the current synchronous uploaded-image inference endpoint; this is an MVP bridge
 inference is moved behind worker jobs. Both services mount the host Hugging Face and Torch caches so
 DINOv3 weights can be reused across container rebuilds.
 
+`timm` supplies the DINOv3 model definitions and resolves pretrained weights through Hugging Face
+Hub. A slow or incomplete ViT-B download is therefore a weight-cache/Hugging Face issue, not a
+missing `timm` model. Configure `HF_TOKEN` for better Hugging Face rate limits when large weights
+need to be downloaded reliably.
+
 For local iteration, Compose bind-mounts `./backend/src` into the API and worker containers and the
 frontend source into the Vite container. Python source changes therefore take effect after a service
 restart, and frontend source changes flow through Vite, without rebuilding the images. Dependency,
@@ -123,6 +128,12 @@ The first real-data DINOv3 validation is documented in:
 
 ```text
 docs/ML_TOOLKIT_VALIDATION.md
+```
+
+The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
+
+```text
+docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
 ## Control-plane API

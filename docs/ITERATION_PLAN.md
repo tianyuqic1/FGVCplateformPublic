@@ -393,6 +393,12 @@ Acceptance:
 - Done: training creation exposes DINOv3 feature extraction batch size. The default is `8`; this affects feature extraction throughput/memory only, while the ridge/linear head is solved without a mini-batch training loop.
 - Done: DINOv3 feature cache identity ignores runtime `device` and `batch_size`, so tuning batch size does not duplicate identical feature artifacts.
 - Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
+- Partial: running DINOv3 cancellation is not productized. Queued/paused controls work, but active
+  weight download and feature extraction need cooperative worker cancellation.
+- Partial: training progress is stage-level. Batch-level feature extraction progress and Hugging
+  Face weight download status remain hardening items.
+- Partial: the only trainable head is `ridge_linear`; optimizer-based heads such as
+  `torch_linear_adam` are a P1 follow-up.
 
 Implementation notes:
 
@@ -619,6 +625,18 @@ Suggested checkpoint pushes:
 - `feat: add pipeline run views`
 - `test: add end-to-end MVP flow coverage`
 - `docs: document MVP workflow`
+
+## MVP Residual Acceptance Checkpoint
+
+Before calling the MVP stable for non-technical use, review:
+
+```text
+docs/MVP_RESIDUALS_ACCEPTANCE.md
+```
+
+This checklist tracks the P0/P1/P2 residuals around running cancellation, DINOv3 weight management,
+training-head limitations, candidate-only model registry behavior, synchronous inference, pipeline
+boundaries, and remaining manual QA commands.
 
 ## Current Corrections To The Existing Plan
 

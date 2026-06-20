@@ -210,6 +210,22 @@ stop the `ml-worker` process and then mark the run cancelled; a future worker it
 cooperative cancellation checks and resumable feature extraction before exposing true running-pause
 semantics.
 
+Current cancellation boundary:
+
+```text
+implemented: queued pause, paused resume, queued/paused cancel, safe non-running delete
+manual local procedure: restart ml-worker, then verify the run is cancelled or mark it administratively
+not productized: cancelling an actively running DINOv3 weight download or feature extraction from UI
+```
+
+The current classifier head is `ridge_linear`. It has `ridge_lambda`, but no `learning_rate`,
+`epochs`, optimizer, scheduler, or early stopping. Optimizer-backed heads such as
+`torch_linear_adam` are a P1 follow-up and should keep `ridge_linear` as the fast baseline.
+
+DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub. The control plane should
+eventually expose a weight status/pre-download API; until then a run can appear to sit in the
+`weights` stage while Hugging Face downloads or resumes a model cache.
+
 Scoped inference request:
 
 ```json
@@ -404,6 +420,12 @@ The durable schema design is recorded in:
 
 ```text
 docs/DATABASE_DESIGN.md
+```
+
+The current MVP residuals and acceptance checklist are recorded in:
+
+```text
+docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
 ## Docker Compose
