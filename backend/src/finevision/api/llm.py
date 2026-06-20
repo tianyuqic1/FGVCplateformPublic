@@ -27,6 +27,7 @@ class LLMSettings:
     wire_api: str
     disable_response_storage: bool
     requires_openai_auth: bool
+    structured_outputs: bool
     api_key: str | None
     timeout_seconds: float
 
@@ -41,6 +42,7 @@ class LLMSettings:
             wire_api=os.environ.get("FINEVISION_LLM_WIRE_API", "responses"),
             disable_response_storage=_env_bool("FINEVISION_LLM_DISABLE_RESPONSE_STORAGE", default=True),
             requires_openai_auth=_env_bool("FINEVISION_LLM_REQUIRES_OPENAI_AUTH", default=True),
+            structured_outputs=_env_bool("FINEVISION_LLM_STRUCTURED_OUTPUTS", default=True),
             api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("FINEVISION_LLM_API_KEY"),
             timeout_seconds=float(os.environ.get("FINEVISION_LLM_TIMEOUT_SECONDS", "60")),
         )
@@ -76,13 +78,7 @@ def generate_assistance(
 
 def _responses_request(*, prompt: str, task: str, settings: LLMSettings) -> str:
     model = settings.review_model if task == "review_assistance" else settings.model
-    payload: dict[str, Any] = {
-        "model": model,
-        "input": prompt,
-        "store": not settings.disable_response_storage,
-        "reasoning": {"effort": settings.reasoning_effort},
-        "max_output_tokens": 900,
-    }
+    payload = _responses_payload(prompt=prompt, model=model, settings=settings)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if settings.requires_openai_auth:
         headers["Authorization"] = f"Bearer {settings.api_key}"
@@ -103,6 +99,62 @@ def _responses_request(*, prompt: str, task: str, settings: LLMSettings) -> str:
     except Exception as exc:
         raise LLMRequestError(f"LLM provider request failed: {exc}") from exc
     return _extract_response_text(body)
+
+
+def _responses_payload(*, prompt: str, model: str, settings: LLMSettings) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": prompt,
+        "store": not settings.disable_response_storage,
+        "reasoning": {"effort": settings.reasoning_effort},
+        "max_output_tokens": 900,
+    }
+    if settings.structured_outputs:
+        payload["text"] = {"format": _assistance_response_format()}
+    return payload
+
+
+def _assistance_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "name": "finevision_llm_assistance",
+        "strict": True,
+        "schema": _assistance_schema(),
+    }
+
+
+def _assistance_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": "One concise Chinese sentence summarizing the advisory result.",
+            },
+            "inspection_notes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Evidence or visual/model signals the human operator should inspect.",
+            },
+            "suggested_actions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Safe next actions. Do not include automatic submission or production changes.",
+            },
+            "risk_flags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Caveats, hallucination risks, or reasons the operator should be careful.",
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+                "description": "Assistant confidence in this advisory explanation.",
+            },
+        },
+        "required": ["summary", "inspection_notes", "suggested_actions", "risk_flags", "confidence"],
+        "additionalProperties": False,
+    }
 
 
 def _extract_response_text(body: dict[str, Any]) -> str:
@@ -135,14 +187,7 @@ def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
 
     return (
         "你是 FineVision 的 LLM Assistant，只能提供 advisory-only 建议，不能替代人工标签、不能调整生产阈值、"
-        "不能把反馈直接写回训练集。请用中文输出严格 JSON 对象，不要使用 markdown。\n"
-        "JSON schema: {\n"
-        '  "summary": "一句话总结",\n'
-        '  "inspection_notes": ["复核或诊断时应看的证据"],\n'
-        '  "suggested_actions": ["下一步动作"],\n'
-        '  "risk_flags": ["可能误导或需谨慎的点"],\n'
-        '  "confidence": "low|medium|high"\n'
-        "}\n"
+        "不能把反馈直接写回训练集。请用中文填写结构化字段；这些字段会被 JSON Schema 严格约束。\n"
         f"任务：{task_instruction}\n"
         f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
     )

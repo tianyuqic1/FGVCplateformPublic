@@ -449,6 +449,7 @@ FINEVISION_LLM_REVIEW_MODEL=gpt-5.5
 FINEVISION_LLM_REASONING_EFFORT=high
 FINEVISION_LLM_DISABLE_RESPONSE_STORAGE=true
 FINEVISION_LLM_WIRE_API=responses
+FINEVISION_LLM_STRUCTURED_OUTPUTS=true
 ```
 
 Review-specific assistance:
@@ -492,3 +493,6 @@ Response:
 ```
 
 LLM output is not a final label, does not update thresholds, and does not mutate dataset versions.
+The default request uses Responses `text.format` with `type=json_schema`, `strict=true`, and a
+schema requiring `summary`, `inspection_notes`, `suggested_actions`, `risk_flags`, and
+`confidence`.
