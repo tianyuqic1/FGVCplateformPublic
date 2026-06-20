@@ -106,10 +106,13 @@ GPU execution is supported through the optional Compose override:
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d api ml-worker
 ```
 
-The override sets DINOv3 feature extraction and the ridge/linear head solver to `cuda`. The host
-Docker daemon must expose NVIDIA GPUs to containers first, for example via NVIDIA Container Toolkit;
-otherwise Compose will fail before the service starts. The base `docker-compose.yml` remains CPU-safe
-so the workbench can still boot on machines without a configured container GPU runtime.
+The override sets DINOv3 feature extraction and the ridge/linear head solver to `cuda`, and requests
+the NVIDIA GPU through Docker CDI (`nvidia.com/gpu=all`). This is a two-layer setup: the FineVision
+images provide the Python/CUDA user-space dependencies (`torch`, `timm`, extractor code, caches), while
+the host NVIDIA Container Toolkit/CDI exposes the real GPU device and driver libraries into the
+containers. If the host runtime is not configured, Compose fails before the service starts. The base
+`docker-compose.yml` remains CPU-safe so the workbench can still boot on machines without a configured
+container GPU runtime.
 
 The first real-data DINOv3 validation is documented in:
 
