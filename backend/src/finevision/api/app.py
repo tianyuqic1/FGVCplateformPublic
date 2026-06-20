@@ -10,13 +10,14 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
 from finevision.api.llm import LLMConfigurationError, LLMRequestError, generate_assistance
@@ -27,6 +28,8 @@ from finevision.ml_toolkit.datasets import EXPLICIT_SPLITS, IMAGE_EXTENSIONS, sc
 from finevision.ml_toolkit.features import build_extractor_from_config
 from finevision.ml_toolkit.inference import run_image_inference, run_inference
 from finevision.schemas.artifacts import InferenceResult, to_jsonable
+
+MAX_DATASET_UPLOAD_FILES = 1_000_000
 
 
 class ImportImageFolderRequest(BaseModel):
@@ -149,11 +152,18 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         }
 
     @api.post("/api/datasets/upload-imagefolder", status_code=status.HTTP_201_CREATED)
-    def upload_imagefolder(
-        dataset_id: str = Form(..., min_length=1),
-        dataset_version_id: str = Form(..., min_length=1),
-        files: list[UploadFile] = File(...),
+    async def upload_imagefolder(
+        request: Request,
     ) -> dict[str, object]:
+        form = await request.form(max_files=MAX_DATASET_UPLOAD_FILES, max_fields=20)
+        dataset_id = str(form.get("dataset_id", "")).strip()
+        dataset_version_id = str(form.get("dataset_version_id", "")).strip()
+        if not dataset_id or not dataset_version_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="dataset_id and dataset_version_id are required",
+            )
+        files = [value for _, value in form.multi_items() if isinstance(value, StarletteUploadFile)]
         normalized_files, validation = _validate_uploaded_imagefolder(files)
         dataset_dir = _uploaded_dataset_destination(
             api.state.imported_dataset_dir,
@@ -465,8 +475,11 @@ def _default_imported_dataset_dir() -> Path:
     configured = os.environ.get("FINEVISION_IMPORTED_DATASET_DIR")
     if configured:
         return Path(configured)
+    data_root = Path("/data")
+    if data_root.exists() and os.access(data_root, os.W_OK):
+        return data_root / "imported-datasets"
     app_data = Path("/app/data")
-    if app_data.exists():
+    if app_data.exists() and os.access(app_data, os.W_OK):
         return app_data / "imported-datasets"
     return Path("data/imported-datasets")
 

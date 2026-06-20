@@ -128,6 +128,29 @@ def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch
     assert (imported_dir / "uploaded-shapes" / "dataset@uploaded-shapes-001").exists()
 
 
+def test_dataset_asset_api_accepts_more_than_default_multipart_file_limit(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FINEVISION_IMPORTED_DATASET_DIR", str(tmp_path / "imported-datasets"))
+    client = TestClient(create_app(metadata_dir=tmp_path / "metadata"))
+    multipart_files = []
+    for label in ("a", "b"):
+        for index in range(501):
+            multipart_files.append(("files", (f"selected-folder/{label}/{index}.png", b"image", "image/png")))
+
+    response = client.post(
+        "/api/datasets/upload-imagefolder",
+        data={
+            "dataset_id": "many-files",
+            "dataset_version_id": "dataset@many-files-001",
+        },
+        files=multipart_files,
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["version"]["sample_count"] == 1002
+    assert payload["upload"]["image_count"] == 1002
+
+
 def test_dataset_asset_api_rejects_invalid_uploaded_imagefolder(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("FINEVISION_IMPORTED_DATASET_DIR", str(tmp_path / "imported-datasets"))
     client = TestClient(create_app(metadata_dir=tmp_path / "metadata"))
