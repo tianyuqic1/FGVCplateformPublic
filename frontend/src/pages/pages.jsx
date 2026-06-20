@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
 import { listReviewItems } from "../api/reviews.js";
-import { createTrainingRun } from "../api/trainingRuns.js";
+import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingRun, resumeTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useLLMAssistance, useReviewAssistance } from "../hooks/useLLMAssistance.js";
@@ -243,6 +243,7 @@ function datasetIdFromFolderName(name) {
 function jobStatus(job) {
   if (job.status === "succeeded") return { label: "完成", tone: "default", icon: "Check" };
   if (job.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
+  if (job.status === "paused") return { label: "已暂停", tone: "neutral", icon: "Pause" };
   if (job.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
   if (job.status === "cancelled") return { label: "已取消", tone: "neutral", icon: "Ban" };
   return { label: "排队中", tone: "info", icon: "Clock" };
@@ -255,6 +256,7 @@ function jobTarget(job) {
 function trainingStatus(run) {
   if (run.status === "succeeded" || run.status === "done") return { label: "完成", tone: "default", icon: "Check" };
   if (run.status === "running") return { label: "运行中", tone: "warn", icon: "LoaderCircle" };
+  if (run.status === "paused") return { label: "已暂停", tone: "neutral", icon: "Pause" };
   if (run.status === "failed") return { label: "失败", tone: "risk", icon: "AlertTriangle" };
   if (run.status === "cancelled") return { label: "已取消", tone: "neutral", icon: "Ban" };
   return { label: "排队中", tone: "info", icon: "Clock" };
@@ -448,23 +450,35 @@ function DatasetTable({ items = [] }) {
   );
 }
 
-function RunRow({ run }) {
+function RunRow({ run, onAction, busy = false }) {
   const state = trainingStatus(run);
   const done = run.status === "succeeded" || run.status === "done";
+  const canPause = run.status === "queued";
+  const canResume = run.status === "paused";
+  const canCancel = ["queued", "paused"].includes(run.status);
+  const canDelete = !["running", "succeeded"].includes(run.status) && !run.featureArtifactId && !run.modelVersionId;
   return (
-    <Link className="timeline-item clickable" to={`/training/${run.id}`}>
-      <div className="timeline-icon">
-        <Icon name={state.icon} size={18} />
-      </div>
-      <div>
-        <strong>{run.name}</strong>
-        <div className="row-meta">
-          {run.datasetName} · {run.metric}
+    <div className="timeline-item queue-row">
+      <Link className="queue-row-main" to={`/training/${run.id}`}>
+        <div className="timeline-icon">
+          <Icon name={state.icon} size={18} />
         </div>
-        <ProgressBar value={run.progress} fill={done ? "#0f766e" : "#a15c07"} shimmer={!done} />
+        <div>
+          <strong>{run.name}</strong>
+          <div className="row-meta">
+            {run.datasetName} · {run.metric}
+          </div>
+          <ProgressBar value={run.progress} fill={done ? "#0f766e" : run.status === "paused" ? "#6b7280" : "#a15c07"} shimmer={run.status === "running"} />
+        </div>
+      </Link>
+      <div className="queue-row-actions">
+        {canPause && <button className="icon-button" title="暂停排队任务" onClick={() => onAction("pause", run)} disabled={busy}><Icon name="Pause" size={16} /></button>}
+        {canResume && <button className="icon-button" title="恢复排队任务" onClick={() => onAction("resume", run)} disabled={busy}><Icon name="Play" size={16} /></button>}
+        {canCancel && <button className="icon-button" title="取消任务" onClick={() => onAction("cancel", run)} disabled={busy}><Icon name="Ban" size={16} /></button>}
+        {canDelete && <button className="icon-button danger" title="删除队列记录" onClick={() => onAction("delete", run)} disabled={busy}><Icon name="Trash2" size={16} /></button>}
       </div>
       <StatusChip tone={state.tone}>{state.label}</StatusChip>
-    </Link>
+    </div>
   );
 }
 
@@ -1022,6 +1036,7 @@ function filterTrainingRuns(runs, statusFilter, sortMode) {
     if (statusFilter === "all") return true;
     if (statusFilter === "failed") return run.status === "failed";
     if (statusFilter === "active") return ["queued", "running"].includes(run.status);
+    if (statusFilter === "paused") return run.status === "paused";
     if (statusFilter === "succeeded") return run.status === "succeeded";
     return true;
   });
@@ -1197,12 +1212,14 @@ export function TrainingPage({ showToast }) {
     ridgeLambda: "0.01",
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
+  const [queueActionState, setQueueActionState] = useState({ status: "idle", runId: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
   const trainingDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId);
   const datasetVersionOptions = trainingDatasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
   const failedRunCount = runItems.filter((run) => run.status === "failed").length;
   const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
+  const pausedRunCount = runItems.filter((run) => run.status === "paused").length;
   const canUseDatasetForTraining = datasetSource === "api" && datasetVersionOptions.length > 0;
   const canCreate =
     canUseDatasetForTraining &&
@@ -1251,6 +1268,25 @@ export function TrainingPage({ showToast }) {
     } catch (error) {
       setCreateState({ status: "failed", run: null, error });
       showToast("训练创建失败");
+    }
+  }
+
+  async function handleQueueAction(action, run) {
+    if (!run?.id || queueActionState.status === "running") return;
+    if (action === "delete" && !window.confirm(`删除训练队列记录 ${run.id}？该操作不会删除数据集文件。`)) return;
+    setQueueActionState({ status: "running", runId: run.id, error: null });
+    try {
+      if (action === "pause") await pauseTrainingRun(run.id);
+      if (action === "resume") await resumeTrainingRun(run.id);
+      if (action === "cancel") await cancelTrainingRun(run.id);
+      if (action === "delete") await deleteTrainingRun(run.id);
+      setQueueActionState({ status: "succeeded", runId: null, error: null });
+      refresh();
+      const label = { pause: "已暂停", resume: "已恢复", cancel: "已取消", delete: "已删除" }[action] ?? "已更新";
+      showToast(`${label}：${run.id}`);
+    } catch (error) {
+      setQueueActionState({ status: "failed", runId: run.id, error });
+      showToast("训练队列操作失败");
     }
   }
 
@@ -1351,7 +1387,7 @@ export function TrainingPage({ showToast }) {
       <div className="grid two">
         <Panel
           title="训练队列"
-          caption={`${sourceLabel} · ${filteredRuns.length}/${runItems.length} 条显示 · 失败 ${failedRunCount} · 活跃 ${activeRunCount}`}
+          caption={`${sourceLabel} · ${filteredRuns.length}/${runItems.length} 条显示 · 失败 ${failedRunCount} · 活跃 ${activeRunCount} · 暂停 ${pausedRunCount}`}
           action={<button className="ghost-button" onClick={() => setQueueCollapsed((value) => !value)}><Icon name={queueCollapsed ? "ChevronRight" : "ListFilter"} size={16} />{queueCollapsed ? "展开" : "折叠"}</button>}
         >
           <div className="review-filter-bar">
@@ -1360,6 +1396,7 @@ export function TrainingPage({ showToast }) {
                 ["all", "全部"],
                 ["failed", "失败"],
                 ["active", "运行中"],
+                ["paused", "暂停"],
                 ["succeeded", "完成"],
               ].map(([value, label]) => (
                 <button className={`tab-button ${queueStatusFilter === value ? "active" : ""}`} key={value} onClick={() => setQueueStatusFilter(value)}>
@@ -1376,16 +1413,25 @@ export function TrainingPage({ showToast }) {
               </select>
             </label>
           </div>
+          {queueActionState.error && <div className="row-meta section-gap-small">{queueActionState.error.message}</div>}
           {queueCollapsed ? (
             <div className="queue-collapsed">
               <StatusChip tone={failedRunCount ? "risk" : "default"}>{failedRunCount} failed</StatusChip>
               <StatusChip tone={activeRunCount ? "warn" : "neutral"}>{activeRunCount} active</StatusChip>
+              <StatusChip tone={pausedRunCount ? "neutral" : "info"}>{pausedRunCount} paused</StatusChip>
               <StatusChip tone="info">{runItems.length} total</StatusChip>
             </div>
           ) : (
             <div className="timeline">
               {filteredRuns.length > 0 ? (
-                filteredRuns.map((run) => <RunRow run={run} key={run.id} />)
+                filteredRuns.map((run) => (
+                  <RunRow
+                    run={run}
+                    key={run.id}
+                    onAction={handleQueueAction}
+                    busy={queueActionState.status === "running" && queueActionState.runId === run.id}
+                  />
+                ))
             ) : (
               <div className="timeline-item">
                 <div className="timeline-icon"><Icon name="Inbox" size={18} /></div>

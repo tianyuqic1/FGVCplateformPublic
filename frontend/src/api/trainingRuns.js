@@ -28,6 +28,7 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
     throw new Error(detail);
   }
 
+  if (response.status === 204) return null;
   return response.json();
 }
 
@@ -39,7 +40,7 @@ function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
 }
 
 function normalizeStatus(value) {
-  if (["queued", "running", "succeeded", "failed", "cancelled"].includes(value)) return value;
+  if (["queued", "paused", "running", "succeeded", "failed", "cancelled"].includes(value)) return value;
   if (value === "done") return "succeeded";
   return "queued";
 }
@@ -47,6 +48,7 @@ function normalizeStatus(value) {
 function progressForStatus(status) {
   if (status === "succeeded") return 100;
   if (status === "running") return 72;
+  if (status === "paused") return 12;
   if (status === "failed" || status === "cancelled") return 100;
   return 8;
 }
@@ -57,6 +59,7 @@ function metricLabel(metrics = {}, status = "queued") {
   }
   if (status === "failed") return "failed";
   if (status === "running") return "training";
+  if (status === "paused") return "paused";
   return "queued";
 }
 
@@ -120,5 +123,33 @@ export async function createTrainingRun(input) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/training-runs", { method: "POST", body: input, signal });
     return normalizeTrainingRun(extractTrainingRun(payload));
+  });
+}
+
+export async function pauseTrainingRun(runId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}/pause`, { method: "POST", signal });
+    return normalizeTrainingRun(extractTrainingRun(payload));
+  });
+}
+
+export async function resumeTrainingRun(runId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}/resume`, { method: "POST", signal });
+    return normalizeTrainingRun(extractTrainingRun(payload));
+  });
+}
+
+export async function cancelTrainingRun(runId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", signal });
+    return normalizeTrainingRun(extractTrainingRun(payload));
+  });
+}
+
+export async function deleteTrainingRun(runId) {
+  return withTimeout(async (signal) => {
+    await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}`, { method: "DELETE", signal });
+    return true;
   });
 }

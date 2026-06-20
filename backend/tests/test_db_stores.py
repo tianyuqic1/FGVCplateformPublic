@@ -425,6 +425,53 @@ def test_training_run_cancel_tracks_business_run_status(
     assert run_next_job() is None
 
 
+def test_training_run_queue_controls_pause_resume_cancel_and_delete(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "queue-controls-imagefolder", samples_per_class=5)
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "queue-controls-toy",
+                "dataset_version_id": "dataset@queue-controls-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+
+    create_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@queue-controls-toy-001"},
+    )
+    assert create_response.status_code == 202
+    run_id = create_response.json()["training_run"]["run_id"]
+
+    pause_response = client.post(f"/api/training-runs/{run_id}/pause")
+    assert pause_response.status_code == 200
+    assert pause_response.json()["training_run"]["status"] == "paused"
+    assert run_next_job() is None
+
+    resume_response = client.post(f"/api/training-runs/{run_id}/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json()["training_run"]["status"] == "queued"
+
+    cancel_response = client.post(f"/api/training-runs/{run_id}/cancel")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["training_run"]["status"] == "cancelled"
+
+    delete_response = client.delete(f"/api/training-runs/{run_id}")
+    assert delete_response.status_code == 204
+    assert client.get(f"/api/training-runs/{run_id}").status_code == 404
+
+
 def test_training_run_reuses_feature_artifact_for_same_dataset_and_extractor_config(
     database_url: str,
     tmp_path: Path,

@@ -388,6 +388,7 @@ Acceptance:
 - Done: training queue and detail views read `/api/training-runs`; mock data is only a fallback when the API is unavailable.
 - Done: `POST /api/training-runs` rejects dataset versions whose readiness report is not ready.
 - Done: training job cancellation synchronizes the business training run to `cancelled`.
+- Done: training queue controls support pausing queued runs, resuming paused runs, cancelling queued/paused runs, and deleting non-running queue records that have no artifacts/model version.
 - Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vits16`, `dinov3_vitb16`, or `dinov3_vitl16` instead of the color-stats default.
 - Done: training creation exposes DINOv3 feature extraction batch size. The default is `8`; this affects feature extraction throughput/memory only, while the ridge/linear head is solved without a mini-batch training loop.
 - Done: DINOv3 feature cache identity ignores runtime `device` and `batch_size`, so tuning batch size does not duplicate identical feature artifacts.

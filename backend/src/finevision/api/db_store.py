@@ -446,7 +446,7 @@ def _insert_job_event(
 
 
 def _job_status(value: str) -> JobStatus:
-    if value not in {"queued", "running", "succeeded", "failed", "cancelled"}:
+    if value not in {"queued", "paused", "running", "succeeded", "failed", "cancelled"}:
         raise ValueError(f"Unknown job status: {value}")
     return value  # type: ignore[return-value]
 

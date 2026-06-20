@@ -339,6 +339,52 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Training run not found")
         return {"training_run": training_run.__dict__}
 
+    @api.post("/api/training-runs/{run_id}/pause")
+    def pause_training_run(run_id: str) -> dict[str, object]:
+        training_run = _get_training_run_or_404(training_store, run_id)
+        if training_run.status != "queued":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued training runs can be paused")
+        try:
+            paused = training_store.pause_training_run(run_id)  # type: ignore[union-attr]
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return {"training_run": paused.__dict__}
+
+    @api.post("/api/training-runs/{run_id}/resume")
+    def resume_training_run(run_id: str) -> dict[str, object]:
+        training_run = _get_training_run_or_404(training_store, run_id)
+        if training_run.status != "paused":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only paused training runs can be resumed")
+        try:
+            resumed = training_store.resume_training_run(run_id)  # type: ignore[union-attr]
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return {"training_run": resumed.__dict__}
+
+    @api.post("/api/training-runs/{run_id}/cancel")
+    def cancel_training_run(run_id: str) -> dict[str, object]:
+        training_run = _get_training_run_or_404(training_store, run_id)
+        if training_run.status == "running":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Running training runs cannot be cancelled safely yet; stop the worker first, then mark the run cancelled.",
+            )
+        if training_run.status not in {"queued", "paused"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued or paused training runs can be cancelled")
+        try:
+            cancelled = training_store.cancel_training_run(run_id, "Cancelled by user from training queue.")  # type: ignore[union-attr]
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return {"training_run": cancelled.__dict__}
+
+    @api.delete("/api/training-runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_training_run(run_id: str) -> None:
+        _get_training_run_or_404(training_store, run_id)
+        try:
+            training_store.delete_training_run(run_id)  # type: ignore[union-attr]
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
     @api.post("/api/inference")
     def run_scoped_inference(request: RunInferenceRequest) -> dict[str, object]:
         payload = _run_scoped_inference_payload(api, request)
@@ -964,6 +1010,15 @@ def _save_uploaded_image(upload_dir: Path, image: UploadFile) -> Path:
     with destination.open("wb") as output:
         shutil.copyfileobj(image.file, output)
     return destination
+
+
+def _get_training_run_or_404(training_store: DatabaseTrainingStore | None, run_id: str):
+    if training_store is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Training run not found")
+    training_run = training_store.get_training_run(run_id)
+    if training_run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Training run not found")
+    return training_run
 
 
 def _default_backbone_id(extractor: str) -> str:

@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 from finevision.ml_toolkit.artifacts import read_dataset_manifest, write_dataset_manifest
 from finevision.schemas.artifacts import DatasetManifest
 
-JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+JobStatus = Literal["queued", "paused", "running", "succeeded", "failed", "cancelled"]
 JobType = Literal["import_imagefolder", "train_classifier"]
 
 

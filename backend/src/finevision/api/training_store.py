@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine, create_engine
 from sqlalchemy.pool import NullPool
 
 from finevision.api.store import JobRecord
-from finevision.db.schema import artifacts, dataset_versions, datasets, jobs, model_versions, training_runs
+from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, model_versions, training_runs
 from finevision.schemas.artifacts import to_jsonable
 
 
@@ -133,6 +133,111 @@ class DatabaseTrainingStore:
             )
         if result.rowcount == 0:
             raise ValueError(f"Queued training run not found for job: {job_id}")
+
+    def pause_training_run(self, run_id: str) -> TrainingRunRecord:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(training_runs.c.id, training_runs.c.job_id)
+                .where(training_runs.c.run_key == run_id, training_runs.c.status == "queued")
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Only queued training runs can be paused: {run_id}")
+            conn.execute(
+                training_runs.update()
+                .where(training_runs.c.id == row["id"])
+                .values(status="paused", updated_at=now)
+            )
+            conn.execute(jobs.update().where(jobs.c.id == row["job_id"]).values(status="paused", updated_at=now))
+        record = self.get_training_run(run_id)
+        if record is None:
+            raise ValueError(f"Training run not found after pause: {run_id}")
+        return record
+
+    def resume_training_run(self, run_id: str) -> TrainingRunRecord:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(training_runs.c.id, training_runs.c.job_id)
+                .where(training_runs.c.run_key == run_id, training_runs.c.status == "paused")
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Only paused training runs can be resumed: {run_id}")
+            conn.execute(
+                training_runs.update()
+                .where(training_runs.c.id == row["id"])
+                .values(status="queued", updated_at=now)
+            )
+            conn.execute(
+                jobs.update()
+                .where(jobs.c.id == row["job_id"])
+                .values(status="queued", queued_at=now, updated_at=now)
+            )
+        record = self.get_training_run(run_id)
+        if record is None:
+            raise ValueError(f"Training run not found after resume: {run_id}")
+        return record
+
+    def cancel_training_run(self, run_id: str, reason: str) -> TrainingRunRecord:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(training_runs.c.id, training_runs.c.job_id)
+                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "paused"]))
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Only queued or paused training runs can be cancelled: {run_id}")
+            conn.execute(
+                training_runs.update()
+                .where(training_runs.c.id == row["id"])
+                .values(status="cancelled", error_message=reason, finished_at=now, updated_at=now)
+            )
+            conn.execute(
+                jobs.update()
+                .where(jobs.c.id == row["job_id"])
+                .values(status="cancelled", finished_at=now, updated_at=now)
+            )
+        record = self.get_training_run(run_id)
+        if record is None:
+            raise ValueError(f"Training run not found after cancel: {run_id}")
+        return record
+
+    def delete_training_run(self, run_id: str) -> None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(
+                    training_runs.c.id,
+                    training_runs.c.job_id,
+                    training_runs.c.status,
+                    training_runs.c.feature_artifact_id,
+                    training_runs.c.model_artifact_id,
+                    training_runs.c.report_artifact_id,
+                    training_runs.c.calibration_artifact_id,
+                    training_runs.c.threshold_strategy_artifact_id,
+                ).where(training_runs.c.run_key == run_id)
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Training run not found: {run_id}")
+            if row["status"] == "running":
+                raise ValueError(f"Running training runs cannot be deleted: {run_id}")
+            has_artifact = any(
+                row[field] is not None
+                for field in [
+                    "feature_artifact_id",
+                    "model_artifact_id",
+                    "report_artifact_id",
+                    "calibration_artifact_id",
+                    "threshold_strategy_artifact_id",
+                ]
+            )
+            has_model_version = conn.scalar(
+                sa.select(sa.func.count()).select_from(model_versions).where(model_versions.c.training_run_id == row["id"])
+            )
+            if has_artifact or has_model_version:
+                raise ValueError(f"Training runs with artifacts or model versions cannot be deleted: {run_id}")
+            conn.execute(training_runs.delete().where(training_runs.c.id == row["id"]))
+            conn.execute(job_events.delete().where(job_events.c.job_id == row["job_id"]))
+            conn.execute(jobs.delete().where(jobs.c.id == row["job_id"]))
 
     def find_feature_artifact(
         self,

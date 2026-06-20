@@ -40,7 +40,7 @@ jobs = sa.Table(
     sa.Column("finished_at", sa.DateTime(timezone=True)),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint(
-        "status in ('queued', 'running', 'succeeded', 'failed', 'cancelled')",
+        "status in ('queued', 'paused', 'running', 'succeeded', 'failed', 'cancelled')",
         name="ck_jobs_status",
     ),
 )
@@ -114,7 +114,7 @@ training_runs = sa.Table(
     sa.Column("finished_at", sa.DateTime(timezone=True)),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint(
-        "status in ('queued', 'running', 'succeeded', 'failed', 'cancelled')",
+        "status in ('queued', 'paused', 'running', 'succeeded', 'failed', 'cancelled')",
         name="ck_training_runs_status",
     ),
 )

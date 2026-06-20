@@ -82,6 +82,10 @@ POST /api/jobs/{job_id}/cancel
 POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
+POST /api/training-runs/{run_id}/pause
+POST /api/training-runs/{run_id}/resume
+POST /api/training-runs/{run_id}/cancel
+DELETE /api/training-runs/{run_id}
 POST /api/inference
 ```
 
@@ -130,7 +134,7 @@ Job response shape:
 Job status values:
 
 ```text
-queued, running, succeeded, failed, cancelled
+queued, paused, running, succeeded, failed, cancelled
 ```
 
 Training run request:
@@ -191,6 +195,20 @@ dinov3_vitl   -> dinov3_vitl16, timm vit_large_patch16_dinov3
 `feature_batch_size` defaults to `8` and only affects DINOv3 feature extraction runtime memory and
 throughput. The current ridge/linear classifier head uses a closed-form solve, so there is no
 separate training mini-batch size.
+
+Training queue controls:
+
+```text
+pause   queued -> paused
+resume  paused -> queued
+cancel  queued/paused -> cancelled
+delete  removes queued/paused/cancelled/failed runs only when no artifacts or model version exist
+```
+
+Running DINOv3 extraction is not checkpointed in the MVP. To stop a currently running local task,
+stop the `ml-worker` process and then mark the run cancelled; a future worker iteration should add
+cooperative cancellation checks and resumable feature extraction before exposing true running-pause
+semantics.
 
 Scoped inference request:
 

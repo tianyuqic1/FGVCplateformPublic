@@ -374,6 +374,12 @@ a {
   border-color: var(--line);
 }
 
+.icon-button.danger {
+  color: #b4233c;
+  border-color: rgba(180, 35, 60, 0.24);
+  background: #fff1f3;
+}
+
 .page {
   display: grid;
   gap: 0;
@@ -589,6 +595,25 @@ a {
   gap: 11px;
   min-height: 62px;
   padding: 10px;
+}
+
+.queue-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.queue-row-main {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  color: inherit;
+}
+
+.queue-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .timeline-item.selected {
