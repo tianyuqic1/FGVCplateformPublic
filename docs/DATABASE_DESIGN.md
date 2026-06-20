@@ -406,6 +406,29 @@ reviews directly from `pending` to `feedbacked` in one transaction after the hum
 `risk_type` is `low_confidence`, `low_margin`, `ood_candidate`, or `mixed`. `reject_ood` is treated
 as an OOD candidate until a human confirms it.
 
+`assistance_metadata` stores optional assistant output. Iteration 5 uses:
+
+```json
+{
+  "llm_assistance": {
+    "task": "review_assistance",
+    "advisory_only": true,
+    "provider": "OpenAI",
+    "model": "gpt-5.5",
+    "reasoning_effort": "high",
+    "created_at": "...",
+    "summary": "...",
+    "inspection_notes": [],
+    "suggested_actions": [],
+    "risk_flags": [],
+    "confidence": "low|medium|high"
+  }
+}
+```
+
+This metadata is advisory. It must not set `final_label`, change `status`, create feedback, or
+change dataset/model artifacts.
+
 ### feedback_items
 
 ```text

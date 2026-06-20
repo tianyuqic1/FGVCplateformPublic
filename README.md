@@ -142,7 +142,10 @@ POST /api/inference
 POST /api/inference/upload
 GET  /api/review-items
 GET  /api/review-items/{review_item_id}
+POST /api/review-items/{review_item_id}/assist
 POST /api/review-items/{review_item_id}/submit
+GET  /api/feedback-items
+POST /api/llm/assist
 ```
 
 Inference requests are persisted as review-auditable events when routing is enabled. `abstain` and
@@ -190,6 +193,7 @@ npm run smoke:jobs-client
 npm run smoke:training-client
 npm run smoke:inference-client
 npm run smoke:review-client
+npm run smoke:llm-client
 ```
 
 More detail:
@@ -201,10 +205,10 @@ docs/DATABASE_DESIGN.md
 
 ## Next Step
 
-Continue the MVP after Iteration 4 with feedback curation:
+Continue the MVP after Iteration 5 by hardening advisory LLM assistance and then moving into feedback curation:
 
 ```text
-Feedback pool -> curated dataset version -> retraining gate
+LLM-assisted review -> feedback pool -> curated dataset version -> retraining gate
 ```
 
 Use the OpenSpec task list as the detailed backlog:

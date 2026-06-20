@@ -16,6 +16,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata

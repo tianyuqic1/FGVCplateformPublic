@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import os
 from pathlib import Path
 
@@ -224,6 +225,94 @@ def test_abstain_inference_creates_review_item_and_feedback(
         dataset_count = conn.execute(sa.select(sa.func.count()).select_from(dataset_versions)).scalar_one()
     assert feedback_count == 1
     assert dataset_count == 1
+
+
+def test_review_assistance_is_advisory_and_does_not_complete_review(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+
+    response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+            "accept_threshold": 1.0,
+            "margin_threshold": 1.0,
+        },
+    )
+    assert response.status_code == 200
+    review_item_id = response.json()["inference_result"]["review_item_id"]
+    assert review_item_id
+
+    def fake_assistance(*, task: str, context: dict[str, object]) -> dict[str, object]:
+        assert task == "review_assistance"
+        assert context["review_item_id"] == review_item_id
+        assert context["dataset_version_id"] == "dataset@infer-toy-001"
+        assert context["top_k"]
+        return {
+            "task": task,
+            "advisory_only": True,
+            "model": "test-llm",
+            "summary": "Check top-k and confirm the final label manually.",
+            "inspection_notes": ["Compare the top two candidates."],
+            "suggested_actions": ["Human reviewer must choose the final outcome."],
+            "risk_flags": ["Do not auto-submit this advice."],
+            "created_at": "2026-06-20T00:00:00+00:00",
+        }
+
+    app_module = importlib.import_module("finevision.api.app")
+    monkeypatch.setattr(app_module, "generate_assistance", fake_assistance)
+
+    assistance_response = client.post(
+        f"/api/review-items/{review_item_id}/assist",
+        json={"question": "What should I inspect?"},
+    )
+    assert assistance_response.status_code == 200
+    assistance = assistance_response.json()["assistance"]
+    assert assistance["advisory_only"] is True
+    assert assistance["summary"].startswith("Check top-k")
+
+    detail_response = client.get(f"/api/review-items/{review_item_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["review_item"]
+    assert detail["status"] == "pending"
+    assert detail["assistance_metadata"]["llm_assistance"]["summary"] == assistance["summary"]
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        feedback_count = conn.execute(sa.select(sa.func.count()).select_from(feedback_items)).scalar_one()
+    assert feedback_count == 0
+
+
+def test_generic_llm_assistance_returns_advisory_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(create_app(metadata_dir=".finevision-test-metadata"))
+
+    def fake_assistance(*, task: str, context: dict[str, object]) -> dict[str, object]:
+        assert task == "training_diagnosis"
+        assert context["error"] == "missing model artifact"
+        return {
+            "task": task,
+            "advisory_only": True,
+            "model": "test-llm",
+            "summary": "Model artifact is missing.",
+            "inspection_notes": ["Check worker logs."],
+            "suggested_actions": ["Re-run training after feature extraction succeeds."],
+            "risk_flags": [],
+            "created_at": "2026-06-20T00:00:00+00:00",
+        }
+
+    app_module = importlib.import_module("finevision.api.app")
+    monkeypatch.setattr(app_module, "generate_assistance", fake_assistance)
+    response = client.post(
+        "/api/llm/assist",
+        json={"task": "training_diagnosis", "context": {"error": "missing model artifact"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["assistance"]["advisory_only"] is True
 
 
 def test_scoped_inference_can_reject_ood_image(

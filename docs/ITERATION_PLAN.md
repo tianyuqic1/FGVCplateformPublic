@@ -494,7 +494,42 @@ Suggested checkpoint pushes:
 - `feat: connect review workflow`
 - `test: cover review completion audit trail`
 
-## Iteration 5: Model Registry And Release Gates
+## Iteration 5: LLM Assistant MVP
+
+Objective: add advisory-only LLM assistance without changing the human review source of truth.
+
+Scope:
+
+- Add OpenAI-compatible Responses client behind backend env config.
+- Add review item assistance generation from stored review context.
+- Add generic advisory endpoint for inference explanation, training diagnosis, and feedback curation.
+- Persist review LLM output only in `review_items.assistance_metadata`.
+- Connect UI panels for inference explanation, review assistance, training diagnosis, and feedback curation.
+- Keep all LLM output advisory-only; human submit remains the only feedback-writing path.
+
+Deliverables:
+
+- `POST /api/review-items/{review_item_id}/assist`.
+- `POST /api/llm/assist`.
+- LLM provider config through `.env`.
+- Review detail assistant panel with explicit advisory-only copy.
+- Frontend LLM client smoke.
+
+Acceptance:
+
+- LLM assistance does not update review status, final labels, feedback items, dataset versions, thresholds, or model versions.
+- Review assistance can be generated and then read from `GET /api/review-items/{id}`.
+- Provider failures degrade to assistant-specific errors and do not block manual review submission.
+- UI never offers one-click adoption of LLM suggestions.
+- Tests cover advisory persistence and frontend client normalization.
+
+Suggested checkpoint pushes:
+
+- `feat: add llm assistant adapter`
+- `feat: connect review assistant panel`
+- `test: cover advisory-only llm workflow`
+
+## Iteration 5B: Model Registry And Release Gates
 
 Objective: make model promotion auditable and safe.
 
@@ -505,27 +540,6 @@ Scope:
 - Evaluate release gates for offline metrics, calibration, OOD/stress performance, review pressure, and rollback availability.
 - Add promotion and rollback service functions.
 - Connect model registry and detail UI.
-
-Deliverables:
-
-- Model version registry.
-- Release gate evaluator.
-- Promotion and rollback operations.
-- Model version UI with gates and comparison.
-
-Acceptance:
-
-- Every model version is traceable to dataset version, feature artifact, backbone, head, threshold strategy, report, and artifact location.
-- Production promotion is blocked when required gates fail.
-- Rollback metadata is stored when a new production model is promoted.
-- Tests cover registration, gate failure, promotion, and rollback metadata.
-
-Suggested checkpoint pushes:
-
-- `feat: add model registry APIs`
-- `feat: add release gate evaluation`
-- `feat: connect model registry views`
-- `test: cover promotion and rollback`
 
 ## Iteration 6: Dashboard, Pipelines, And End-To-End Validation
 

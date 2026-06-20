@@ -116,6 +116,7 @@ export function normalizeReviewItem(raw = {}) {
     decision,
     nearestNeighbors,
     context,
+    assistanceMetadata: raw?.assistanceMetadata ?? raw?.assistance_metadata ?? {},
     feedback: raw?.feedback ?? null,
     createdAt: raw?.createdAt ?? raw?.created_at ?? null,
     updatedAt: raw?.updatedAt ?? raw?.updated_at ?? null,

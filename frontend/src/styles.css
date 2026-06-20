@@ -1134,6 +1134,28 @@ a {
   overflow-wrap: anywhere;
 }
 
+.llm-assistance {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid rgba(49, 95, 189, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.llm-assistance-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.llm-assistance-head strong {
+  display: block;
+  font-size: 15px;
+}
+
 .lineage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

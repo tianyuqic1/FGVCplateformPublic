@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
+from finevision.api.llm import LLMConfigurationError, LLMRequestError, generate_assistance
 from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
@@ -65,6 +66,15 @@ class SubmitReviewRequest(BaseModel):
     final_label: str | None = Field(default=None)
     reviewer_note: str | None = Field(default=None)
     reviewer: str | None = Field(default="local-reviewer")
+
+
+class LLMAssistanceRequest(BaseModel):
+    task: Literal["inference_explanation", "review_assistance", "training_diagnosis", "feedback_curation"]
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewAssistanceRequest(BaseModel):
+    question: str | None = Field(default=None, max_length=1200)
 
 
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
@@ -339,6 +349,34 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "feedback_item": _feedback_item_payload(feedback_item, review_item_id=review_item.review_item_id),
         }
 
+    @api.post("/api/review-items/{review_item_id}/assist")
+    def generate_review_item_assistance(review_item_id: str, request: ReviewAssistanceRequest | None = None) -> dict[str, object]:
+        review_store: DatabaseReviewStore | None = api.state.review_store
+        if review_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Review assistance requires DATABASE_URL-backed persistence",
+            )
+        review_item = review_store.get_review_item(review_item_id)
+        if review_item is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
+        if review_item.status != "pending":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="LLM assistance is only generated for pending review items")
+        context = _review_assistance_context(review_item, question=request.question if request else None)
+        assistance = _call_llm_assistant(task="review_assistance", context=context)
+        try:
+            updated = review_store.update_review_assistance(review_id=review_item_id, assistance=assistance)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return {
+            "assistance": assistance,
+            "review_item": _review_item_payload(updated),
+        }
+
+    @api.post("/api/llm/assist")
+    def generate_llm_assistance(request: LLMAssistanceRequest) -> dict[str, object]:
+        return {"assistance": _call_llm_assistant(task=request.task, context=_sanitize_llm_context(request.context))}
+
     @api.get("/api/feedback-items")
     def list_feedback_items(
         destination: str | None = Query(default=None),
@@ -364,6 +402,15 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         }
 
     return api
+
+
+def _call_llm_assistant(*, task: str, context: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return generate_assistance(task=task, context=context)
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except LLMRequestError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 def _validate_job_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -503,6 +550,53 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
         "completed_by": item.completed_by,
         "feedback": _feedback_item_payload(item.feedback, review_item_id=item.review_item_id) if item.feedback else None,
     }
+
+
+def _review_assistance_context(item: Any, *, question: str | None = None) -> dict[str, Any]:
+    context = dict(item.context or {})
+    return _sanitize_llm_context(
+        {
+            "review_item_id": item.review_item_id,
+            "dataset_id": item.dataset_id,
+            "dataset_version_id": item.dataset_version_id,
+            "model_version_id": item.model_version_id,
+            "sample_id": item.sample_id,
+            "status": item.status,
+            "risk_type": item.risk_type,
+            "priority": item.priority,
+            "reason": item.reason,
+            "reason_codes": item.reason_codes,
+            "decision": context.get("decision") or {},
+            "top_k": (context.get("top_k") or [])[:5],
+            "nearest_neighbors": (context.get("nearest_neighbors") or [])[:5],
+            "operator_question": question,
+        }
+    )
+
+
+def _sanitize_llm_context(value: Any, *, max_list: int = 12, max_string: int = 1200) -> Any:
+    if isinstance(value, dict):
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"image_path", "uploaded_image_path", "input_ref", "root_uri", "uri"}:
+                sanitized[key] = _redact_path(item)
+                continue
+            sanitized[str(key)] = _sanitize_llm_context(item, max_list=max_list, max_string=max_string)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_llm_context(item, max_list=max_list, max_string=max_string) for item in value[:max_list]]
+    if isinstance(value, str):
+        return _redact_path(value)[:max_string]
+    return value
+
+
+def _redact_path(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if "/" not in text and "\\" not in text:
+        return text
+    return f".../{Path(text).name}"
 
 
 def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | None = None) -> dict[str, object]:

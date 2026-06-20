@@ -435,3 +435,60 @@ Iteration 4 now turns `abstain` and `reject_ood` inference decisions into typed 
 inference events are persisted, pending review items are created automatically, and human submit
 writes typed feedback pool entries. LLM/VLM assistance, online abstention updates, and automatic
 dataset-version curation remain deferred.
+
+## LLM Assistant API
+
+Iteration 5 adds advisory-only LLM assistance. The backend calls an OpenAI-compatible Responses
+provider using env configuration such as:
+
+```text
+OPENAI_API_KEY=...
+FINEVISION_LLM_BASE_URL=https://mikuapi.org/v1
+FINEVISION_LLM_MODEL=gpt-5.5
+FINEVISION_LLM_REVIEW_MODEL=gpt-5.5
+FINEVISION_LLM_REASONING_EFFORT=high
+FINEVISION_LLM_DISABLE_RESPONSE_STORAGE=true
+FINEVISION_LLM_WIRE_API=responses
+```
+
+Review-specific assistance:
+
+```text
+POST /api/review-items/{review_item_id}/assist
+```
+
+The endpoint reads the stored review context, generates an advisory payload, writes it to
+`review_items.assistance_metadata.llm_assistance`, and returns the updated review item. It only
+works for `pending` review items and never creates `feedback_items`.
+
+Generic on-demand assistance:
+
+```text
+POST /api/llm/assist
+```
+
+Request:
+
+```json
+{
+  "task": "inference_explanation | review_assistance | training_diagnosis | feedback_curation",
+  "context": {}
+}
+```
+
+Response:
+
+```json
+{
+  "assistance": {
+    "advisory_only": true,
+    "summary": "...",
+    "inspection_notes": [],
+    "suggested_actions": [],
+    "risk_flags": [],
+    "model": "gpt-5.5"
+  }
+}
+```
+
+LLM output is not a final label, does not update thresholds, and does not mutate dataset versions.

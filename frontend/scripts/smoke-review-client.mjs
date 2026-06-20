@@ -22,6 +22,13 @@ const payload = {
       reason_codes: ["top1_top2_margin_below_threshold"],
       input_ref: "/data/uploads/query-001.jpg",
       image_url: "/api/uploads/query-001.jpg",
+      assistance_metadata: {
+        llm_assistance: {
+          advisory_only: true,
+          summary: "Inspect the top two candidates manually.",
+          suggested_actions: ["Do not auto-submit."],
+        },
+      },
       context: {
         input: { sample_id: "sample-001", uploaded_image_path: "/data/uploads/query-001.jpg" },
         top_k: [
@@ -50,6 +57,9 @@ if (items[0].topK[0].label !== "red_square") throw new Error("Top-k not normaliz
 if (items[0].decision.value !== "abstain") throw new Error("Decision not normalized");
 if (items[0].nearestNeighbors[0].sampleId !== "sample-002") throw new Error("Neighbor id missing");
 if (!items[0].imageUrl.endsWith("/api/uploads/query-001.jpg")) throw new Error("Review image url missing");
+if (items[0].assistanceMetadata.llm_assistance.summary !== "Inspect the top two candidates manually.") {
+  throw new Error("Assistance metadata missing");
+}
 
 const detail = normalizeReviewItem(extractReviewItem({ review_item: { ...payload.review_items[0], status: "feedbacked" } }));
 if (detail.status !== "feedbacked") throw new Error("Detail status not normalized");

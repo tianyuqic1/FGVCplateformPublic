@@ -6,6 +6,7 @@ import { listReviewItems } from "../api/reviews.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
+import { useLLMAssistance, useReviewAssistance } from "../hooks/useLLMAssistance.js";
 import { useFeedbackItems, useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
 import { Icon } from "../components/icons.jsx";
@@ -240,6 +241,7 @@ function ApiReviewCard({ item, queryString = "" }) {
   const statusInfo = reviewStatus(item);
   const topCandidate = item.topK[0];
   const secondCandidate = item.topK[1];
+  const hasLLMAssistance = Boolean(item.assistanceMetadata?.llm_assistance);
   const target = `/review/${item.id}${queryString ? `?${queryString}` : ""}`;
   return (
     <Link className="sample-card clickable" to={target}>
@@ -249,6 +251,7 @@ function ApiReviewCard({ item, queryString = "" }) {
           <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
           <StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>
           <StatusChip tone="info">P{item.priority}</StatusChip>
+          <StatusChip tone={hasLLMAssistance ? "default" : "neutral"}>{hasLLMAssistance ? "LLM 已生成" : "LLM 未生成"}</StatusChip>
         </div>
         <h3>{item.sampleId || item.id}</h3>
         <p className="small">{item.datasetVersionId} · {item.modelVersionId}</p>
@@ -895,6 +898,7 @@ function trainingRunNextActions(run, missingOutputs) {
 }
 
 function TrainingRunDiagnostics({ run }) {
+  const llm = useLLMAssistance();
   const statusInfo = trainingStatus(run);
   const outputItems = trainingRunOutputItems(run);
   const missingOutputs = missingTrainingRunOutputs(run);
@@ -910,6 +914,22 @@ function TrainingRunDiagnostics({ run }) {
       : missingOutputs.length > 0
         ? "训练未报告失败，但产物链路还不完整。"
         : "当前没有失败信号，lineage 和主要产物已可追踪。";
+
+  async function handleGenerateDiagnosis() {
+    await llm.generate({
+      task: "training_diagnosis",
+      context: {
+        run_id: run.id,
+        job_id: run.jobId,
+        status: run.status,
+        dataset_version_id: run.datasetVersionId,
+        model_version_id: run.modelVersionId,
+        error: run.error,
+        missing_outputs: missingOutputs.map((item) => item.field),
+        metrics: run.metrics ?? {},
+      },
+    });
+  }
 
   return (
     <Panel
@@ -965,6 +985,14 @@ function TrainingRunDiagnostics({ run }) {
           ))}
         </ul>
       </div>
+      <LLMAssistanceBox
+        title="LLM 排障建议"
+        caption="只分析训练错误和缺失产物，不会重跑任务或修改模型状态。"
+        assistance={llm.assistance}
+        status={llm.status}
+        error={llm.error}
+        onGenerate={handleGenerateDiagnosis}
+      />
     </Panel>
   );
 }
@@ -1224,6 +1252,7 @@ export function TrainingDetailPage({ showToast }) {
 export function InferencePage({ showToast }) {
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
   const { trainingRuns: inferenceTrainingRuns, source: trainingSource } = useTrainingRuns();
+  const llm = useLLMAssistance();
   const datasetOptions = apiDatasets;
   const [form, setForm] = useState({
     datasetVersionId: datasetOptions[0]?.datasetVersionId ?? "",
@@ -1326,6 +1355,24 @@ export function InferencePage({ showToast }) {
   const decisionState = inferenceDecisionStatus(result?.decision);
   const decisionCopy = inferenceDecisionCopy(result?.decision);
   const queryLabel = form.imageFile?.name || form.sampleId || form.imagePath || "query image";
+
+  async function handleGenerateInferenceExplanation() {
+    if (!result) return;
+    await llm.generate({
+      task: "inference_explanation",
+      context: {
+        inference_event_id: result.inferenceEventId,
+        review_item_id: result.reviewItemId,
+        dataset_id: result.datasetId,
+        dataset_version_id: result.datasetVersionId,
+        model_version_id: result.modelVersionId,
+        decision: result.decision,
+        top_k: result.topK,
+        nearest_neighbors: result.nearestNeighbors.slice(0, 5),
+      },
+    });
+  }
+
   return (
     <div className="grid detail">
       <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
@@ -1485,6 +1532,14 @@ export function InferencePage({ showToast }) {
                 )}
               </div>
             </details>
+            <LLMAssistanceBox
+              title="LLM 推理解释"
+              caption="只解释当前推理证据，不改变 inference event 或复核路由。"
+              assistance={llm.assistance}
+              status={llm.status}
+              error={llm.error}
+              onGenerate={handleGenerateInferenceExplanation}
+            />
             <details className="advanced-fields section-gap-small">
               <summary>调试信息</summary>
               <div className="code-panel section-gap-small">event: {result.inferenceEventId ?? "n/a"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />feature: {result.featureArtifactId ?? "n/a"}</div>
@@ -1594,6 +1649,7 @@ export function ReviewDetailPage({ showToast }) {
   const [searchParams] = useSearchParams();
   const { reviewItem: item, loading, error, refresh } = useReviewItem(reviewItemId);
   const submitState = useSubmitReviewOutcome(reviewItemId);
+  const reviewAssistant = useReviewAssistance(reviewItemId);
   const [form, setForm] = useState({
     finalOutcome: "corrected_label",
     destination: "training_candidate",
@@ -1678,12 +1734,24 @@ export function ReviewDetailPage({ showToast }) {
   const candidateLabels = Array.from(new Set(item.topK.map((candidate) => candidate.label).filter(Boolean)));
   const destinationOptions = destinationOptionsForOutcome(form.finalOutcome);
   const requiresLabel = ["confirmed_label", "corrected_label"].includes(form.finalOutcome);
+  const storedAssistance = assistanceFromMetadata(item.assistanceMetadata);
+  const reviewAssistance = reviewAssistant.assistance ?? storedAssistance;
   const canSubmit =
     item.status === "pending" &&
     submitState.status !== "submitting" &&
     form.finalOutcome &&
     form.destination &&
     (!requiresLabel || form.finalLabel.trim());
+
+  async function handleGenerateReviewAssistance() {
+    try {
+      await reviewAssistant.generate({ question: form.reviewerNote.trim() || null });
+      showToast("LLM 辅助建议已生成");
+      refresh();
+    } catch (assistError) {
+      showToast(assistError?.message ?? "LLM 辅助生成失败");
+    }
+  }
 
   return (
     <>
@@ -1742,6 +1810,17 @@ export function ReviewDetailPage({ showToast }) {
               )}
             </div>
           </details>
+        </Panel>
+        <Panel title="LLM 辅助" caption="只读建议，不是最终结论；不会写入真值、不会提交反馈池。">
+          <LLMAssistanceBox
+            title="复核辅助建议"
+            caption="基于 top-k、阈值原因和近邻证据生成；人工仍必须独立提交最终结论。"
+            assistance={reviewAssistance}
+            status={reviewAssistant.status}
+            error={reviewAssistant.error}
+            onGenerate={handleGenerateReviewAssistance}
+            disabled={item.status !== "pending"}
+          />
         </Panel>
         <Panel title="人工复核" caption="人工结论进入反馈池；后续数据版本构建再决定是否采纳。" action={<StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>}>
           <div className="grid">
@@ -1841,8 +1920,83 @@ function FeedbackCard({ item }) {
   );
 }
 
+function assistanceFromMetadata(metadata) {
+  const raw = metadata?.llm_assistance;
+  if (!raw) return null;
+  return {
+    advisoryOnly: raw.advisoryOnly ?? raw.advisory_only ?? true,
+    summary: raw.summary ?? "",
+    inspectionNotes: raw.inspectionNotes ?? raw.inspection_notes ?? [],
+    suggestedActions: raw.suggestedActions ?? raw.suggested_actions ?? [],
+    riskFlags: raw.riskFlags ?? raw.risk_flags ?? [],
+    model: raw.model ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? null,
+    confidence: raw.confidence ?? "unknown",
+  };
+}
+
+function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = "idle", error, onGenerate, disabled = false }) {
+  const isGenerating = status === "generating";
+  const hasAssistance = Boolean(assistance?.summary);
+  return (
+    <div className="llm-assistance">
+      <div className="llm-assistance-head">
+        <div>
+          <strong>{title}</strong>
+          <div className="row-meta">{caption || "LLM 仅提供辅助建议，不写入真值、不提交反馈池。"}</div>
+        </div>
+        <button className="ghost-button" onClick={onGenerate} disabled={disabled || isGenerating}>
+          <Icon name={isGenerating ? "LoaderCircle" : "Wand2"} size={16} />
+          {isGenerating ? "生成中" : hasAssistance ? "重新生成" : "生成建议"}
+        </button>
+      </div>
+      {error && (
+        <div className="route-box risk section-gap-small">
+          <div><strong>LLM 辅助暂不可用</strong><div className="row-meta">{error.message}</div></div>
+          <StatusChip tone="risk">error</StatusChip>
+        </div>
+      )}
+      {!error && !hasAssistance && (
+        <div className="route-box section-gap-small">
+          <div><strong>尚未生成辅助建议</strong><div className="row-meta">这不会影响人工复核、训练或反馈池操作。</div></div>
+          <StatusChip tone="info">optional</StatusChip>
+        </div>
+      )}
+      {hasAssistance && (
+        <div className="section-gap-small">
+          <div className="reason-box">
+            <strong>建议摘要</strong>
+            <span>{assistance.summary}</span>
+          </div>
+          <div className="timeline section-gap-small">
+            <LLMListItem icon="ScanSearch" title="检查点" items={assistance.inspectionNotes} empty="没有返回检查点。" />
+            <LLMListItem icon="CheckCircle2" title="建议动作" items={assistance.suggestedActions} empty="没有返回建议动作。" />
+            <LLMListItem icon="ShieldAlert" title="风险提示" items={assistance.riskFlags} empty="没有额外风险提示。" tone="warn" />
+          </div>
+          <div className="chips">
+            <StatusChip tone="info">advisory only</StatusChip>
+            {assistance.model && <StatusChip tone="neutral">{assistance.model}</StatusChip>}
+            {assistance.createdAt && <StatusChip tone="neutral">{new Date(assistance.createdAt).toLocaleString()}</StatusChip>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LLMListItem({ icon, title, items = [], empty, tone = "info" }) {
+  return (
+    <div className="timeline-item">
+      <div className="timeline-icon"><Icon name={icon} size={18} /></div>
+      <div><strong>{title}</strong><div className="row-meta">{items.length > 0 ? items.join("；") : empty}</div></div>
+      <StatusChip tone={tone}>{items.length}</StatusChip>
+    </div>
+  );
+}
+
 export function FeedbackPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const llm = useLLMAssistance();
   const destinationFilter = searchParams.get("destination") || "all";
   const datasetFilter = searchParams.get("dataset_id") || "";
   const { datasets: datasetItems } = useDatasets();
@@ -1874,6 +2028,25 @@ export function FeedbackPage() {
       else next.delete("dataset_id");
     }
     setSearchParams(next);
+  }
+
+  async function handleGenerateCurationAdvice() {
+    await llm.generate({
+      task: "feedback_curation",
+      context: {
+        destination_filter: destinationFilter,
+        dataset_filter: datasetFilter || null,
+        pool_counts: Object.fromEntries(poolCounts.map(([value, , count]) => [value, count])),
+        sample_items: feedbackItems.slice(0, 12).map((item) => ({
+          feedback_item_id: item.id,
+          destination: item.destination,
+          final_outcome: item.finalOutcome,
+          final_label: item.finalLabel,
+          dataset_version_id: item.datasetVersionId,
+          reviewer_note: item.reviewerNote,
+        })),
+      },
+    });
   }
 
   return (
@@ -1932,6 +2105,15 @@ export function FeedbackPage() {
             <div className="timeline-item"><div className="timeline-icon"><Icon name="Database" size={18} /></div><div><strong>下一步：数据策展</strong><div className="row-meta">后续会把已采纳反馈冻结成新的 dataset version。</div></div><StatusChip tone="warn">deferred</StatusChip></div>
             <div className="timeline-item"><div className="timeline-icon"><Icon name="Route" size={18} /></div><div><strong>发布前再消费</strong><div className="row-meta">模型发布门禁应检查 OOD 压力池、坏图池和争议池处理状态。</div></div><StatusChip tone="info">gate</StatusChip></div>
           </div>
+          <LLMAssistanceBox
+            title="LLM 策展建议"
+            caption="只根据当前反馈池聚合给出策展建议，不会创建 dataset version 或触发训练。"
+            assistance={llm.assistance}
+            status={llm.status}
+            error={llm.error}
+            onGenerate={handleGenerateCurationAdvice}
+            disabled={feedbackItems.length === 0}
+          />
         </Panel>
       </div>
     </>

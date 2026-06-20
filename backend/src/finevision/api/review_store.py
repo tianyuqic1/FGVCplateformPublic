@@ -190,6 +190,28 @@ class DatabaseReviewStore:
             row = conn.execute(_review_item_select().where(review_items.c.review_key == review_id)).mappings().first()
         return _review_item_from_row(row) if row else None
 
+    def update_review_assistance(self, *, review_id: str, assistance: dict[str, Any]) -> ReviewItemRecord:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(review_items.c.id, review_items.c.assistance_metadata)
+                .where(review_items.c.review_key == review_id)
+                .with_for_update()
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Review item not found: {review_id}")
+            metadata = dict(row["assistance_metadata"] or {})
+            metadata["llm_assistance"] = assistance
+            conn.execute(
+                review_items.update()
+                .where(review_items.c.id == row["id"])
+                .values(assistance_metadata=metadata, updated_at=now)
+            )
+        review = self.get_review_item(review_id)
+        if review is None:
+            raise ValueError(f"Review item not found after assistance update: {review_id}")
+        return review
+
     def complete_review(
         self,
         *,
