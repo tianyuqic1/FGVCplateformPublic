@@ -87,6 +87,8 @@ export function normalizeDataset(raw) {
     id: raw?.id ?? raw?.dataset_id ?? raw?.slug ?? latestVersion,
     name: raw?.name ?? raw?.display_name ?? raw?.dataset_id ?? "未命名数据集",
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? latestVersion,
+    latestVersionId: raw?.latestVersionId ?? raw?.latest_version_id ?? latestVersion,
+    classNames: Array.isArray(classList) ? classList : [],
     classes: classCount,
     images: imageCount,
     version: latestVersion,
@@ -99,8 +101,22 @@ export function normalizeDataset(raw) {
     quality: firstNumber(raw?.quality, raw?.quality_score, raw?.readiness?.quality, 0),
     coverage: firstNumber(raw?.coverage, raw?.expected_coverage, raw?.readiness?.coverage, 0),
     oodRecall: firstNumber(raw?.oodRecall, raw?.ood_recall, raw?.readiness?.ood_recall, 0),
+    readiness: raw?.readiness ?? {},
+    splitCounts: raw?.splitCounts ?? raw?.split_counts ?? {},
+    previewSamples: normalizeSamplePreviews(raw?.previewSamples ?? raw?.preview_samples ?? raw?.sample_previews ?? []),
+    versions: Array.isArray(raw?.versions) ? raw.versions : [],
     description: raw?.description ?? raw?.summary ?? "Control-plane API 已返回该数据集，详细描述待补充。",
   };
+}
+
+export function normalizeSamplePreviews(samples) {
+  if (!Array.isArray(samples)) return [];
+  return samples.map((sample) => ({
+    sampleId: sample?.sampleId ?? sample?.sample_id ?? null,
+    label: sample?.label ?? "unknown",
+    split: sample?.split ?? "unknown",
+    imageUrl: sample?.imageUrl ?? sample?.image_url ?? null,
+  }));
 }
 
 export async function listDatasets() {
@@ -114,6 +130,14 @@ export async function getDataset(datasetId) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/datasets/${encodeURIComponent(datasetId)}`, { signal });
     return normalizeDataset(extractDataset(payload));
+  });
+}
+
+export async function listDatasetSamplePreviews(datasetVersionId, limit = 6) {
+  return withTimeout(async (signal) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/sample-previews?${params.toString()}`, { signal });
+    return normalizeSamplePreviews(payload?.samples);
   });
 }
 

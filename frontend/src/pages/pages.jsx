@@ -4,7 +4,7 @@ import { uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
 import { listReviewItems } from "../api/reviews.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
-import { useDataset, useDatasets } from "../hooks/useDatasets.js";
+import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useLLMAssistance, useReviewAssistance } from "../hooks/useLLMAssistance.js";
 import { useFeedbackItems, useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
@@ -325,14 +325,38 @@ function SampleImage({ src, label, compact = false, low = false }) {
   );
 }
 
-function SampleVisualCard({ src, label, low = false }) {
+function SampleVisualCard({ src, label, meta = "来自当前数据集", low = false }) {
   return (
     <div className="image-card">
       <SampleImage src={src} label={label} low={low} />
       <div className="caption">
         <strong>{label}</strong>
-        <div className="row-meta">来自当前测试数据集，可替换为真实样本预览</div>
+        <div className="row-meta">{meta}</div>
       </div>
+    </div>
+  );
+}
+
+function DatasetSamplePreviewGrid({ samples, loading, error, compact = false }) {
+  if (loading) {
+    return <div className="route-box"><div><strong>正在加载样本预览</strong><div className="row-meta">从当前 dataset version 读取真实样本图片。</div></div><StatusChip tone="info">loading</StatusChip></div>;
+  }
+  if (error) {
+    return <div className="route-box"><div><strong>样本预览加载失败</strong><div className="row-meta">{error.message}</div></div><StatusChip tone="risk">error</StatusChip></div>;
+  }
+  if (!samples.length) {
+    return <div className="route-box"><div><strong>暂无样本预览</strong><div className="row-meta">当前 dataset version 没有返回可预览图片。</div></div><StatusChip tone="warn">empty</StatusChip></div>;
+  }
+  return (
+    <div className={`image-grid ${compact ? "compact" : ""}`}>
+      {samples.map((sample) => (
+        <SampleVisualCard
+          key={sample.sampleId ?? `${sample.label}-${sample.imageUrl}`}
+          src={apiAssetUrl(sample.imageUrl)}
+          label={sample.label}
+          meta={`${sample.split} · ${sample.sampleId ?? "sample"}`}
+        />
+      ))}
     </div>
   );
 }
@@ -857,6 +881,9 @@ export function DatasetDetailPage({ showToast }) {
 }
 
 function DatasetTab({ dataset, tab, showToast }) {
+  const previewLimit = tab === "samples" ? 8 : 3;
+  const { samples: previewSamples, loading: previewLoading, error: previewError } = useDatasetSamplePreviews(dataset.datasetVersionId, previewLimit);
+
   if (tab === "classes") {
     return (
       <div className="grid two section-gap">
@@ -903,13 +930,7 @@ function DatasetTab({ dataset, tab, showToast }) {
           </div>
         }
       >
-        <div className="image-grid">
-          <SampleVisualCard src={sampleImageFor("bird")} label="bird sample" />
-          <SampleVisualCard src={sampleImageFor("deer")} label="deer sample" />
-          <SampleVisualCard src={sampleImageFor("frog")} label="low confidence" low />
-          <SampleVisualCard src={sampleImageFor("ship")} label="OOD-like" />
-          <SampleVisualCard src={sampleImageFor("automobile")} label="ambiguous" low />
-        </div>
+        <DatasetSamplePreviewGrid samples={previewSamples} loading={previewLoading} error={previewError} />
       </Panel>
     );
   }
@@ -921,12 +942,8 @@ function DatasetTab({ dataset, tab, showToast }) {
           <MetricCard title="特征向量" value={dataset.images.toLocaleString()} caption={dataset.featureArtifactId ?? "feature artifact 待生成"} fill="#0891b2" percent={dataset.featureArtifactId ? 100 : 0} icon="DatabaseZap" />
           <div className="code-panel section-gap-small">feature_artifact: {dataset.featureArtifactId ?? "n/a"}<br />dataset_version: {dataset.datasetVersionId ?? "n/a"}<br />index: feature index API 待接入<br />backbone: dinov3_vitl<br />prototype_strategy: class_centroid + hard_negative_bank</div>
         </Panel>
-        <Panel title="最近邻检查" caption="用于解释预测和发现离群样本。">
-          <div className="image-grid compact">
-            <SampleVisualCard src={sampleImageFor("bird")} label="query" />
-            <SampleVisualCard src={sampleImageFor("deer")} label="nn-1" />
-            <SampleVisualCard src={sampleImageFor("ship")} label="far" />
-          </div>
+        <Panel title="最近邻检查" caption="当前展示真实样本预览；近邻证据会在特征索引 API 完成后接入。">
+          <DatasetSamplePreviewGrid samples={previewSamples} loading={previewLoading} error={previewError} compact />
         </Panel>
       </div>
     );
@@ -972,12 +989,8 @@ function DatasetTab({ dataset, tab, showToast }) {
             <GateRow title="验证集" description="val/test/stress 已划分" />
           </div>
         </Panel>
-        <Panel title="样本预览" caption="真实实现应替换为图片和 mask 对比。">
-          <div className="image-grid compact">
-            <SampleVisualCard src={sampleImageFor("bird")} label="高置信" />
-            <SampleVisualCard src={sampleImageFor("frog")} label="低置信" low />
-            <SampleVisualCard src={sampleImageFor("ship")} label="OOD" />
-          </div>
+        <Panel title="样本预览" caption="来自当前 dataset version 的真实图片。">
+          <DatasetSamplePreviewGrid samples={previewSamples} loading={previewLoading} error={previewError} compact />
         </Panel>
       </div>
     </>
@@ -1168,7 +1181,7 @@ function TrainingRunDiagnostics({ run }) {
 export function TrainingPage({ showToast }) {
   const [trainingSearchParams, setTrainingSearchParams] = useSearchParams();
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
-  const { datasets: datasetOptions, source: datasetSource } = useDatasets();
+  const { datasets: datasetOptions, source: datasetSource, loading: datasetsLoading, refresh: refreshDatasets } = useDatasets();
   const [showCreate, setShowCreate] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueStatusFilter, setQueueStatusFilter] = useState("all");
@@ -1180,7 +1193,8 @@ export function TrainingPage({ showToast }) {
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
-  const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
+  const trainingDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId);
+  const datasetVersionOptions = trainingDatasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
   const failedRunCount = runItems.filter((run) => run.status === "failed").length;
   const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
@@ -1251,13 +1265,14 @@ export function TrainingPage({ showToast }) {
         >
           <div className="field-grid">
             <div className="field">
-              <label>dataset_version_id</label>
-              <input list="training-dataset-version-options" value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} placeholder="dataset@..." />
-              <datalist id="training-dataset-version-options">
-                {datasetOptions.map((dataset) => (
-                  <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>{dataset.datasetVersionId}</option>
+              <label>数据集版本</label>
+              <select value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} disabled={!canUseDatasetForTraining}>
+                {trainingDatasetOptions.map((dataset) => (
+                  <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
+                    {dataset.name} · {dataset.datasetVersionId} · {dataset.images} samples · {dataset.status}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </div>
             <div className="field">
               <label>extractor</label>
@@ -1277,6 +1292,19 @@ export function TrainingPage({ showToast }) {
                 {createState.status === "running" ? "创建中" : "创建训练"}
               </button>
             </div>
+          </div>
+          <div className="toolbar section-gap-small">
+            <button className="ghost-button" onClick={refresh} disabled={loading}>
+              <Icon name="RefreshCw" size={16} />
+              刷新训练队列
+            </button>
+            <button className="ghost-button" onClick={refreshDatasets} disabled={datasetsLoading}>
+              <Icon name="RefreshCw" size={16} />
+              刷新数据集
+            </button>
+            <StatusChip tone={datasetSource === "api" ? "default" : "warn"}>
+              {datasetSource === "api" ? `${trainingDatasetOptions.length} 个可选数据集版本` : "dataset api unavailable"}
+            </StatusChip>
           </div>
           {createBlockReason && (
             <div className="route-box section-gap-small">

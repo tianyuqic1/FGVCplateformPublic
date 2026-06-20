@@ -12,6 +12,7 @@ from uuid import uuid4
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine
@@ -185,7 +186,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
                 shutil.rmtree(dataset_dir)
             dataset_dir.parent.mkdir(parents=True, exist_ok=True)
             temporary_dir.rename(dataset_dir)
-            manifest = replace(manifest, root=str(dataset_dir))
+            manifest = scan_imagefolder(dataset_dir, dataset_id, dataset_version_id)
             store.save_dataset_manifest(manifest)
             return {
                 "dataset": store.dataset_detail(manifest.dataset_id),
@@ -250,6 +251,30 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "dataset_version_id": manifest.dataset_version_id,
             "readiness": manifest.readiness,
         }
+
+    @api.get("/api/dataset-versions/{dataset_version_id}/sample-previews")
+    def get_dataset_version_sample_previews(dataset_version_id: str, limit: int = Query(default=6, ge=1, le=24)) -> dict[str, object]:
+        manifest = store.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        return {
+            "dataset_id": manifest.dataset_id,
+            "dataset_version_id": manifest.dataset_version_id,
+            "samples": _sample_preview_payloads(manifest, limit=limit),
+        }
+
+    @api.get("/api/dataset-versions/{dataset_version_id}/samples/{sample_id}/image")
+    def get_dataset_version_sample_image(dataset_version_id: str, sample_id: str) -> FileResponse:
+        manifest = store.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        sample = next((item for item in manifest.samples if item.sample_id == sample_id), None)
+        if sample is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample not found")
+        image_path = Path(sample.path)
+        if not image_path.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample image file not found")
+        return FileResponse(image_path)
 
     @api.post("/api/training-runs", status_code=status.HTTP_202_ACCEPTED)
     def create_training_run(request: CreateTrainingRunRequest) -> dict[str, object]:
@@ -649,6 +674,41 @@ def _validate_train_classifier_payload(payload: dict[str, Any]) -> dict[str, Any
         "training_run_id": str(payload["training_run_id"]),
         "dataset_version_id": str(payload["dataset_version_id"]),
     }
+
+
+def _sample_preview_payloads(manifest, *, limit: int) -> list[dict[str, object]]:
+    split_order = {"val": 0, "test": 1, "train": 2}
+    ordered_samples = sorted(
+        manifest.samples,
+        key=lambda item: (split_order.get(item.split, 99), item.label, item.path),
+    )
+    selected = []
+    seen_labels: set[str] = set()
+    for sample in ordered_samples:
+        if sample.label in seen_labels:
+            continue
+        selected.append(sample)
+        seen_labels.add(sample.label)
+        if len(selected) >= limit:
+            break
+    if len(selected) < limit:
+        selected_ids = {sample.sample_id for sample in selected}
+        for sample in ordered_samples:
+            if sample.sample_id in selected_ids:
+                continue
+            selected.append(sample)
+            if len(selected) >= limit:
+                break
+
+    return [
+        {
+            "sample_id": sample.sample_id,
+            "label": sample.label,
+            "split": sample.split,
+            "image_url": f"/api/dataset-versions/{manifest.dataset_version_id}/samples/{sample.sample_id}/image",
+        }
+        for sample in selected
+    ]
 
 
 def _run_scoped_inference_payload(

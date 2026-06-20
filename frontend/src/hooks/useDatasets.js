@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getDataset, listDatasets } from "../api/datasets.js";
+import { getDataset, listDatasetSamplePreviews, listDatasets } from "../api/datasets.js";
 
 function mergeDataset(apiDataset) {
   return apiDataset;
@@ -77,6 +77,39 @@ export function useDataset(datasetId) {
       active = false;
     };
   }, [datasetId]);
+
+  return state;
+}
+
+export function useDatasetSamplePreviews(datasetVersionId, limit = 6) {
+  const [state, setState] = useState({
+    samples: [],
+    loading: Boolean(datasetVersionId),
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!datasetVersionId) {
+      setState({ samples: [], loading: false, error: null });
+      return undefined;
+    }
+
+    let active = true;
+    setState({ samples: [], loading: true, error: null });
+    listDatasetSamplePreviews(datasetVersionId, limit)
+      .then((samples) => {
+        if (!active) return;
+        setState({ samples, loading: false, error: null });
+      })
+      .catch((error) => {
+        if (!active) return;
+        setState({ samples: [], loading: false, error });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [datasetVersionId, limit]);
 
   return state;
 }

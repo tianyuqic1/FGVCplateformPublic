@@ -74,6 +74,17 @@ def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> N
         "readiness": detail["readiness"],
     }
 
+    previews_response = client.get("/api/dataset-versions/dataset@toy-001/sample-previews?limit=3")
+    assert previews_response.status_code == 200
+    previews = previews_response.json()
+    assert previews["dataset_version_id"] == "dataset@toy-001"
+    assert len(previews["samples"]) == 3
+    assert {sample["label"] for sample in previews["samples"]} == {"blue_triangle", "green_circle", "red_square"}
+
+    image_response = client.get(previews["samples"][0]["image_url"])
+    assert image_response.status_code == 200
+    assert image_response.content
+
     assert (
         metadata_dir / "datasets" / "toy-shapes" / "versions" / "dataset@toy-001" / "manifest.json"
     ).exists()
@@ -126,6 +137,14 @@ def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch
     assert payload["upload"]["image_count"] == 12
     assert Path(payload["upload"]["stored_path"]).exists()
     assert (imported_dir / "uploaded-shapes" / "dataset@uploaded-shapes-001").exists()
+
+    previews_response = client.get("/api/dataset-versions/dataset@uploaded-shapes-001/sample-previews?limit=2")
+    assert previews_response.status_code == 200
+    previews = previews_response.json()["samples"]
+    assert len(previews) == 2
+    image_response = client.get(previews[0]["image_url"])
+    assert image_response.status_code == 200
+    assert image_response.content
 
 
 def test_dataset_asset_api_accepts_more_than_default_multipart_file_limit(tmp_path: Path, monkeypatch) -> None:
