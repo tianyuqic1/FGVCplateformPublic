@@ -348,15 +348,47 @@ function RecentJobsPanel({ limit = 5, selectedJobId = "" }) {
 }
 
 function ModelCard({ model }) {
-  const tone = model.state === "production" ? "default" : model.state === "staging" ? "info" : "warn";
+  const tone = model.state === "production" ? "default" : model.state === "candidate" || model.state === "staging" ? "info" : model.state === "preview" ? "neutral" : "warn";
+  const accuracy = Number.isFinite(Number(model.accuracy)) ? Math.round(Number(model.accuracy)) : 0;
   return (
     <Link className="card clickable" to={`/models/${model.id}`}>
       <StatusChip tone={tone}>{model.state}</StatusChip>
+      {model.source === "preview" && <StatusChip tone="neutral">preview</StatusChip>}
       <h3>{model.id}</h3>
       <p>{model.description}</p>
-      <ProgressBar value={model.state === "production" ? 91 : model.state === "staging" ? 86 : 48} fill={model.state === "experiment" ? "#a15c07" : "#0f766e"} />
+      <ProgressBar value={accuracy} fill={model.state === "experiment" ? "#a15c07" : "#0f766e"} />
     </Link>
   );
+}
+
+function modelRecordFromRun(run) {
+  const metrics = run.metrics ?? {};
+  const accuracy = Number.isFinite(Number(metrics.accuracy)) ? Number(metrics.accuracy) * 100 : null;
+  const coverage = Number.isFinite(Number(metrics.expected_coverage)) ? Number(metrics.expected_coverage) * 100 : null;
+  const selectiveRisk = Number.isFinite(Number(metrics.expected_selective_risk)) ? Number(metrics.expected_selective_risk) * 100 : null;
+  return {
+    id: run.modelVersionId,
+    state: run.status === "succeeded" ? "candidate" : run.status,
+    source: "training",
+    description: `${run.datasetVersionId ?? "dataset version unknown"} · ${run.metric ?? "metrics pending"}`,
+    datasetId: run.datasetId,
+    datasetVersionId: run.datasetVersionId,
+    featureArtifactId: run.featureArtifactId,
+    modelArtifactId: run.modelArtifactId,
+    thresholdStrategyId: run.thresholdStrategyArtifactId,
+    reportArtifactId: run.reportArtifactId,
+    calibrationArtifactId: run.calibrationArtifactId,
+    accuracy,
+    coverage,
+    selectiveRisk,
+    runId: run.id,
+    jobId: run.jobId,
+    error: run.error,
+  };
+}
+
+function previewModelRecord(model) {
+  return { ...model, state: "preview", source: "preview" };
 }
 
 function PipelineNode({ node }) {
@@ -455,10 +487,10 @@ export function DashboardPage({ showToast }) {
         </Panel>
         <Panel title="模型发布门禁" caption="上线前必须通过的检查。">
           <div className="grid">
-            <GateRow title="离线评估" description="top-1 91.9%，macro F1 88.4%" />
-            <GateRow title="OOD 压力集" description="拦截率 96.3%，误拒 6.2%" />
-            <GateRow title="人工抽检" description="还剩 34 条长尾类样本" result="pending" />
-            <GateRow title="回滚配置" description="已保留 bird-cls-v4" />
+            <GateRow title="候选模型" description={`${candidateRuns.length} 个训练完成的 candidate model`} result={candidateRuns.length > 0 ? "pass" : "pending"} />
+            <GateRow title="反馈池检查" description="需要消费 OOD / 坏图 / 类别争议后才能发布" result="pending" />
+            <GateRow title="人工抽检" description={`${pendingReviewItems.length} 条待复核会影响发布判断`} result={pendingReviewItems.length === 0 ? "pass" : "pending"} />
+            <GateRow title="回滚配置" description="Model Registry API 尚未接入 production/rollback 状态" result="pending" />
           </div>
         </Panel>
       </div>
@@ -1867,17 +1899,22 @@ export function FeedbackPage() {
 }
 
 export function ModelsPage() {
+  const { trainingRuns: modelRuns, source, loading } = useTrainingRuns();
+  const apiModels = modelRuns.filter((run) => run.modelVersionId).map(modelRecordFromRun);
+  const shownModels = apiModels.length > 0 ? apiModels : modelVersions.map(previewModelRecord);
+  const calibratedModels = apiModels.filter((model) => model.calibrationArtifactId && model.thresholdStrategyId);
+  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API 派生候选模型" : "本地预览模型";
   return (
     <>
       <div className="grid metrics">
-        <MetricCard title="线上版本" value="v4" caption="bird-cls-v4" fill="#0f766e" percent={88} icon="Rocket" to="/models/bird-cls-v4" />
-        <MetricCard title="候选版本" value="v5" caption="等待人工抽检" fill="#315fbd" percent={64} icon="GitCompare" to="/models/bird-cls-v5" />
-        <MetricCard title="校准误差" value="2.8%" caption="ECE after scaling" fill="#26804f" percent={72} icon="Thermometer" to="/models/bird-cls-v4" />
-        <MetricCard title="复核压力" value="126" caption="今日待处理证据项" fill="#a15c07" percent={44} icon="WalletCards" to="/models/bird-cls-v5" />
+        <MetricCard title="Production" value="--" caption="Model Registry API 待接入" fill="#0f766e" percent={0} icon="Rocket" to="/models" />
+        <MetricCard title="候选版本" value={loading ? "..." : String(apiModels.length)} caption={sourceLabel} fill="#315fbd" percent={Math.min(100, apiModels.length * 28)} icon="GitCompare" to="/training" />
+        <MetricCard title="已校准候选" value={String(calibratedModels.length)} caption="calibration + threshold strategy" fill="#26804f" percent={apiModels.length ? Math.round((calibratedModels.length / apiModels.length) * 100) : 0} icon="Thermometer" to="/training" />
+        <MetricCard title="发布门禁" value="待接入" caption="需要 registry/promote/rollback API" fill="#a15c07" percent={0} icon="WalletCards" to="/feedback" />
       </div>
       <div className="grid two section-gap">
-        <Panel title="版本注册表" caption="点击版本查看发布门禁。"><div className="grid three">{modelVersions.map((model) => <ModelCard model={model} key={model.id} />)}</div></Panel>
-        <Panel title="发布门禁" caption="生产系统不允许只凭 accuracy 上线。"><div className="timeline"><GateRow title="离线评估" description="top-1、macro F1、混淆矩阵" /><GateRow title="OOD 压力集" description="拦截率和误拒率" /><GateRow title="人工抽检" description="长尾、易混、低置信" result="pending" /><GateRow title="回滚策略" description="保留上一生产模型" /></div></Panel>
+        <Panel title="模型候选" caption={apiModels.length > 0 ? "来自已完成训练运行；不是 production registry。" : "Training API 暂无候选，以下为本地预览模型。"}><div className="grid three">{shownModels.map((model) => <ModelCard model={model} key={model.id} />)}</div></Panel>
+        <Panel title="发布门禁" caption="生产系统不允许只凭 accuracy 上线。"><div className="timeline"><GateRow title="离线评估" description={apiModels.length > 0 ? "读取 training report / metrics" : "等待真实候选模型"} result={apiModels.length > 0 ? "pass" : "pending"} /><GateRow title="OOD 压力集" description="等待反馈池策展和压力集冻结" result="pending" /><GateRow title="人工抽检" description="等待复核队列和反馈池清理" result="pending" /><GateRow title="回滚策略" description="Model Registry promote/rollback API 待接入" result="pending" /></div></Panel>
       </div>
     </>
   );
@@ -1885,13 +1922,20 @@ export function ModelsPage() {
 
 export function ModelDetailPage({ showToast }) {
   const { modelId = "bird-cls-v4" } = useParams();
-  const model = modelVersions.find((item) => item.id === modelId) ?? modelVersions[0];
+  const { trainingRuns: modelRuns, source, loading } = useTrainingRuns();
+  const apiModel = modelRuns.filter((run) => run.modelVersionId).map(modelRecordFromRun).find((item) => item.id === modelId);
+  const previewModel = previewModelRecord(modelVersions.find((item) => item.id === modelId) ?? modelVersions[0]);
+  const model = apiModel ?? previewModel;
+  const accuracy = Number.isFinite(Number(model.accuracy)) ? `${Number(model.accuracy).toFixed(1)}%` : "待生成";
+  const coverage = Number.isFinite(Number(model.coverage)) ? `${Number(model.coverage).toFixed(1)}%` : "待生成";
+  const selectiveRisk = Number.isFinite(Number(model.selectiveRisk)) ? `${Number(model.selectiveRisk).toFixed(2)}%` : "待生成";
+  const sourceLabel = loading ? "正在连接 Training API" : apiModel ? "Training API candidate" : source === "api" ? "未找到真实候选，显示预览" : "本地预览模型";
   return (
     <>
-      <PageHero title={model.id} description="模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。" actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="Rocket" size={16} />发布流程待接入</button></>} />
+      <PageHero title={model.id} description={`${sourceLabel} · 模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。`} actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="Rocket" size={16} />发布流程待接入</button></>} />
       <div className="grid two">
-        <Panel title="版本元数据" caption="可追溯是算法平台的底线。"><div className="code-panel">model: {model.id}<br />dataset: bird/dataset@014<br />features: embedding@014<br />backbone: dinov3_vitl<br />head: linear<br />threshold: selective-v4<br />artifact: weights/{model.id}.safetensors</div></Panel>
-        <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率。"><CurveRow label="top-1 accuracy" value={`${model.accuracy}%`} percent={Math.round(model.accuracy)} fill="#0f766e" /><CurveRow label="coverage" value={`${model.coverage}%`} percent={model.coverage} fill="#315fbd" /><CurveRow label="selective risk" value={`${model.selectiveRisk}%`} percent={41} fill="#a15c07" /></Panel>
+        <Panel title="版本元数据" caption={apiModel ? "来自训练运行和 artifact metadata。" : "本地预览，不代表真实 registry。"}><div className="code-panel">model: {model.id}<br />run: {model.runId ?? "n/a"}<br />job: {model.jobId ?? "n/a"}<br />dataset: {model.datasetVersionId ?? "n/a"}<br />features: {model.featureArtifactId ?? "n/a"}<br />model_artifact: {model.modelArtifactId ?? "n/a"}<br />calibration: {model.calibrationArtifactId ?? "n/a"}<br />threshold: {model.thresholdStrategyId ?? "n/a"}<br />report: {model.reportArtifactId ?? "n/a"}<br />source: {model.source}</div></Panel>
+        <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率；缺失时不填假数。"><CurveRow label="top-1 accuracy" value={accuracy} percent={Number(model.accuracy) || 0} fill="#0f766e" /><CurveRow label="coverage" value={coverage} percent={Number(model.coverage) || 0} fill="#315fbd" /><CurveRow label="selective risk" value={selectiveRisk} percent={Number(model.selectiveRisk) || 0} fill="#a15c07" /></Panel>
       </div>
     </>
   );
