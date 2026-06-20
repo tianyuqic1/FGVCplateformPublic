@@ -67,6 +67,7 @@ export function extractImportedDataset(payload) {
   return {
     dataset: payload?.dataset ?? null,
     version: payload?.version ?? null,
+    upload: payload?.upload ?? null,
   };
 }
 
@@ -121,4 +122,32 @@ export async function importImagefolder(input) {
     const payload = await fetchJson("/api/datasets/import-imagefolder", { method: "POST", body: input, signal });
     return extractImportedDataset(payload);
   }, 10000);
+}
+
+export async function uploadImagefolder(input) {
+  const form = new FormData();
+  form.append("dataset_id", input.dataset_id);
+  form.append("dataset_version_id", input.dataset_version_id);
+  input.files.forEach((file) => {
+    form.append("files", file, file.webkitRelativePath || file.name);
+  });
+
+  const response = await fetch(`${apiBaseUrl()}/api/datasets/upload-imagefolder`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok) {
+    let detail = `${response.status} POST /api/datasets/upload-imagefolder`;
+    try {
+      const payload = await response.json();
+      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      detail = message ? `${detail}: ${message}` : detail;
+    } catch {
+      // Keep the HTTP status fallback when the response body is not JSON.
+    }
+    throw new Error(detail);
+  }
+
+  return extractImportedDataset(await response.json());
 }

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
 import shutil
 from typing import Any, Literal
 from uuid import uuid4
@@ -21,7 +23,7 @@ from finevision.api.llm import LLMConfigurationError, LLMRequestError, generate_
 from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
-from finevision.ml_toolkit.datasets import scan_imagefolder
+from finevision.ml_toolkit.datasets import EXPLICIT_SPLITS, IMAGE_EXTENSIONS, scan_imagefolder
 from finevision.ml_toolkit.features import build_extractor_from_config
 from finevision.ml_toolkit.inference import run_image_inference, run_inference
 from finevision.schemas.artifacts import InferenceResult, to_jsonable
@@ -108,6 +110,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.review_store = DatabaseReviewStore(database_engine) if database_engine is not None else None
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
     api.state.upload_dir.mkdir(parents=True, exist_ok=True)
+    api.state.imported_dataset_dir = _default_imported_dataset_dir()
     api.mount("/api/uploads", StaticFiles(directory=str(api.state.upload_dir)), name="uploads")
     sample_asset_dir = Path(os.environ.get("FINEVISION_SAMPLE_ASSET_DIR", "/app/data/test/cifar10-mini-imagefolder"))
     if not sample_asset_dir.exists():
@@ -144,6 +147,51 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "dataset": store.dataset_detail(manifest.dataset_id),
             "version": store.version_summary(manifest),
         }
+
+    @api.post("/api/datasets/upload-imagefolder", status_code=status.HTTP_201_CREATED)
+    def upload_imagefolder(
+        dataset_id: str = Form(..., min_length=1),
+        dataset_version_id: str = Form(..., min_length=1),
+        files: list[UploadFile] = File(...),
+    ) -> dict[str, object]:
+        normalized_files, validation = _validate_uploaded_imagefolder(files)
+        dataset_dir = _uploaded_dataset_destination(
+            api.state.imported_dataset_dir,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+        )
+        temporary_dir = dataset_dir.parent / f".{dataset_dir.name}.upload-{uuid4().hex[:8]}"
+        if temporary_dir.exists():
+            shutil.rmtree(temporary_dir)
+        temporary_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            for upload_file, relative_path in normalized_files:
+                destination = temporary_dir / relative_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with destination.open("wb") as output:
+                    shutil.copyfileobj(upload_file.file, output)
+            manifest = scan_imagefolder(temporary_dir, dataset_id, dataset_version_id)
+            if dataset_dir.exists():
+                shutil.rmtree(dataset_dir)
+            dataset_dir.parent.mkdir(parents=True, exist_ok=True)
+            temporary_dir.rename(dataset_dir)
+            manifest = replace(manifest, root=str(dataset_dir))
+            store.save_dataset_manifest(manifest)
+            return {
+                "dataset": store.dataset_detail(manifest.dataset_id),
+                "version": store.version_summary(manifest),
+                "upload": {
+                    **validation,
+                    "stored_path": str(dataset_dir),
+                },
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        finally:
+            if temporary_dir.exists():
+                shutil.rmtree(temporary_dir)
 
     @api.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED)
     def create_job(request: CreateJobRequest) -> dict[str, object]:
@@ -411,6 +459,149 @@ def _call_llm_assistant(*, task: str, context: dict[str, Any]) -> dict[str, Any]
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except LLMRequestError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+def _default_imported_dataset_dir() -> Path:
+    configured = os.environ.get("FINEVISION_IMPORTED_DATASET_DIR")
+    if configured:
+        return Path(configured)
+    app_data = Path("/app/data")
+    if app_data.exists():
+        return app_data / "imported-datasets"
+    return Path("data/imported-datasets")
+
+
+def _uploaded_dataset_destination(base_dir: Path, *, dataset_id: str, dataset_version_id: str) -> Path:
+    return base_dir / _safe_path_segment(dataset_id) / _safe_path_segment(dataset_version_id)
+
+
+def _safe_path_segment(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.@-]+", "_", value.strip())
+    normalized = normalized.strip("._")
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid dataset path segment")
+    return normalized[:160]
+
+
+def _validate_uploaded_imagefolder(files: list[UploadFile]) -> tuple[list[tuple[UploadFile, Path]], dict[str, object]]:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No files were uploaded")
+
+    raw_entries: list[tuple[UploadFile, PurePosixPath]] = []
+    ignored_count = 0
+    for upload_file in files:
+        relative_path = _safe_upload_relative_path(upload_file.filename)
+        if _is_ignored_upload_path(relative_path):
+            ignored_count += 1
+            continue
+        if relative_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unsupported file type in dataset folder: {relative_path.as_posix()}",
+            )
+        raw_entries.append((upload_file, relative_path))
+
+    if not raw_entries:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No supported image files were uploaded")
+
+    common_prefix = _common_path_prefix([path for _, path in raw_entries])
+    best_result: tuple[list[tuple[UploadFile, Path]], dict[str, object]] | None = None
+    for prefix_length in range(0, len(common_prefix) + 1):
+        candidate_entries: list[tuple[UploadFile, Path]] = []
+        for upload_file, relative_path in raw_entries:
+            candidate_parts = relative_path.parts[prefix_length:]
+            if not candidate_parts:
+                candidate_entries = []
+                break
+            candidate_entries.append((upload_file, Path(*candidate_parts)))
+        if not candidate_entries:
+            continue
+        validation = _validate_imagefolder_relative_paths([path for _, path in candidate_entries])
+        if validation is None:
+            continue
+        validation["ignored_files"] = ignored_count
+        best_result = (candidate_entries, validation)
+
+    if best_result is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Invalid ImageFolder structure. Use class/image files or split/class/image files "
+                "under train, val, and/or test."
+            ),
+        )
+
+    normalized_files, validation = best_result
+    seen_paths: set[str] = set()
+    for _, relative_path in normalized_files:
+        path_key = relative_path.as_posix()
+        if path_key in seen_paths:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Duplicate uploaded path: {path_key}")
+        seen_paths.add(path_key)
+    return normalized_files, validation
+
+
+def _safe_upload_relative_path(filename: str | None) -> PurePosixPath:
+    raw_name = (filename or "").replace("\\", "/").strip()
+    if not raw_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Uploaded file is missing a relative path")
+    relative_path = PurePosixPath(raw_name)
+    if relative_path.is_absolute() or any(part in {"", ".", ".."} for part in relative_path.parts):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unsafe uploaded path: {raw_name}")
+    return relative_path
+
+
+def _is_ignored_upload_path(path: PurePosixPath) -> bool:
+    return any(part == "__MACOSX" or part.startswith(".") for part in path.parts)
+
+
+def _common_path_prefix(paths: list[PurePosixPath]) -> tuple[str, ...]:
+    if not paths:
+        return ()
+    prefix = list(paths[0].parts)
+    for path in paths[1:]:
+        next_prefix: list[str] = []
+        for left, right in zip(prefix, path.parts, strict=False):
+            if left != right:
+                break
+            next_prefix.append(left)
+        prefix = next_prefix
+        if not prefix:
+            break
+    return tuple(prefix)
+
+
+def _validate_imagefolder_relative_paths(paths: list[Path]) -> dict[str, object] | None:
+    parts_list = [path.parts for path in paths]
+    if any(len(parts) < 2 for parts in parts_list):
+        return None
+
+    top_level = {parts[0] for parts in parts_list}
+    split_mode = bool(top_level & set(EXPLICIT_SPLITS)) and top_level <= set(EXPLICIT_SPLITS)
+    if split_mode:
+        if any(len(parts) < 3 for parts in parts_list):
+            return None
+        class_labels = sorted({parts[1] for parts in parts_list})
+        split_counts = {
+            split: sum(1 for parts in parts_list if parts[0] == split)
+            for split in EXPLICIT_SPLITS
+            if any(parts[0] == split for parts in parts_list)
+        }
+    else:
+        if any(parts[0] in EXPLICIT_SPLITS for parts in parts_list):
+            return None
+        class_labels = sorted({parts[0] for parts in parts_list})
+        split_counts = {}
+
+    if len(class_labels) < 2:
+        return None
+    return {
+        "image_count": len(paths),
+        "class_count": len(class_labels),
+        "classes": class_labels,
+        "format": "split/class/image" if split_mode else "class/image",
+        "splits": split_counts,
+    }
 
 
 def _validate_job_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:

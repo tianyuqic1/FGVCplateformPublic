@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { importImagefolder } from "../api/datasets.js";
+import { uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
 import { listReviewItems } from "../api/reviews.js";
 import { createTrainingRun } from "../api/trainingRuns.js";
@@ -31,6 +31,9 @@ const pipelineNodes = [
   { id: "calibration", title: "校准弃权", description: "coverage-risk", icon: "CircleGauge", progress: 38, running: true },
   { id: "release", title: "发布回流", description: "灰度、监控、回流", icon: "Rocket", progress: 0 },
 ];
+
+const IMAGE_FOLDER_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".bmp", ".webp"]);
+const IMAGE_FOLDER_SPLITS = new Set(["train", "val", "test"]);
 
 function datasetStatus(dataset) {
   if (dataset.status === "production") return { label: "生产可推理", tone: "default" };
@@ -124,6 +127,117 @@ function apiAssetUrl(path) {
 
 function sampleImageFor(key = "bird") {
   return apiAssetUrl(SAMPLE_IMAGES[key] ?? SAMPLE_IMAGES.bird);
+}
+
+function imageFolderRelativePath(file) {
+  return (file.webkitRelativePath || file.name || "").replace(/\\/g, "/");
+}
+
+function imageFolderExtension(path) {
+  const match = path.toLowerCase().match(/\.[^.]+$/);
+  return match ? match[0] : "";
+}
+
+function ignoredFolderPath(path) {
+  return path.split("/").some((part) => part === "__MACOSX" || part.startsWith("."));
+}
+
+function commonPathPrefix(paths) {
+  if (!paths.length) return [];
+  let prefix = paths[0].split("/").filter(Boolean);
+  paths.slice(1).forEach((path) => {
+    const parts = path.split("/").filter(Boolean);
+    const next = [];
+    for (let index = 0; index < Math.min(prefix.length, parts.length); index += 1) {
+      if (prefix[index] !== parts[index]) break;
+      next.push(prefix[index]);
+    }
+    prefix = next;
+  });
+  return prefix;
+}
+
+function validateImageFolderParts(partsList) {
+  if (partsList.some((parts) => parts.length < 2)) return null;
+  const topLevel = new Set(partsList.map((parts) => parts[0]));
+  const hasSplit = [...topLevel].some((part) => IMAGE_FOLDER_SPLITS.has(part));
+  const splitMode = hasSplit && [...topLevel].every((part) => IMAGE_FOLDER_SPLITS.has(part));
+  if (splitMode) {
+    if (partsList.some((parts) => parts.length < 3)) return null;
+    const classes = [...new Set(partsList.map((parts) => parts[1]))].sort();
+    if (classes.length < 2) return null;
+    return {
+      format: "split/class/image",
+      classes,
+      splits: [...topLevel].sort(),
+      imageCount: partsList.length,
+    };
+  }
+  if ([...topLevel].some((part) => IMAGE_FOLDER_SPLITS.has(part))) return null;
+  const classes = [...topLevel].sort();
+  if (classes.length < 2) return null;
+  return {
+    format: "class/image",
+    classes,
+    splits: [],
+    imageCount: partsList.length,
+  };
+}
+
+function analyzeImageFolderFiles(files) {
+  const selectedFiles = Array.from(files ?? []);
+  if (!selectedFiles.length) {
+    return { valid: false, error: "请选择一个包含图片的文件夹。", files: [], rootName: "" };
+  }
+
+  const usableFiles = [];
+  for (const file of selectedFiles) {
+    const relativePath = imageFolderRelativePath(file);
+    if (!relativePath || ignoredFolderPath(relativePath)) continue;
+    if (!IMAGE_FOLDER_EXTENSIONS.has(imageFolderExtension(relativePath))) {
+      return { valid: false, error: `不支持的文件类型：${relativePath}`, files: selectedFiles, rootName: "" };
+    }
+    usableFiles.push({ file, relativePath });
+  }
+
+  if (!usableFiles.length) {
+    return { valid: false, error: "文件夹里没有 jpg、jpeg、png、bmp 或 webp 图片。", files: selectedFiles, rootName: "" };
+  }
+
+  const prefix = commonPathPrefix(usableFiles.map((item) => item.relativePath));
+  let summary = null;
+  for (let prefixLength = 0; prefixLength <= prefix.length; prefixLength += 1) {
+    const partsList = usableFiles.map((item) => item.relativePath.split("/").filter(Boolean).slice(prefixLength));
+    const candidate = validateImageFolderParts(partsList);
+    if (candidate) summary = { ...candidate, strippedPrefix: prefix.slice(0, prefixLength) };
+  }
+
+  if (!summary) {
+    return {
+      valid: false,
+      error: "未检测到合法 ImageFolder：请使用 class/image 或 train|val|test/class/image 结构，且至少包含两个类别。",
+      files: selectedFiles,
+      rootName: prefix[0] ?? "",
+    };
+  }
+
+  return {
+    valid: true,
+    error: null,
+    files: usableFiles.map((item) => item.file),
+    rootName: summary.strippedPrefix.at(-1) ?? prefix[0] ?? "local-imagefolder",
+    ...summary,
+  };
+}
+
+function datasetIdFromFolderName(name) {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/imagefolder/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "local-dataset";
 }
 
 function jobStatus(job) {
@@ -516,17 +630,24 @@ export function DashboardPage({ showToast }) {
 
 export function DatasetsPage({ showToast }) {
   const { datasets: datasetItems, source, loading, refresh } = useDatasets();
+  const folderInputRef = useRef(null);
   const [showImport, setShowImport] = useState(false);
   const [importForm, setImportForm] = useState({
-    path: "/app/data/test/cifar10-mini-imagefolder",
     datasetId: "cifar10-mini",
     datasetVersionId: "dataset@cifar10-mini-001",
+  });
+  const [folderSelection, setFolderSelection] = useState({
+    valid: false,
+    error: "请选择一个本地 ImageFolder 文件夹。",
+    files: [],
+    rootName: "",
   });
   const [importState, setImportState] = useState({ status: "idle", result: null, error: null });
   const sourceLabel = source === "api" ? "Control-plane API" : "Control-plane API 暂不可用";
   const canImport =
     importState.status !== "running" &&
-    importForm.path.trim() &&
+    folderSelection.valid &&
+    folderSelection.files.length > 0 &&
     importForm.datasetId.trim() &&
     importForm.datasetVersionId.trim();
 
@@ -534,12 +655,24 @@ export function DatasetsPage({ showToast }) {
     setImportForm((current) => ({ ...current, [field]: value }));
   }
 
+  function handleFolderSelection(files) {
+    const summary = analyzeImageFolderFiles(files);
+    setFolderSelection(summary);
+    setImportState({ status: "idle", result: null, error: null });
+    if (!summary.valid) return;
+    const datasetId = datasetIdFromFolderName(summary.rootName);
+    setImportForm({
+      datasetId,
+      datasetVersionId: `dataset@${datasetId}-001`,
+    });
+  }
+
   async function handleImportDataset() {
     if (!canImport) return;
     setImportState({ status: "running", result: null, error: null });
     try {
-      const result = await importImagefolder({
-        path: importForm.path.trim(),
+      const result = await uploadImagefolder({
+        files: folderSelection.files,
         dataset_id: importForm.datasetId.trim(),
         dataset_version_id: importForm.datasetVersionId.trim(),
       });
@@ -566,14 +699,40 @@ export function DatasetsPage({ showToast }) {
       />
       {showImport && (
         <Panel
-          title="导入 ImageFolder"
-          caption="Docker 环境默认挂载 ./data 到 /app/data，只能导入 API 容器可访问的路径。"
+          title="导入本地 ImageFolder"
+          caption="选择本地分类图片文件夹，系统会校验结构，通过后复制到项目数据目录并自动导入。"
           action={<StatusChip tone={importState.status === "failed" ? "risk" : importState.status === "succeeded" ? "default" : "info"}>{importState.status}</StatusChip>}
         >
           <div className="field-grid">
-            <div className="field">
-              <label>路径</label>
-              <input value={importForm.path} onChange={(event) => updateImportField("path", event.target.value)} placeholder="/app/data/..." />
+            <div className="field full-span">
+              <label>本地文件夹</label>
+              <div className="file-picker folder-picker">
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  webkitdirectory=""
+                  directory=""
+                  onChange={(event) => handleFolderSelection(event.target.files)}
+                />
+                <Icon name="FolderInput" size={18} />
+                <span>{folderSelection.valid ? folderSelection.rootName : "选择 ImageFolder 文件夹"}</span>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    folderInputRef.current?.click();
+                  }}
+                >
+                  选择
+                </button>
+              </div>
+              <div className={`row-meta ${folderSelection.valid ? "" : "error-text"}`}>
+                {folderSelection.valid
+                  ? `${folderSelection.format} · ${folderSelection.imageCount} images · ${folderSelection.classes.length} classes`
+                  : folderSelection.error}
+              </div>
             </div>
             <div className="field">
               <label>dataset_id</label>
@@ -587,10 +746,18 @@ export function DatasetsPage({ showToast }) {
               <label>执行</label>
               <button className="primary-button" onClick={handleImportDataset} disabled={!canImport}>
                 <Icon name={importState.status === "running" ? "LoaderCircle" : "FolderInput"} size={16} />
-                {importState.status === "running" ? "导入中" : "开始导入"}
+                {importState.status === "running" ? "上传导入中" : "上传并导入"}
               </button>
             </div>
           </div>
+          {folderSelection.valid && (
+            <div className="chips section-gap-small">
+              <StatusChip tone="default">格式合法</StatusChip>
+              <StatusChip tone="info">{folderSelection.format}</StatusChip>
+              {folderSelection.splits?.length > 0 && <StatusChip tone="info">{folderSelection.splits.join(" / ")}</StatusChip>}
+              <StatusChip tone="info">{folderSelection.classes.slice(0, 4).join(", ")}{folderSelection.classes.length > 4 ? " ..." : ""}</StatusChip>
+            </div>
+          )}
           {importState.result?.version && (
             <div className="chips section-gap-small">
               <StatusChip tone={importState.result.version.readiness?.ready ? "default" : "warn"}>
@@ -598,6 +765,7 @@ export function DatasetsPage({ showToast }) {
               </StatusChip>
               <StatusChip tone="info">{importState.result.version.sample_count ?? 0} samples</StatusChip>
               <StatusChip tone="info">{importState.result.version.class_count ?? 0} classes</StatusChip>
+              {importState.result.upload?.stored_path && <StatusChip tone="info">{importState.result.upload.stored_path}</StatusChip>}
             </div>
           )}
           {importState.error && <div className="row-meta section-gap-small">{importState.error.message}</div>}

@@ -94,3 +94,52 @@ def test_dataset_asset_api_handles_missing_resources(tmp_path: Path) -> None:
 
     assert client.get("/api/datasets/missing").status_code == 404
     assert client.get("/api/dataset-versions/dataset@missing-001/readiness").status_code == 404
+
+
+def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch) -> None:
+    metadata_dir = tmp_path / "metadata"
+    imported_dir = tmp_path / "imported-datasets"
+    monkeypatch.setenv("FINEVISION_IMPORTED_DATASET_DIR", str(imported_dir))
+    dataset_dir = create_toy_imagefolder(tmp_path / "toy-imagefolder", samples_per_class=4)
+    client = TestClient(create_app(metadata_dir=metadata_dir))
+
+    multipart_files = []
+    for image_path in sorted(dataset_dir.rglob("*.png")):
+        relative_name = f"selected-folder/{image_path.relative_to(dataset_dir).as_posix()}"
+        multipart_files.append(("files", (relative_name, image_path.read_bytes(), "image/png")))
+
+    response = client.post(
+        "/api/datasets/upload-imagefolder",
+        data={
+            "dataset_id": "uploaded-shapes",
+            "dataset_version_id": "dataset@uploaded-shapes-001",
+        },
+        files=multipart_files,
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["version"]["dataset_version_id"] == "dataset@uploaded-shapes-001"
+    assert payload["version"]["sample_count"] == 12
+    assert payload["version"]["readiness"]["ready"] is True
+    assert payload["upload"]["class_count"] == 3
+    assert payload["upload"]["image_count"] == 12
+    assert Path(payload["upload"]["stored_path"]).exists()
+    assert (imported_dir / "uploaded-shapes" / "dataset@uploaded-shapes-001").exists()
+
+
+def test_dataset_asset_api_rejects_invalid_uploaded_imagefolder(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FINEVISION_IMPORTED_DATASET_DIR", str(tmp_path / "imported-datasets"))
+    client = TestClient(create_app(metadata_dir=tmp_path / "metadata"))
+
+    response = client.post(
+        "/api/datasets/upload-imagefolder",
+        data={
+            "dataset_id": "invalid",
+            "dataset_version_id": "dataset@invalid-001",
+        },
+        files=[("files", ("selected-folder/only-class/sample.png", b"not-a-real-image", "image/png"))],
+    )
+
+    assert response.status_code == 422
+    assert "Invalid ImageFolder structure" in response.json()["detail"]

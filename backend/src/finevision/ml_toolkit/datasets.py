@@ -52,13 +52,18 @@ def scan_imagefolder(
     if not root_path.exists():
         raise FileNotFoundError(root_path)
 
-    has_explicit_splits = all((root_path / split).is_dir() for split in EXPLICIT_SPLITS)
+    top_level_dirs = sorted(item for item in root_path.iterdir() if item.is_dir())
+    split_dirs = [item for item in top_level_dirs if item.name in EXPLICIT_SPLITS]
+    non_split_dirs = [item for item in top_level_dirs if item.name not in EXPLICIT_SPLITS]
+    has_explicit_splits = bool(split_dirs) and not non_split_dirs
     samples: list[SampleRecord] = []
     classes: set[str] = set()
 
     if has_explicit_splits:
         for split in EXPLICIT_SPLITS:
             split_root = root_path / split
+            if not split_root.exists():
+                continue
             for class_dir in sorted(item for item in split_root.iterdir() if item.is_dir()):
                 classes.add(class_dir.name)
                 for image_path in _image_files(class_dir):
@@ -71,7 +76,7 @@ def scan_imagefolder(
                         )
                     )
     else:
-        class_dirs = sorted(item for item in root_path.iterdir() if item.is_dir())
+        class_dirs = top_level_dirs
         for class_dir in class_dirs:
             images = _image_files(class_dir)
             if not images:

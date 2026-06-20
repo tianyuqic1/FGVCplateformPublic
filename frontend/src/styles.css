@@ -1349,6 +1349,20 @@ a {
   white-space: nowrap;
 }
 
+.folder-picker {
+  justify-content: space-between;
+}
+
+.folder-picker .ghost-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 7px 12px;
+}
+
+.error-text {
+  color: #b42318;
+}
+
 .uploaded-preview {
   position: relative;
   overflow: hidden;
