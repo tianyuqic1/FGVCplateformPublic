@@ -138,8 +138,9 @@ Training run request:
 ```json
 {
   "dataset_version_id": "dataset@cifar10-mini-001",
-  "backbone_id": "color_stats_v1",
-  "extractor": "color_stats",
+  "backbone_id": "dinov3_vitb16",
+  "extractor": "dinov3_vitb",
+  "feature_batch_size": 8,
   "head_config": {
     "head_type": "ridge_linear",
     "ridge_lambda": 0.01
@@ -177,6 +178,19 @@ Training run response shape:
 ```
 
 Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent. The API rejects dataset versions whose readiness report is not ready, canonicalizes `backbone_id` from the selected extractor when omitted, and synchronizes queued training-run cancellation through `POST /api/jobs/{job_id}/cancel`.
+
+Supported extractors:
+
+```text
+color_stats   -> color_stats_v1
+dinov3_vits   -> dinov3_vits16, timm vit_small_patch16_dinov3
+dinov3_vitb   -> dinov3_vitb16, timm vit_base_patch16_dinov3
+dinov3_vitl   -> dinov3_vitl16, timm vit_large_patch16_dinov3
+```
+
+`feature_batch_size` defaults to `8` and only affects DINOv3 feature extraction runtime memory and
+throughput. The current ridge/linear classifier head uses a closed-form solve, so there is no
+separate training mini-batch size.
 
 Scoped inference request:
 

@@ -940,7 +940,7 @@ function DatasetTab({ dataset, tab, showToast }) {
       <div className="grid two section-gap">
         <Panel title="特征索引" caption="DINOv3 embedding、类别原型和近邻索引。">
           <MetricCard title="特征向量" value={dataset.images.toLocaleString()} caption={dataset.featureArtifactId ?? "feature artifact 待生成"} fill="#0891b2" percent={dataset.featureArtifactId ? 100 : 0} icon="DatabaseZap" />
-          <div className="code-panel section-gap-small">feature_artifact: {dataset.featureArtifactId ?? "n/a"}<br />dataset_version: {dataset.datasetVersionId ?? "n/a"}<br />index: feature index API 待接入<br />backbone: dinov3_vitl<br />prototype_strategy: class_centroid + hard_negative_bank</div>
+          <div className="code-panel section-gap-small">feature_artifact: {dataset.featureArtifactId ?? "n/a"}<br />dataset_version: {dataset.datasetVersionId ?? "n/a"}<br />index: feature index API 待接入<br />backbone: selected training extractor<br />prototype_strategy: class_centroid + hard_negative_bank</div>
         </Panel>
         <Panel title="最近邻检查" caption="当前展示真实样本预览；近邻证据会在特征索引 API 完成后接入。">
           <DatasetSamplePreviewGrid samples={previewSamples} loading={previewLoading} error={previewError} compact />
@@ -1011,6 +1011,10 @@ function runTimeValue(run) {
   const value = run.updatedAt ?? run.finishedAt ?? run.startedAt ?? run.createdAt ?? "";
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function isDinoExtractor(extractor) {
+  return String(extractor).startsWith("dinov3_");
 }
 
 function filterTrainingRuns(runs, statusFilter, sortMode) {
@@ -1189,6 +1193,7 @@ export function TrainingPage({ showToast }) {
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: "",
     extractor: "color_stats",
+    featureBatchSize: "8",
     ridgeLambda: "0.01",
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
@@ -1203,7 +1208,8 @@ export function TrainingPage({ showToast }) {
     canUseDatasetForTraining &&
     createState.status !== "running" &&
     trainingForm.datasetVersionId.trim() &&
-    Number(trainingForm.ridgeLambda) > 0;
+    Number(trainingForm.ridgeLambda) > 0 &&
+    (!isDinoExtractor(trainingForm.extractor) || Number(trainingForm.featureBatchSize) > 0);
   const createBlockReason = canUseDatasetForTraining
     ? ""
     : datasetSource === "api"
@@ -1233,6 +1239,7 @@ export function TrainingPage({ showToast }) {
       const run = await createTrainingRun({
         dataset_version_id: trainingForm.datasetVersionId.trim(),
         extractor: trainingForm.extractor,
+        feature_batch_size: isDinoExtractor(trainingForm.extractor) ? Number(trainingForm.featureBatchSize) : undefined,
         head_config: {
           head_type: "ridge_linear",
           ridge_lambda: Number(trainingForm.ridgeLambda),
@@ -1275,11 +1282,25 @@ export function TrainingPage({ showToast }) {
               </select>
             </div>
             <div className="field">
-              <label>extractor</label>
+              <label>特征提取器</label>
               <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
-                <option value="color_stats">color_stats</option>
-                <option value="dinov3_vitl">dinov3_vitl</option>
+                <option value="color_stats">color_stats · 快速 smoke</option>
+                <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
+                <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
+                <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
               </select>
+            </div>
+            <div className="field">
+              <label>特征 batch_size</label>
+              <input
+                type="number"
+                min="1"
+                max="128"
+                step="1"
+                value={trainingForm.featureBatchSize}
+                onChange={(event) => updateTrainingField("featureBatchSize", event.target.value)}
+                disabled={!isDinoExtractor(trainingForm.extractor)}
+              />
             </div>
             <div className="field">
               <label>ridge_lambda</label>
@@ -1293,6 +1314,9 @@ export function TrainingPage({ showToast }) {
               </button>
             </div>
           </div>
+          <p className="panel-caption section-gap-small">
+            DINOv3 batch_size 只影响特征提取吞吐和内存；当前分类头训练是 ridge/linear head 矩阵求解，没有独立的训练 batch size。
+          </p>
           <div className="toolbar section-gap-small">
             <button className="ghost-button" onClick={refresh} disabled={loading}>
               <Icon name="RefreshCw" size={16} />
@@ -1373,7 +1397,7 @@ export function TrainingPage({ showToast }) {
           )}
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
-          <div className="code-panel">backbone: dinov3_vitl<br />feature_cache: true<br />head: linear<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_batch_size: 8<br />feature_cache: true<br />head: ridge_linear<br />head_training: closed_form_solver<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
         </Panel>
       </div>
     </>

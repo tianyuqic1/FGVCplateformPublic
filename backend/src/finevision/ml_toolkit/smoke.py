@@ -8,7 +8,13 @@ import numpy as np
 from finevision.ml_toolkit.artifacts import load_model_artifact, write_dataset_manifest, write_json
 from finevision.ml_toolkit.calibration import fit_temperature_scaling
 from finevision.ml_toolkit.datasets import scan_imagefolder
-from finevision.ml_toolkit.features import ColorStatsExtractor, TimmDinoV3Extractor, extract_features
+from finevision.ml_toolkit.features import (
+    DINOV3_MODEL_PRESETS,
+    ColorStatsExtractor,
+    build_extractor_from_config,
+    dinov3_extractor_config,
+    extract_features,
+)
 from finevision.ml_toolkit.inference import run_inference
 from finevision.ml_toolkit.thresholds import estimate_margin_threshold, select_threshold_strategy, sweep_confidence_thresholds
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
@@ -18,8 +24,8 @@ from finevision.ml_toolkit.training import train_linear_head
 def build_extractor(name: str, device: str = "cpu", batch_size: int = 8):
     if name == "color_stats":
         return ColorStatsExtractor()
-    if name == "dinov3_vitl":
-        return TimmDinoV3Extractor(device=device, batch_size=batch_size)
+    if name in DINOV3_MODEL_PRESETS:
+        return build_extractor_from_config(dinov3_extractor_config(name), {"device": device, "batch_size": batch_size})
     raise ValueError(f"Unknown extractor: {name}")
 
 
@@ -123,8 +129,8 @@ def main() -> None:
     parser.add_argument(
         "--extractor",
         default="color_stats",
-        choices=["color_stats", "dinov3_vitl"],
-        help="Feature extractor. dinov3_vitl uses timm ViT-L and may download model weights.",
+        choices=["color_stats", *DINOV3_MODEL_PRESETS.keys()],
+        help="Feature extractor. DINOv3 variants use timm and may download model weights.",
     )
     parser.add_argument("--device", default="cpu", help="Torch device for DINOv3 extraction, for example cpu or cuda.")
     parser.add_argument("--batch-size", type=int, default=8, help="Feature extraction batch size.")

@@ -13,6 +13,33 @@ from finevision.ml_toolkit.artifacts import write_feature_artifact
 from finevision.schemas.artifacts import DatasetManifest, FeatureArtifact
 
 
+DINOV3_MODEL_PRESETS: dict[str, dict[str, str]] = {
+    "dinov3_vits": {
+        "backbone_id": "dinov3_vits16",
+        "model_name": "vit_small_patch16_dinov3",
+    },
+    "dinov3_vitb": {
+        "backbone_id": "dinov3_vitb16",
+        "model_name": "vit_base_patch16_dinov3",
+    },
+    "dinov3_vitl": {
+        "backbone_id": "dinov3_vitl16",
+        "model_name": "vit_large_patch16_dinov3",
+    },
+}
+
+
+def dinov3_extractor_config(extractor: str, backbone_id: str | None = None) -> dict[str, object]:
+    preset = DINOV3_MODEL_PRESETS[extractor]
+    return {
+        "type": "timm_dinov3",
+        "preset": extractor,
+        "model_name": preset["model_name"],
+        "pretrained": True,
+        "backbone_id": backbone_id or preset["backbone_id"],
+    }
+
+
 class ImageFeatureExtractor(Protocol):
     backbone_id: str
     config: dict[str, object]
@@ -51,24 +78,25 @@ class ColorStatsExtractor:
 class TimmDinoV3Extractor:
     """DINOv3 feature extractor backed by timm.
 
-    The default model uses ViT-L/16. The heavy dependencies are imported lazily
+    The default model uses ViT-B/16. The heavy dependencies are imported lazily
     so ordinary toolkit tests do not require torch/timm or model downloads.
     """
 
-    model_name: str = "vit_large_patch16_dinov3.lvd1689m"
+    model_name: str = "vit_base_patch16_dinov3"
     pretrained: bool = True
     device: str = "cpu"
     batch_size: int = 8
-    backbone_id: str = "dinov3_vitl16"
+    backbone_id: str = "dinov3_vitb16"
     config: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # Runtime fields such as device and batch_size do not change feature
+        # semantics; keeping them out lets cache reuse survive tuning.
         self.config = {
             "type": "timm_dinov3",
             "model_name": self.model_name,
             "pretrained": self.pretrained,
-            "device": self.device,
-            "batch_size": self.batch_size,
+            "backbone_id": self.backbone_id,
         }
 
     def extract_paths(self, paths: list[str]) -> np.ndarray:
@@ -104,12 +132,15 @@ def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any
     extractor_type = str(merged.get("type") or "color_stats")
     if extractor_type == "color_stats":
         return ColorStatsExtractor(bins=int(merged.get("bins", 8)))
-    if extractor_type in {"timm_dinov3", "dinov3_vitl"}:
+    if extractor_type in {"timm_dinov3", *DINOV3_MODEL_PRESETS.keys()}:
+        preset_name = str(merged.get("preset") or extractor_type)
+        preset = DINOV3_MODEL_PRESETS.get(preset_name, DINOV3_MODEL_PRESETS["dinov3_vitb"])
         return TimmDinoV3Extractor(
-            model_name=str(merged.get("model_name", "vit_large_patch16_dinov3.lvd1689m")),
+            model_name=str(merged.get("model_name", preset["model_name"])),
             pretrained=bool(merged.get("pretrained", True)),
             device=str(merged.get("device", "cpu")),
             batch_size=int(merged.get("batch_size", 8)),
+            backbone_id=str(merged.get("backbone_id", preset["backbone_id"])),
         )
     raise ValueError(f"Unsupported extractor config type: {extractor_type}")
 

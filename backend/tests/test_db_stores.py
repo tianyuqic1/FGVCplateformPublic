@@ -358,15 +358,29 @@ def test_dinov3_training_request_uses_canonical_backbone_metadata(
         == 201
     )
 
-    create_run_response = client.post(
-        "/api/training-runs",
-        json={"dataset_version_id": "dataset@dinov3-toy-001", "extractor": "dinov3_vitl"},
-    )
-    assert create_run_response.status_code == 202
-    created_run = create_run_response.json()["training_run"]
-    assert created_run["backbone_id"] == "dinov3_vitl16"
-    assert created_run["extractor_config"]["type"] == "timm_dinov3"
-    assert created_run["extractor_config"]["model_name"] == "vit_large_patch16_dinov3.lvd1689m"
+    variants = [
+        ("dinov3_vits", "dinov3_vits16", "vit_small_patch16_dinov3"),
+        ("dinov3_vitb", "dinov3_vitb16", "vit_base_patch16_dinov3"),
+        ("dinov3_vitl", "dinov3_vitl16", "vit_large_patch16_dinov3"),
+    ]
+    for extractor, backbone_id, model_name in variants:
+        create_run_response = client.post(
+            "/api/training-runs",
+            json={
+                "dataset_version_id": "dataset@dinov3-toy-001",
+                "extractor": extractor,
+                "feature_batch_size": 4,
+            },
+        )
+        assert create_run_response.status_code == 202
+        body = create_run_response.json()
+        created_run = body["training_run"]
+        assert created_run["backbone_id"] == backbone_id
+        assert created_run["extractor_config"]["type"] == "timm_dinov3"
+        assert created_run["extractor_config"]["preset"] == extractor
+        assert created_run["extractor_config"]["model_name"] == model_name
+        assert created_run["extractor_config"]["runtime"]["feature_batch_size"] == 4
+        assert body["job"]["payload"]["batch_size"] == 4
 
 
 def test_training_run_cancel_tracks_business_run_status(

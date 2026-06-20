@@ -11,7 +11,7 @@ from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.artifacts import load_feature_artifact
 from finevision.ml_toolkit.calibration import fit_temperature_scaling
 from finevision.ml_toolkit.datasets import scan_imagefolder
-from finevision.ml_toolkit.features import ColorStatsExtractor, TimmDinoV3Extractor, extract_features
+from finevision.ml_toolkit.features import DINOV3_MODEL_PRESETS, ColorStatsExtractor, build_extractor_from_config, extract_features
 from finevision.ml_toolkit.thresholds import estimate_margin_threshold, select_threshold_strategy, sweep_confidence_thresholds
 from finevision.ml_toolkit.training import train_linear_head
 
@@ -195,10 +195,14 @@ def _build_extractor(payload: dict[str, Any]):
     extractor_name = str(payload.get("extractor") or "color_stats")
     if extractor_name == "color_stats":
         return ColorStatsExtractor()
-    if extractor_name == "dinov3_vitl":
-        return TimmDinoV3Extractor(
-            device=str(payload.get("device") or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")),
-            batch_size=int(payload.get("batch_size") or os.environ.get("FINEVISION_DINOV3_BATCH_SIZE", "8")),
+    if extractor_name in DINOV3_MODEL_PRESETS:
+        config = dict(payload.get("extractor_config") or {"type": extractor_name})
+        return build_extractor_from_config(
+            config,
+            overrides={
+                "device": str(payload.get("device") or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")),
+                "batch_size": int(payload.get("batch_size") or os.environ.get("FINEVISION_DINOV3_BATCH_SIZE", "8")),
+            },
         )
     raise ValueError(f"Unsupported extractor: {extractor_name}")
 

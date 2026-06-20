@@ -26,7 +26,11 @@ from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.datasets import EXPLICIT_SPLITS, IMAGE_EXTENSIONS, scan_imagefolder
-from finevision.ml_toolkit.features import build_extractor_from_config
+from finevision.ml_toolkit.features import (
+    DINOV3_MODEL_PRESETS,
+    build_extractor_from_config,
+    dinov3_extractor_config,
+)
 from finevision.ml_toolkit.inference import run_image_inference, run_inference
 from finevision.schemas.artifacts import InferenceResult, to_jsonable
 
@@ -47,7 +51,8 @@ class CreateJobRequest(BaseModel):
 class CreateTrainingRunRequest(BaseModel):
     dataset_version_id: str = Field(..., min_length=1)
     backbone_id: str | None = None
-    extractor: Literal["color_stats", "dinov3_vitl"] = "color_stats"
+    extractor: Literal["color_stats", "dinov3_vits", "dinov3_vitb", "dinov3_vitl"] = "color_stats"
+    feature_batch_size: int | None = Field(default=None, ge=1, le=128)
     head_config: dict[str, Any] = Field(default_factory=lambda: {"head_type": "ridge_linear", "ridge_lambda": 1e-2})
     target_selective_risk: float = Field(default=0.01, ge=0.0, le=1.0)
     review_cost_per_item: float = Field(default=1.0, ge=0.0)
@@ -297,6 +302,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
 
         backbone_id = request.backbone_id or _default_backbone_id(request.extractor)
         _validate_training_config(request.extractor, backbone_id, request.head_config)
+        feature_batch_size = request.feature_batch_size or 8
 
         run_id = f"run-{uuid4().hex[:12]}"
         payload = {
@@ -305,7 +311,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "dataset_version_id": manifest.dataset_version_id,
             "backbone_id": backbone_id,
             "extractor": request.extractor,
-            "extractor_config": _extractor_config(request.extractor, backbone_id),
+            "extractor_config": _extractor_config(request.extractor, backbone_id, feature_batch_size),
+            "batch_size": feature_batch_size,
             "head_config": request.head_config,
             "target_selective_risk": request.target_selective_risk,
             "review_cost_per_item": request.review_cost_per_item,
@@ -960,19 +967,16 @@ def _save_uploaded_image(upload_dir: Path, image: UploadFile) -> Path:
 
 
 def _default_backbone_id(extractor: str) -> str:
-    if extractor == "dinov3_vitl":
-        return "dinov3_vitl16"
+    if extractor in DINOV3_MODEL_PRESETS:
+        return DINOV3_MODEL_PRESETS[extractor]["backbone_id"]
     return "color_stats_v1"
 
 
-def _extractor_config(extractor: str, backbone_id: str) -> dict[str, Any]:
-    if extractor == "dinov3_vitl":
-        return {
-            "type": "timm_dinov3",
-            "model_name": "vit_large_patch16_dinov3.lvd1689m",
-            "pretrained": True,
-            "backbone_id": backbone_id,
-        }
+def _extractor_config(extractor: str, backbone_id: str, feature_batch_size: int | None = None) -> dict[str, Any]:
+    if extractor in DINOV3_MODEL_PRESETS:
+        config = dinov3_extractor_config(extractor, backbone_id)
+        config["runtime"] = {"feature_batch_size": feature_batch_size or 8}
+        return config
     return {"type": "color_stats", "bins": 8, "backbone_id": backbone_id}
 
 

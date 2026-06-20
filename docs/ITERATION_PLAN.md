@@ -91,7 +91,7 @@ Scope:
 - Create stratified splits when explicit splits are absent.
 - Generate taxonomy and low-sample readiness diagnostics.
 - Wrap frozen-backbone feature extraction behind a generic interface such as `backbone_id` plus `extractor_config`.
-- Add a DINOv3 ViT-L extractor through `timm`, but keep heavy model downloads out of default tests.
+- Add DINOv3 ViT-S/ViT-B/ViT-L extractors through `timm`, but keep heavy model downloads out of default tests.
 - Add a lightweight deterministic extractor for local smoke tests.
 - Persist feature artifacts with sample ids, labels, dimensions, backbone metadata, and dataset-version binding.
 - Train at least one lightweight classifier head, starting with a linear head.
@@ -117,7 +117,7 @@ Acceptance:
 - Artifacts include stable ids and metadata.
 - The implementation does not hard-code DINOv3 into business logic; DINOv3-style extraction is one configured backbone option.
 - The default smoke test runs without downloading DINOv3 weights.
-- A documented command can run the DINOv3 ViT-L extractor when optional dependencies and weights are available.
+- A documented command can run a DINOv3 extractor when optional dependencies and weights are available.
 - A checkpoint push records the working toolkit spike.
 
 Suggested checkpoint pushes:
@@ -388,7 +388,9 @@ Acceptance:
 - Done: training queue and detail views read `/api/training-runs`; mock data is only a fallback when the API is unavailable.
 - Done: `POST /api/training-runs` rejects dataset versions whose readiness report is not ready.
 - Done: training job cancellation synchronizes the business training run to `cancelled`.
-- Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vitl16` instead of the color-stats default.
+- Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vits16`, `dinov3_vitb16`, or `dinov3_vitl16` instead of the color-stats default.
+- Done: training creation exposes DINOv3 feature extraction batch size. The default is `8`; this affects feature extraction throughput/memory only, while the ridge/linear head is solved without a mini-batch training loop.
+- Done: DINOv3 feature cache identity ignores runtime `device` and `batch_size`, so tuning batch size does not duplicate identical feature artifacts.
 - Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
 
 Implementation notes:

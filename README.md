@@ -82,11 +82,17 @@ The smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
 DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> CalibrationReport -> ThresholdStrategy -> InferenceResult
 ```
 
-DINOv3 ViT-L is wired through `timm` as an optional extractor. It may download large weights, so it is not used by the default smoke test:
+DINOv3 ViT-S/ViT-B/ViT-L are wired through `timm` as optional extractors. They may download
+large weights, so they are not used by the default smoke test:
 
 ```text
-uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vitl
+uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vits --batch-size 8
 ```
+
+`--batch-size` only controls DINOv3 feature extraction throughput and memory use. The MVP classifier
+head uses a ridge/linear closed-form solve and does not have a separate training batch size. Feature
+cache identity is based on dataset version, DINOv3 model, pretrained flag, and backbone id, not the
+runtime batch size.
 
 In Docker Compose, `ml-worker` is built from `Dockerfile.worker` with the `dinov3` optional
 dependencies installed. The API image also installs the same optional extractor dependencies for
