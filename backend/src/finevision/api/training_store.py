@@ -109,6 +109,22 @@ class DatabaseTrainingStore:
                 .values(status="running", started_at=now, updated_at=now, error_message=None)
             )
 
+    def update_progress(self, run_id: str, progress: dict[str, Any]) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(training_runs.c.metrics).where(training_runs.c.run_key == run_id)
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Training run not found: {run_id}")
+            metrics = dict(row["metrics"] or {})
+            metrics["training_progress"] = {**progress, "updated_at": _to_iso(now)}
+            conn.execute(
+                training_runs.update()
+                .where(training_runs.c.run_key == run_id)
+                .values(metrics=metrics, updated_at=now)
+            )
+
     def mark_failed(self, run_id: str, error: str) -> None:
         now = _now()
         with self.engine.begin() as conn:
@@ -274,7 +290,10 @@ class DatabaseTrainingStore:
         sweep_key = str(threshold_sweep.strategy_id)
         strategy_key = str(threshold_strategy.strategy_id)
         model_version_key = f"{model_artifact.dataset_id}-{run_id}-candidate"
+        existing_record = self.get_training_run(run_id)
+        existing_metrics = dict(existing_record.metrics) if existing_record is not None else {}
         metrics = {
+            **existing_metrics,
             "accuracy": training_report.evaluation.accuracy,
             "macro_f1": training_report.evaluation.macro_f1,
             "expected_coverage": threshold_strategy.expected_coverage,

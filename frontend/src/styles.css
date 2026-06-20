@@ -1267,6 +1267,20 @@ a {
   margin-bottom: 14px;
 }
 
+.stage-progress-list {
+  display: grid;
+  gap: 14px;
+}
+
+.stage-progress-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
 .pipeline {
   display: grid;
   grid-template-columns: repeat(6, minmax(170px, 1fr));

@@ -54,6 +54,33 @@ function progressForStatus(status) {
   return 8;
 }
 
+function normalizeTrainingProgress(metrics = {}, status = "queued") {
+  const progress = metrics?.training_progress ?? metrics?.trainingProgress ?? null;
+  if (progress && Array.isArray(progress.stages)) {
+    return {
+      currentStage: progress.current_stage ?? progress.currentStage ?? null,
+      overallPercent: Number.isFinite(Number(progress.overall_percent))
+        ? Number(progress.overall_percent)
+        : progressForStatus(status),
+      updatedAt: progress.updated_at ?? progress.updatedAt ?? null,
+      stages: progress.stages.map((stage) => ({
+        id: stage?.id ?? "stage",
+        label: stage?.label ?? stage?.id ?? "stage",
+        status: stage?.status ?? "pending",
+        percent: Number.isFinite(Number(stage?.percent)) ? Number(stage.percent) : 0,
+        weight: Number.isFinite(Number(stage?.weight)) ? Number(stage.weight) : null,
+        note: stage?.note ?? null,
+      })),
+    };
+  }
+  return {
+    currentStage: status,
+    overallPercent: progressForStatus(status),
+    updatedAt: null,
+    stages: [],
+  };
+}
+
 function metricLabel(metrics = {}, status = "queued") {
   if (Number.isFinite(Number(metrics.accuracy))) {
     return `acc ${(Number(metrics.accuracy) * 100).toFixed(1)}%`;
@@ -80,6 +107,7 @@ export function normalizeTrainingRun(raw) {
   const metrics = raw?.metrics ?? {};
   const id = raw?.id ?? raw?.run_id ?? "run-preview";
   const datasetVersionId = raw?.datasetVersionId ?? raw?.dataset_version_id ?? null;
+  const trainingProgress = normalizeTrainingProgress(metrics, status);
 
   return {
     id,
@@ -95,7 +123,8 @@ export function normalizeTrainingRun(raw) {
     thresholdStrategyArtifactId: raw?.thresholdStrategyArtifactId ?? raw?.threshold_strategy_artifact_id ?? null,
     jobId: raw?.jobId ?? raw?.job_id ?? null,
     status,
-    progress: Number.isFinite(Number(raw?.progress)) ? Number(raw.progress) : progressForStatus(status),
+    progress: Number.isFinite(Number(raw?.progress)) ? Number(raw.progress) : trainingProgress.overallPercent,
+    trainingProgress,
     metric: raw?.metric ?? metricLabel(metrics, status),
     metrics,
     error: raw?.error ?? null,

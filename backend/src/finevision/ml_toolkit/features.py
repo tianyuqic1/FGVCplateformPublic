@@ -88,6 +88,8 @@ class TimmDinoV3Extractor:
     batch_size: int = 8
     backbone_id: str = "dinov3_vitb16"
     config: dict[str, object] = field(default_factory=dict)
+    _model: Any = field(default=None, init=False, repr=False)
+    _transform: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # Runtime fields such as device and batch_size do not change feature
@@ -99,7 +101,7 @@ class TimmDinoV3Extractor:
             "backbone_id": self.backbone_id,
         }
 
-    def extract_paths(self, paths: list[str]) -> np.ndarray:
+    def prepare(self) -> None:
         try:
             import torch
             import timm
@@ -110,10 +112,28 @@ class TimmDinoV3Extractor:
                 "Install with `uv sync --extra dinov3 --group dev`."
             ) from exc
 
-        model = timm.create_model(self.model_name, pretrained=self.pretrained, num_classes=0)
-        model.eval().to(self.device)
-        data_config = resolve_model_data_config(model)
-        transform = create_transform(**data_config, is_training=False)
+        if self.device.startswith("cuda") and not torch.cuda.is_available():
+            raise RuntimeError("DINOv3 extraction requested cuda, but torch.cuda.is_available() is false.")
+
+        if self._model is None or self._transform is None:
+            model = timm.create_model(self.model_name, pretrained=self.pretrained, num_classes=0)
+            model.eval().to(self.device)
+            data_config = resolve_model_data_config(model)
+            self._model = model
+            self._transform = create_transform(**data_config, is_training=False)
+
+    def extract_paths(self, paths: list[str]) -> np.ndarray:
+        try:
+            import torch
+        except ImportError as exc:
+            raise RuntimeError(
+                "DINOv3 extraction requires optional dependencies. "
+                "Install with `uv sync --extra dinov3 --group dev`."
+            ) from exc
+
+        self.prepare()
+        model = self._model
+        transform = self._transform
 
         batches: list[np.ndarray] = []
         with torch.inference_mode():

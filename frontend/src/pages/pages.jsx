@@ -1197,6 +1197,52 @@ function TrainingRunDiagnostics({ run }) {
   );
 }
 
+function trainingStageStatus(stage) {
+  if (stage.status === "completed") return { label: "完成", tone: "default", fill: "#0f766e", shimmer: false };
+  if (stage.status === "running") return { label: "运行中", tone: "warn", fill: "#a15c07", shimmer: true };
+  if (stage.status === "failed") return { label: "失败", tone: "risk", fill: "#b4233c", shimmer: false };
+  return { label: "等待", tone: "neutral", fill: "#94a3b8", shimmer: false };
+}
+
+function TrainingStageProgress({ run }) {
+  const stages = run.trainingProgress?.stages ?? [];
+  if (stages.length === 0) {
+    return (
+      <Panel title="阶段进度" caption="该训练运行没有阶段进度数据；新任务会实时写入阶段状态。">
+        <div className="timeline">
+          <GateRow title="特征提取" description={run.featureArtifactId ?? "等待特征产物"} result={run.featureArtifactId ? "pass" : "pending"} />
+          <GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} />
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel
+      title="阶段进度"
+      caption={`当前阶段：${run.trainingProgress?.currentStage ?? "n/a"} · ${run.trainingProgress?.updatedAt ?? "等待更新"}`}
+    >
+      <div className="stage-progress-list">
+        {stages.map((stage) => {
+          const state = trainingStageStatus(stage);
+          return (
+            <div className="stage-progress-row" key={stage.id}>
+              <div className="toolbar spread">
+                <div>
+                  <strong>{stage.label}</strong>
+                  <div className="row-meta">{stage.note ?? `${stage.percent}% · 权重 ${stage.weight ?? "-"}`}</div>
+                </div>
+                <StatusChip tone={state.tone}>{state.label}</StatusChip>
+              </div>
+              <ProgressBar value={stage.percent} fill={state.fill} shimmer={state.shimmer} />
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
 export function TrainingPage({ showToast }) {
   const [trainingSearchParams, setTrainingSearchParams] = useSearchParams();
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
@@ -1500,6 +1546,9 @@ export function TrainingDetailPage({ showToast }) {
           <div className="timeline"><GateRow title="数据快照" description={run.datasetVersionId ? `${run.datasetVersionId} locked` : "等待绑定数据快照"} result={run.datasetVersionId ? "pass" : "pending"} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
         </Panel>
         <TrainingRunDiagnostics run={run} />
+      </div>
+      <div className="section-gap">
+        <TrainingStageProgress run={run} />
       </div>
       <div className="grid two section-gap">
         <Panel title="候选发布判断" caption="不要只看 accuracy。">

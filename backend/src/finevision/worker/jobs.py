@@ -31,6 +31,7 @@ class JobStoreLike(Protocol):
 class TrainingStoreLike(Protocol):
     def mark_running(self, run_id: str) -> None: ...
     def mark_failed(self, run_id: str, error: str) -> None: ...
+    def update_progress(self, run_id: str, progress: dict[str, Any]) -> None: ...
     def find_feature_artifact(
         self,
         dataset_version_id: str,
@@ -115,15 +116,22 @@ def _run_train_classifier(
     training_store.mark_running(run_id)
     try:
         artifact_root = Path(os.environ.get("FINEVISION_ARTIFACT_DIR", DEFAULT_ARTIFACT_DIR)).resolve()
+        _update_training_progress(training_store, run_id, "dataset", "running")
         extractor = _build_extractor(payload)
-        feature_artifact, features = _load_or_extract_features(
+        _update_training_progress(training_store, run_id, "dataset", "completed")
+        feature_artifact, features, reused_feature_cache = _load_or_extract_features(
             manifest,
             extractor,
             artifact_root,
             training_store,
+            run_id=run_id,
         )
+        if reused_feature_cache:
+            _update_training_progress(training_store, run_id, "weights", "completed", note="feature cache reused")
+            _update_training_progress(training_store, run_id, "features", "completed", note="feature cache reused")
         head_config = dict(payload.get("head_config") or {})
         ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
+        _update_training_progress(training_store, run_id, "head", "running")
         model_artifact, training_report, logits = train_linear_head(
             feature_artifact,
             features,
@@ -137,6 +145,8 @@ def _run_train_classifier(
                 or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")
             ),
         )
+        _update_training_progress(training_store, run_id, "head", "completed")
+        _update_training_progress(training_store, run_id, "calibration", "running")
         calibration = fit_temperature_scaling(
             model_artifact,
             logits,
@@ -144,6 +154,8 @@ def _run_train_classifier(
             feature_artifact.splits,
             artifact_root=artifact_root / "models",
         )
+        _update_training_progress(training_store, run_id, "calibration", "completed")
+        _update_training_progress(training_store, run_id, "thresholds", "running")
         threshold_sweep = sweep_confidence_thresholds(
             feature_artifact,
             model_artifact,
@@ -169,6 +181,7 @@ def _run_train_classifier(
             selection_config=margin_config,
             artifact_root=artifact_root / "models",
         )
+        _update_training_progress(training_store, run_id, "thresholds", "completed")
         record = training_store.complete_training_run(
             run_id=run_id,
             artifact_root=artifact_root,
@@ -179,6 +192,7 @@ def _run_train_classifier(
             threshold_sweep=threshold_sweep,
             threshold_strategy=threshold_strategy,
         )
+        _update_training_progress(training_store, run_id, "completed", "completed")
         return {
             "training_run_id": record.run_id,
             "dataset_id": record.dataset_id,
@@ -212,15 +226,95 @@ def _build_extractor(payload: dict[str, Any]):
     raise ValueError(f"Unsupported extractor: {extractor_name}")
 
 
-def _load_or_extract_features(manifest, extractor, artifact_root: Path, training_store: TrainingStoreLike):
+def _load_or_extract_features(
+    manifest,
+    extractor,
+    artifact_root: Path,
+    training_store: TrainingStoreLike,
+    *,
+    run_id: str,
+):
     existing = training_store.find_feature_artifact(manifest.dataset_version_id, extractor.backbone_id, extractor.config)
     if existing is not None:
         metadata = existing.get("artifact_metadata") or {}
         feature_data = metadata.get("feature_artifact")
         uri = Path(str(existing.get("uri", "")))
         if feature_data and uri.exists():
-            return load_feature_artifact(uri.parent)
-    return extract_features(manifest, extractor, artifact_root / "features")
+            feature_artifact, features = load_feature_artifact(uri.parent)
+            return feature_artifact, features, True
+
+    prepare = getattr(extractor, "prepare", None)
+    if prepare is not None:
+        _update_training_progress(training_store, run_id, "weights", "running")
+        prepare()
+        _update_training_progress(training_store, run_id, "weights", "completed")
+    else:
+        _update_training_progress(training_store, run_id, "weights", "completed", note="no external weights")
+
+    _update_training_progress(training_store, run_id, "features", "running")
+    feature_artifact, features = extract_features(manifest, extractor, artifact_root / "features")
+    _update_training_progress(training_store, run_id, "features", "completed")
+    return feature_artifact, features, False
+
+
+TRAINING_PROGRESS_STAGES: tuple[dict[str, Any], ...] = (
+    {"id": "dataset", "label": "数据快照", "weight": 5},
+    {"id": "weights", "label": "权重准备", "weight": 15},
+    {"id": "features", "label": "特征提取", "weight": 45},
+    {"id": "head", "label": "分类头训练", "weight": 15},
+    {"id": "calibration", "label": "置信度校准", "weight": 10},
+    {"id": "thresholds", "label": "阈值策略", "weight": 10},
+)
+
+
+def _update_training_progress(
+    training_store: TrainingStoreLike,
+    run_id: str,
+    stage_id: str,
+    status: str,
+    *,
+    note: str | None = None,
+) -> None:
+    stages = []
+    seen_current = False
+    overall = 0.0
+    for stage in TRAINING_PROGRESS_STAGES:
+        current = dict(stage)
+        current_id = str(current["id"])
+        if stage_id == "completed":
+            current_status = "completed"
+        elif current_id == stage_id:
+            current_status = status
+            seen_current = True
+        elif seen_current:
+            current_status = "pending"
+        else:
+            current_status = "completed"
+
+        if current_status == "completed":
+            percent = 100
+            overall += float(current["weight"])
+        elif current_status == "running":
+            percent = 50
+            overall += float(current["weight"]) * 0.5
+        else:
+            percent = 0
+
+        current["status"] = current_status
+        current["percent"] = percent
+        if current_id == stage_id and note:
+            current["note"] = note
+        stages.append(current)
+
+    current_stage = "completed" if stage_id == "completed" else stage_id
+    training_store.update_progress(
+        run_id,
+        {
+            "current_stage": current_stage,
+            "overall_percent": round(min(100.0, overall), 1),
+            "stages": stages,
+        },
+    )
 
 
 def _create_worker_stores(metadata_dir: str | Path | None) -> tuple[MetadataStore, JobStoreLike, TrainingStoreLike | None]:
