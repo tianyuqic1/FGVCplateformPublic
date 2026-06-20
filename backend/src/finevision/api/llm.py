@@ -129,21 +129,27 @@ def _assistance_schema() -> dict[str, Any]:
         "properties": {
             "summary": {
                 "type": "string",
-                "description": "One concise Chinese sentence summarizing the advisory result.",
+                "maxLength": 180,
+                "description": "One concise Chinese sentence for an operator. Do not dump raw logs or many decimals.",
             },
             "inspection_notes": {
                 "type": "array",
-                "items": {"type": "string"},
-                "description": "Evidence or visual/model signals the human operator should inspect.",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {"type": "string", "maxLength": 140},
+                "description": "Short evidence checks for the human operator. Prefer plain language over raw metric repetition.",
             },
             "suggested_actions": {
                 "type": "array",
-                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {"type": "string", "maxLength": 140},
                 "description": "Safe next actions. Do not include automatic submission or production changes.",
             },
             "risk_flags": {
                 "type": "array",
-                "items": {"type": "string"},
+                "maxItems": 3,
+                "items": {"type": "string", "maxLength": 140},
                 "description": "Caveats, hallucination risks, or reasons the operator should be careful.",
             },
             "confidence": {
@@ -188,6 +194,8 @@ def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
     return (
         "你是 FineVision 的 LLM Assistant，只能提供 advisory-only 建议，不能替代人工标签、不能调整生产阈值、"
         "不能把反馈直接写回训练集。请用中文填写结构化字段；这些字段会被 JSON Schema 严格约束。\n"
+        "写作要求：面向视觉复核员，不要复述大段原始指标；分数最多保留两位小数；不要臆测图像内容；"
+        "如果数据集类别已知，只围绕候选类别、阈值原因和人工检查动作给出短建议。\n"
         f"任务：{task_instruction}\n"
         f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
     )

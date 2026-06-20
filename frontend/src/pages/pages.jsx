@@ -1988,7 +1988,18 @@ function LLMListItem({ icon, title, items = [], empty, tone = "info" }) {
   return (
     <div className="timeline-item">
       <div className="timeline-icon"><Icon name={icon} size={18} /></div>
-      <div><strong>{title}</strong><div className="row-meta">{items.length > 0 ? items.join("；") : empty}</div></div>
+      <div>
+        <strong>{title}</strong>
+        {items.length > 0 ? (
+          <ul className="llm-list">
+            {items.map((item, index) => (
+              <li key={`${title}-${index}`}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <div className="row-meta">{empty}</div>
+        )}
+      </div>
       <StatusChip tone={tone}>{items.length}</StatusChip>
     </div>
   );

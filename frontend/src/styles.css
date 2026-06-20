@@ -1156,6 +1156,19 @@ a {
   font-size: 15px;
 }
 
+.llm-list {
+  display: grid;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.42;
+}
+
+.llm-list li {
+  overflow-wrap: anywhere;
+}
+
 .lineage-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
