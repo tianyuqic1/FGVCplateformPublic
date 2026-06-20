@@ -23,6 +23,7 @@ DEFAULT_ARTIFACT_DIR = ".finevision-api/artifacts"
 class JobStoreLike(Protocol):
     def claim_next_queued_job(self) -> JobRecord | None: ...
     def next_queued_job(self) -> JobRecord | None: ...
+    def get_job(self, job_id: str) -> JobRecord | None: ...
     def mark_running(self, job: JobRecord) -> JobRecord: ...
     def mark_succeeded(self, job: JobRecord, result: dict[str, Any]) -> JobRecord: ...
     def mark_failed(self, job: JobRecord, error: str) -> JobRecord: ...
@@ -31,6 +32,7 @@ class JobStoreLike(Protocol):
 class TrainingStoreLike(Protocol):
     def mark_running(self, run_id: str) -> None: ...
     def mark_failed(self, run_id: str, error: str) -> None: ...
+    def get_status(self, run_id: str) -> str | None: ...
     def update_progress(self, run_id: str, progress: dict[str, Any]) -> None: ...
     def find_feature_artifact(
         self,
@@ -49,9 +51,15 @@ def run_next_job(metadata_dir: str | Path | None = None) -> JobRecord | None:
 
     try:
         result = _run_job(running, metadata_store, training_store)
+    except TrainingRunStopped:
+        return job_store.get_job(running.job_id) or running
     except Exception as exc:  # The worker boundary persists failures for API inspection.
         return job_store.mark_failed(running, str(exc))
     return job_store.mark_succeeded(running, result)
+
+
+class TrainingRunStopped(Exception):
+    """Raised when a training run was paused or cancelled while a worker owned it."""
 
 
 def run_worker_loop(
@@ -116,9 +124,11 @@ def _run_train_classifier(
     training_store.mark_running(run_id)
     try:
         artifact_root = Path(os.environ.get("FINEVISION_ARTIFACT_DIR", DEFAULT_ARTIFACT_DIR)).resolve()
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "dataset", "running")
         extractor = _build_extractor(payload)
         _update_training_progress(training_store, run_id, "dataset", "completed")
+        _check_training_control(training_store, run_id)
         feature_artifact, features, reused_feature_cache = _load_or_extract_features(
             manifest,
             extractor,
@@ -131,6 +141,7 @@ def _run_train_classifier(
             _update_training_progress(training_store, run_id, "features", "completed", note="feature cache reused")
         head_config = dict(payload.get("head_config") or {})
         ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "head", "running")
         model_artifact, training_report, logits = train_linear_head(
             feature_artifact,
@@ -146,6 +157,7 @@ def _run_train_classifier(
             ),
         )
         _update_training_progress(training_store, run_id, "head", "completed")
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "calibration", "running")
         calibration = fit_temperature_scaling(
             model_artifact,
@@ -155,6 +167,7 @@ def _run_train_classifier(
             artifact_root=artifact_root / "models",
         )
         _update_training_progress(training_store, run_id, "calibration", "completed")
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "thresholds", "running")
         threshold_sweep = sweep_confidence_thresholds(
             feature_artifact,
@@ -182,6 +195,7 @@ def _run_train_classifier(
             artifact_root=artifact_root / "models",
         )
         _update_training_progress(training_store, run_id, "thresholds", "completed")
+        _check_training_control(training_store, run_id)
         record = training_store.complete_training_run(
             run_id=run_id,
             artifact_root=artifact_root,
@@ -205,6 +219,8 @@ def _run_train_classifier(
             "threshold_strategy_artifact_id": record.threshold_strategy_artifact_id,
             "metrics": record.metrics,
         }
+    except TrainingRunStopped:
+        raise
     except Exception as exc:
         training_store.mark_failed(run_id, str(exc))
         raise
@@ -245,14 +261,21 @@ def _load_or_extract_features(
 
     prepare = getattr(extractor, "prepare", None)
     if prepare is not None:
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "weights", "running")
         prepare()
+        _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "weights", "completed")
     else:
         _update_training_progress(training_store, run_id, "weights", "completed", note="no external weights")
 
+    _check_training_control(training_store, run_id)
     _update_training_progress(training_store, run_id, "features", "running")
+    progress_callback = _feature_progress_callback(training_store, run_id)
+    if hasattr(extractor, "progress_callback"):
+        extractor.progress_callback = progress_callback
     feature_artifact, features = extract_features(manifest, extractor, artifact_root / "features")
+    _check_training_control(training_store, run_id)
     _update_training_progress(training_store, run_id, "features", "completed")
     return feature_artifact, features, False
 
@@ -274,6 +297,7 @@ def _update_training_progress(
     status: str,
     *,
     note: str | None = None,
+    stage_percent: int | float | None = None,
 ) -> None:
     stages = []
     seen_current = False
@@ -295,8 +319,8 @@ def _update_training_progress(
             percent = 100
             overall += float(current["weight"])
         elif current_status == "running":
-            percent = 50
-            overall += float(current["weight"]) * 0.5
+            percent = max(0.0, min(100.0, float(stage_percent if stage_percent is not None else 50)))
+            overall += float(current["weight"]) * (percent / 100.0)
         else:
             percent = 0
 
@@ -315,6 +339,36 @@ def _update_training_progress(
             "stages": stages,
         },
     )
+
+
+def _feature_progress_callback(training_store: TrainingStoreLike, run_id: str):
+    last_percent = -1
+
+    def update(done: int, total: int) -> None:
+        nonlocal last_percent
+        if total <= 0:
+            return
+        percent = int((done / total) * 100)
+        if percent < 100 and percent - last_percent < 5:
+            return
+        last_percent = percent
+        _check_training_control(training_store, run_id)
+        _update_training_progress(
+            training_store,
+            run_id,
+            "features",
+            "running",
+            note=f"{done}/{total} samples",
+            stage_percent=percent,
+        )
+
+    return update
+
+
+def _check_training_control(training_store: TrainingStoreLike, run_id: str) -> None:
+    status = training_store.get_status(run_id)
+    if status in {"cancelled", "paused"}:
+        raise TrainingRunStopped(f"Training run {run_id} is {status}.")
 
 
 def _create_worker_stores(metadata_dir: str | Path | None) -> tuple[MetadataStore, JobStoreLike, TrainingStoreLike | None]:

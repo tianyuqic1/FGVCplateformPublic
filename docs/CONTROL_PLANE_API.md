@@ -199,32 +199,38 @@ separate training mini-batch size.
 Training queue controls:
 
 ```text
-pause   queued -> paused
+pause   queued/running -> paused
 resume  paused -> queued
-cancel  queued/paused -> cancelled
+cancel  queued/paused/running -> cancelled
 delete  removes queued/paused/cancelled/failed runs only when no artifacts or model version exist
 ```
 
-Running DINOv3 extraction is not checkpointed in the MVP. To stop a currently running local task,
-stop the `ml-worker` process and then mark the run cancelled; a future worker iteration should add
-cooperative cancellation checks and resumable feature extraction before exposing true running-pause
-semantics.
+Running DINOv3 extraction is still not checkpointed in the MVP, but the API can now mark a running
+training run as `cancelled` or `paused`. The worker checks that control state at stage boundaries,
+before and after weight preparation, during feature extraction progress callbacks, and before later
+training/calibration/threshold steps. A paused run can be resumed as a queued run.
 
 Current cancellation boundary:
 
 ```text
-implemented: queued pause, paused resume, queued/paused cancel, safe non-running delete
-manual local procedure: restart ml-worker, then verify the run is cancelled or mark it administratively
-not productized: cancelling an actively running DINOv3 weight download or feature extraction from UI
+implemented: queued/running pause, paused resume, queued/paused/running cancel, safe non-running delete
+implemented: worker cooperative stop checks between training stages and feature extraction batches
+remaining limitation: Hugging Face/timm weight downloads are not preempted mid-request; the worker observes cancellation after the blocking download call returns
 ```
 
 The current classifier head is `ridge_linear`. It has `ridge_lambda`, but no `learning_rate`,
 `epochs`, optimizer, scheduler, or early stopping. Optimizer-backed heads such as
 `torch_linear_adam` are a P1 follow-up and should keep `ridge_linear` as the fast baseline.
 
-DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub. The control plane should
-eventually expose a weight status/pre-download API; until then a run can appear to sit in the
-`weights` stage while Hugging Face downloads or resumes a model cache.
+DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub.
+
+```text
+GET /api/model-weights
+```
+
+returns ViT-S/B/L cache status (`cached`, `partial`, or `missing`), complete/incomplete cache sizes,
+the Hugging Face cache root, and whether an `HF_TOKEN`/`HUGGING_FACE_HUB_TOKEN` is configured. A run
+can still appear to sit in the `weights` stage while Hugging Face downloads or resumes a model cache.
 
 Scoped inference request:
 

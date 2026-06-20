@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import os
 import json
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import numpy as np
 from PIL import Image
@@ -27,6 +28,70 @@ DINOV3_MODEL_PRESETS: dict[str, dict[str, str]] = {
         "model_name": "vit_large_patch16_dinov3",
     },
 }
+
+
+def inspect_dinov3_weight_cache(cache_root: str | Path | None = None) -> dict[str, Any]:
+    hub_root = _resolve_huggingface_hub_cache(cache_root)
+    weights = []
+    for preset, config in DINOV3_MODEL_PRESETS.items():
+        model_name = config["model_name"]
+        repo_id = f"timm/{model_name}.lvd1689m"
+        repo_dir = hub_root / f"models--timm--{model_name}.lvd1689m"
+        complete_files = [
+            path
+            for path in (repo_dir / "blobs").glob("*")
+            if path.is_file() and not path.name.endswith(".incomplete")
+        ]
+        incomplete_files = [
+            path
+            for path in (repo_dir / "blobs").glob("*.incomplete")
+            if path.is_file()
+        ]
+        complete_size = sum(path.stat().st_size for path in complete_files)
+        incomplete_size = sum(path.stat().st_size for path in incomplete_files)
+        if complete_files:
+            cache_status = "cached"
+        elif incomplete_files:
+            cache_status = "partial"
+        else:
+            cache_status = "missing"
+
+        weights.append(
+            {
+                "preset": preset,
+                "extractor": preset,
+                "backbone_id": config["backbone_id"],
+                "model_name": model_name,
+                "repo_id": repo_id,
+                "cache_status": cache_status,
+                "state": cache_status,
+                "cached": cache_status == "cached",
+                "cache_dir": str(repo_dir),
+                "complete_file_count": len(complete_files),
+                "complete_size_bytes": complete_size,
+                "cache_bytes": complete_size,
+                "incomplete_file_count": len(incomplete_files),
+                "incomplete_size_bytes": incomplete_size,
+                "partial_bytes": incomplete_size,
+                "download_hint": "cached locally" if complete_files else "download with timm/Hugging Face Hub",
+            }
+        )
+
+    return {
+        "cache_root": str(hub_root),
+        "hf_token_configured": bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")),
+        "weights": weights,
+    }
+
+
+def _resolve_huggingface_hub_cache(cache_root: str | Path | None = None) -> Path:
+    if cache_root is not None:
+        return Path(cache_root).expanduser()
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"]).expanduser()
+    if os.environ.get("HF_HOME"):
+        return Path(os.environ["HF_HOME"]).expanduser() / "hub"
+    return Path.home() / ".cache" / "huggingface" / "hub"
 
 
 def dinov3_extractor_config(extractor: str, backbone_id: str | None = None) -> dict[str, object]:
@@ -90,6 +155,7 @@ class TimmDinoV3Extractor:
     config: dict[str, object] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
     _transform: Any = field(default=None, init=False, repr=False)
+    progress_callback: Callable[[int, int], None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # Runtime fields such as device and batch_size do not change feature
@@ -136,6 +202,7 @@ class TimmDinoV3Extractor:
         transform = self._transform
 
         batches: list[np.ndarray] = []
+        total = len(paths)
         with torch.inference_mode():
             for start in range(0, len(paths), self.batch_size):
                 images = [transform(Image.open(path).convert("RGB")) for path in paths[start : start + self.batch_size]]
@@ -144,6 +211,8 @@ class TimmDinoV3Extractor:
                 if isinstance(output, (tuple, list)):
                     output = output[0]
                 batches.append(output.detach().cpu().float().numpy())
+                if self.progress_callback is not None:
+                    self.progress_callback(min(start + self.batch_size, total), total)
         return np.vstack(batches).astype(np.float32)
 
 

@@ -1281,6 +1281,47 @@ a {
   background: rgba(255, 255, 255, 0.64);
 }
 
+.weight-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weight-status-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+  cursor: pointer;
+}
+
+.weight-status-card.selected {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(225, 247, 243, 0.82);
+}
+
+.weight-status-card span,
+.weight-status-card small {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weight-status-card small {
+  grid-column: 1 / -1;
+}
+
 .pipeline {
   display: grid;
   grid-template-columns: repeat(6, minmax(170px, 1fr));
@@ -1342,6 +1383,11 @@ a {
 
 .field label {
   font-weight: 900;
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .field input,
@@ -1431,6 +1477,29 @@ a {
   text-overflow: ellipsis;
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
   white-space: nowrap;
+}
+
+.empty-query-preview {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border: 1px dashed rgba(49, 95, 189, 0.34);
+  border-radius: 8px;
+  padding: 24px;
+  color: #244476;
+  background: #f7fbff;
+  text-align: center;
+}
+
+.empty-query-preview strong,
+.empty-query-preview span {
+  display: block;
+}
+
+.empty-query-preview span {
+  max-width: 420px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .advanced-fields {
@@ -1556,7 +1625,8 @@ a {
   .evidence-metrics,
   .feedback-summary,
   .lineage-grid,
-  .field-grid {
+  .field-grid,
+  .weight-status-grid {
     grid-template-columns: 1fr;
   }
 

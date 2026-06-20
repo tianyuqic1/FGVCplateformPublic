@@ -30,6 +30,7 @@ from finevision.ml_toolkit.features import (
     DINOV3_MODEL_PRESETS,
     build_extractor_from_config,
     dinov3_extractor_config,
+    inspect_dinov3_weight_cache,
 )
 from finevision.ml_toolkit.inference import run_image_inference, run_inference
 from finevision.schemas.artifacts import InferenceResult, to_jsonable
@@ -342,8 +343,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     @api.post("/api/training-runs/{run_id}/pause")
     def pause_training_run(run_id: str) -> dict[str, object]:
         training_run = _get_training_run_or_404(training_store, run_id)
-        if training_run.status != "queued":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued training runs can be paused")
+        if training_run.status not in {"queued", "running"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued or running training runs can be paused")
         try:
             paused = training_store.pause_training_run(run_id)  # type: ignore[union-attr]
         except ValueError as exc:
@@ -364,18 +365,17 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     @api.post("/api/training-runs/{run_id}/cancel")
     def cancel_training_run(run_id: str) -> dict[str, object]:
         training_run = _get_training_run_or_404(training_store, run_id)
-        if training_run.status == "running":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Running training runs cannot be cancelled safely yet; stop the worker first, then mark the run cancelled.",
-            )
-        if training_run.status not in {"queued", "paused"}:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued or paused training runs can be cancelled")
+        if training_run.status not in {"queued", "paused", "running"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued, paused, or running training runs can be cancelled")
         try:
             cancelled = training_store.cancel_training_run(run_id, "Cancelled by user from training queue.")  # type: ignore[union-attr]
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return {"training_run": cancelled.__dict__}
+
+    @api.get("/api/model-weights")
+    def list_model_weights() -> dict[str, object]:
+        return inspect_dinov3_weight_cache()
 
     @api.delete("/api/training-runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_training_run(run_id: str) -> None:
@@ -1062,6 +1062,5 @@ def _validate_training_config(extractor: str, backbone_id: str, head_config: dic
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="head_config.ridge_lambda must be greater than 0",
         )
-
 
 app = create_app()

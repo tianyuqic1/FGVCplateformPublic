@@ -388,15 +388,19 @@ Acceptance:
 - Done: training queue and detail views read `/api/training-runs`; mock data is only a fallback when the API is unavailable.
 - Done: `POST /api/training-runs` rejects dataset versions whose readiness report is not ready.
 - Done: training job cancellation synchronizes the business training run to `cancelled`.
-- Done: training queue controls support pausing queued runs, resuming paused runs, cancelling queued/paused runs, and deleting non-running queue records that have no artifacts/model version.
+- Done: training queue controls support pausing queued/running runs, resuming paused runs, cancelling queued/paused/running runs, and deleting non-running queue records that have no artifacts/model version.
 - Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vits16`, `dinov3_vitb16`, or `dinov3_vitl16` instead of the color-stats default.
 - Done: training creation exposes DINOv3 feature extraction batch size. The default is `8`; this affects feature extraction throughput/memory only, while the ridge/linear head is solved without a mini-batch training loop.
 - Done: DINOv3 feature cache identity ignores runtime `device` and `batch_size`, so tuning batch size does not duplicate identical feature artifacts.
 - Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
-- Partial: running DINOv3 cancellation is not productized. Queued/paused controls work, but active
-  weight download and feature extraction need cooperative worker cancellation.
-- Partial: training progress is stage-level. Batch-level feature extraction progress and Hugging
-  Face weight download status remain hardening items.
+- Done: running DINOv3 cancellation is productized as cooperative worker stop checks at stage
+  boundaries, before/after weight preparation, and during feature extraction progress callbacks.
+- Done: training progress now includes batch-level feature extraction progress when the extractor
+  supports callbacks.
+- Done: `/api/model-weights` and the training UI expose DINOv3 ViT-S/B/L cache status, complete
+  cache size, partial download size, and HF token configuration.
+- Partial: Hugging Face/timm weight download calls are still not preempted mid-request; cancellation
+  is observed after the blocking download returns.
 - Partial: the only trainable head is `ridge_linear`; optimizer-based heads such as
   `torch_linear_adam` are a P1 follow-up.
 

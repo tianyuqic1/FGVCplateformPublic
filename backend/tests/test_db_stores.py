@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 
 from finevision.api import create_app
 from finevision.api.db_store import DatabaseJobStore
+from finevision.api.training_store import DatabaseTrainingStore
 from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, model_versions, training_runs
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
 from finevision.worker import run_next_job
@@ -470,6 +471,133 @@ def test_training_run_queue_controls_pause_resume_cancel_and_delete(
     delete_response = client.delete(f"/api/training-runs/{run_id}")
     assert delete_response.status_code == 204
     assert client.get(f"/api/training-runs/{run_id}").status_code == 404
+
+
+def test_running_training_run_can_be_cancelled_and_releases_worker_lease(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "running-cancel-imagefolder", samples_per_class=5)
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "running-cancel-toy",
+                "dataset_version_id": "dataset@running-cancel-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+    create_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@running-cancel-toy-001"},
+    )
+    assert create_response.status_code == 202
+    run_id = create_response.json()["training_run"]["run_id"]
+    job_id = create_response.json()["job"]["job_id"]
+
+    worker_store = DatabaseJobStore(database_url, lease_owner="test-running-cancel-worker")
+    claimed = worker_store.claim_next_queued_job()
+    assert claimed is not None
+    assert claimed.job_id == job_id
+    assert claimed.status == "running"
+    DatabaseTrainingStore(database_url).mark_running(run_id)
+
+    cancel_response = client.post(f"/api/training-runs/{run_id}/cancel")
+
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["training_run"]["status"] == "cancelled"
+    assert cancel_response.json()["training_run"]["error"] == "Cancelled by user from training queue."
+    assert worker_store.get_job(job_id).status == "cancelled"  # type: ignore[union-attr]
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        row = conn.execute(sa.select(jobs.c.lease_owner, jobs.c.lease_expires_at).where(jobs.c.job_key == job_id)).one()
+    assert row.lease_owner is None
+    assert row.lease_expires_at is None
+
+
+def test_training_run_running_controls_request_stop_at_worker_checkpoint(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / "running-controls-imagefolder", samples_per_class=5)
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": "running-controls-toy",
+                "dataset_version_id": "dataset@running-controls-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+
+    create_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": "dataset@running-controls-toy-001"},
+    )
+    assert create_response.status_code == 202
+    run_id = create_response.json()["training_run"]["run_id"]
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        run_row = conn.execute(
+            sa.select(training_runs.c.id, training_runs.c.job_id).where(training_runs.c.run_key == run_id)
+        ).mappings().one()
+        conn.execute(training_runs.update().where(training_runs.c.id == run_row["id"]).values(status="running"))
+        conn.execute(
+            jobs.update()
+            .where(jobs.c.id == run_row["job_id"])
+            .values(status="running", lease_owner="test-worker", lease_expires_at=sa.func.now())
+        )
+
+    pause_response = client.post(f"/api/training-runs/{run_id}/pause")
+    assert pause_response.status_code == 200
+    assert pause_response.json()["training_run"]["status"] == "paused"
+
+    resume_response = client.post(f"/api/training-runs/{run_id}/resume")
+    assert resume_response.status_code == 200
+    assert resume_response.json()["training_run"]["status"] == "queued"
+
+    with engine.begin() as conn:
+        run_row = conn.execute(
+            sa.select(training_runs.c.id, training_runs.c.job_id).where(training_runs.c.run_key == run_id)
+        ).mappings().one()
+        conn.execute(training_runs.update().where(training_runs.c.id == run_row["id"]).values(status="running"))
+        conn.execute(jobs.update().where(jobs.c.id == run_row["job_id"]).values(status="running"))
+
+    cancel_response = client.post(f"/api/training-runs/{run_id}/cancel")
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["training_run"]["status"] == "cancelled"
+
+    with engine.begin() as conn:
+        statuses = conn.execute(
+            sa.select(
+                training_runs.c.status.label("run_status"),
+                jobs.c.status.label("job_status"),
+                jobs.c.lease_owner,
+                jobs.c.lease_expires_at,
+            )
+            .select_from(training_runs.join(jobs, jobs.c.id == training_runs.c.job_id))
+            .where(training_runs.c.run_key == run_id)
+        ).mappings().one()
+    assert statuses["run_status"] == "cancelled"
+    assert statuses["job_status"] == "cancelled"
+    assert statuses["lease_owner"] is None
+    assert statuses["lease_expires_at"] is None
 
 
 def test_training_run_reuses_feature_artifact_for_same_dataset_and_extractor_config(

@@ -12,8 +12,8 @@ feedback pool, and advisory LLM slices.
 - Training jobs are created through the control-plane API and executed by `ml-worker`.
 - DINOv3 ViT-S and ViT-L weights are available in the local Hugging Face cache. ViT-B may still be
   incomplete if the unauthenticated Hugging Face download is interrupted.
-- The stopped ViT-B training run should be treated as a local cancellation case, not as evidence that
-  running cancellation is fully productized.
+- Running training cancellation is now productized as cooperative worker checks, but a blocking
+  Hugging Face/timm weight-download request is only observed after that request returns.
 
 ## P0 Residuals
 
@@ -21,41 +21,45 @@ P0 issues can block normal MVP use or create serious product misunderstanding.
 
 ### Running Training Cancellation
 
-Current status: partial.
+Current status: MVP complete with one external-download limitation.
 
-The UI/API can pause queued runs, resume paused runs, cancel queued or paused runs, and delete safe
-non-running records. Running DINOv3 extraction is not checkpointed and cannot yet be cancelled by a
-durable cooperative worker protocol.
+The UI/API can pause queued/running runs, resume paused runs, cancel queued/paused/running runs, and
+delete safe non-running records. The worker checks run status at stage boundaries, before and after
+weight preparation, during feature extraction progress callbacks, and before later training,
+calibration, and threshold steps.
 
-Local stop procedure for a blocked run:
+Operational caveat:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml restart ml-worker
-curl -s http://localhost:8001/api/training-runs/<run_id> | python -m json.tool
+```text
+Hugging Face/timm weight downloads are blocking library calls. A cancellation request marks the run
+and job as cancelled immediately, but the worker process may only observe that state after the
+download call returns.
 ```
 
 Acceptance for productized completion:
 
-- A running training job observes a cancellation request between long stages and batch loops.
-- The worker records `training_runs.status = cancelled` and `jobs.status = cancelled`.
-- Partial artifacts are either not registered or marked unusable.
-- The UI can cancel a running job without asking the user to restart the worker.
+- Done: a running training job observes cancellation/pause requests between long stages and feature
+  extraction batch loops.
+- Done: the API records `training_runs.status = cancelled` and `jobs.status = cancelled`.
+- Done: partial artifacts are not registered after cancellation is observed.
+- Done: the UI can request cancellation for a running job without asking the user to restart the worker.
 
 ### Weight Management
 
-Current status: not productized.
+Current status: MVP visible.
 
 `timm` provides the model definition and triggers pretrained weight resolution through Hugging Face
-Hub. The platform currently prepares weights implicitly during training or inference. This can make a
-run appear stuck in the `weights` stage when Hugging Face is slow or unauthenticated.
+Hub. `/api/model-weights` reports supported DINOv3 ViT-S/B/L cache state, complete/incomplete cache
+bytes, cache root, and HF token configuration. The training UI shows those states before the user
+starts a run.
 
 Acceptance for productized completion:
 
-- A weight status API lists each supported backbone, cache state, expected size when known, local path
-  or cache key, and whether the cache is complete.
-- The UI exposes a pre-download or validate action for ViT-S, ViT-B, and ViT-L.
-- The UI distinguishes `cached`, `downloading`, `incomplete`, `missing`, and `failed`.
-- Documentation explains that `HF_TOKEN` improves Hugging Face rate limits and is separate from the
+- Done: a weight status API lists each supported backbone, cache state, local cache key/path, and
+  whether the cache is complete.
+- Done: the UI distinguishes `cached`, `partial`, and `missing`.
+- Remaining: a pre-download action and explicit failed/download-in-progress states are not yet added.
+- Done: documentation explains that `HF_TOKEN` improves Hugging Face rate limits and is separate from the
   OpenAI-compatible LLM API key.
 
 ### Model Registry Boundary
@@ -106,16 +110,18 @@ Acceptance for completion:
 
 ### Feature Extraction Progress
 
-Current status: stage-level progress.
+Current status: batch progress for compatible extractors.
 
 The training detail page can show weight preparation, feature extraction, head training, calibration,
-and threshold stages. DINOv3 feature extraction does not yet update batch-level progress.
+and threshold stages. DINOv3 feature extraction now reports processed samples through a progress
+callback.
 
 Acceptance for completion:
 
-- Feature extraction reports processed samples, total samples, batch count, and ETA when possible.
-- The UI shows separate progress for weight preparation and feature extraction.
-- A slow Hugging Face download is shown as weight preparation, not as model training.
+- Done: feature extraction reports processed samples and total samples.
+- Done: the UI shows separate progress for weight preparation and feature extraction.
+- Done: a slow Hugging Face download is shown as weight preparation, not as model training.
+- Remaining: ETA and batch-count display are deferred.
 
 ### Dev/Smoke Options In Production UI
 
@@ -173,7 +179,7 @@ Backend and database:
 ```bash
 python -m compileall -q backend/src/finevision
 uv run --group dev pytest
-FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run --group dev pytest
+FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run --group dev pytest
 ```
 
 Frontend:
@@ -213,7 +219,7 @@ Manual MVP walkthrough:
 
 ## Remaining Risk Summary
 
-- Running cancellation still needs cooperative worker support before it is safe for non-technical users.
+- Running cancellation is cooperative and does not preempt a blocking Hugging Face/timm download call mid-request.
 - Weight downloads are externally dependent on Hugging Face availability, rate limits, and optional
   `HF_TOKEN` configuration.
 - Candidate models can be used for experiments, but release governance is not complete until model

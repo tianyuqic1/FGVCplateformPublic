@@ -7,6 +7,7 @@ import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingR
 import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useLLMAssistance, useReviewAssistance } from "../hooks/useLLMAssistance.js";
+import { useModelWeights } from "../hooks/useModelWeights.js";
 import { useFeedbackItems, useReviewItem, useReviewItems, useSubmitReviewOutcome } from "../hooks/useReviews.js";
 import { useTrainingRun, useTrainingRuns } from "../hooks/useTrainingRuns.js";
 import { Icon } from "../components/icons.jsx";
@@ -453,9 +454,9 @@ function DatasetTable({ items = [] }) {
 function RunRow({ run, onAction, busy = false }) {
   const state = trainingStatus(run);
   const done = run.status === "succeeded" || run.status === "done";
-  const canPause = run.status === "queued";
+  const canPause = ["queued", "running"].includes(run.status);
   const canResume = run.status === "paused";
-  const canCancel = ["queued", "paused"].includes(run.status);
+  const canCancel = ["queued", "paused", "running"].includes(run.status);
   const canDelete = !["running", "succeeded"].includes(run.status) && !run.featureArtifactId && !run.modelVersionId;
   return (
     <div className="timeline-item queue-row">
@@ -472,7 +473,7 @@ function RunRow({ run, onAction, busy = false }) {
         </div>
       </Link>
       <div className="queue-row-actions">
-        {canPause && <button className="icon-button" title="暂停排队任务" onClick={() => onAction("pause", run)} disabled={busy}><Icon name="Pause" size={16} /></button>}
+        {canPause && <button className="icon-button" title="请求暂停任务" onClick={() => onAction("pause", run)} disabled={busy}><Icon name="Pause" size={16} /></button>}
         {canResume && <button className="icon-button" title="恢复排队任务" onClick={() => onAction("resume", run)} disabled={busy}><Icon name="Play" size={16} /></button>}
         {canCancel && <button className="icon-button" title="取消任务" onClick={() => onAction("cancel", run)} disabled={busy}><Icon name="Ban" size={16} /></button>}
         {canDelete && <button className="icon-button danger" title="删除队列记录" onClick={() => onAction("delete", run)} disabled={busy}><Icon name="Trash2" size={16} /></button>}
@@ -1031,6 +1032,32 @@ function isDinoExtractor(extractor) {
   return String(extractor).startsWith("dinov3_");
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return "0 MB";
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
+  return `${(value / 1024 ** 2).toFixed(1)} MB`;
+}
+
+function modelWeightTone(state) {
+  if (state === "cached") return "default";
+  if (state === "partial") return "warn";
+  return "neutral";
+}
+
+function modelWeightLabel(state) {
+  if (state === "cached") return "已缓存";
+  if (state === "partial") return "下载中/未完成";
+  return "未缓存";
+}
+
+function extractorShortLabel(extractor) {
+  if (extractor === "dinov3_vits") return "ViT-S";
+  if (extractor === "dinov3_vitb") return "ViT-B";
+  if (extractor === "dinov3_vitl") return "ViT-L";
+  return extractor;
+}
+
 function filterTrainingRuns(runs, statusFilter, sortMode) {
   const filtered = runs.filter((run) => {
     if (statusFilter === "all") return true;
@@ -1247,13 +1274,14 @@ export function TrainingPage({ showToast }) {
   const [trainingSearchParams, setTrainingSearchParams] = useSearchParams();
   const { trainingRuns: runItems, source, loading, refresh } = useTrainingRuns();
   const { datasets: datasetOptions, source: datasetSource, loading: datasetsLoading, refresh: refreshDatasets } = useDatasets();
+  const { weights: modelWeights, source: weightSource, loading: weightsLoading, refresh: refreshWeights } = useModelWeights();
   const [showCreate, setShowCreate] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueStatusFilter, setQueueStatusFilter] = useState("all");
   const [queueSortMode, setQueueSortMode] = useState("recent");
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: "",
-    extractor: "color_stats",
+    extractor: "dinov3_vits",
     featureBatchSize: "8",
     ridgeLambda: "0.01",
   });
@@ -1266,6 +1294,7 @@ export function TrainingPage({ showToast }) {
   const failedRunCount = runItems.filter((run) => run.status === "failed").length;
   const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
   const pausedRunCount = runItems.filter((run) => run.status === "paused").length;
+  const weightByExtractor = Object.fromEntries(modelWeights.map((weight) => [weight.extractor, weight]));
   const canUseDatasetForTraining = datasetSource === "api" && datasetVersionOptions.length > 0;
   const canCreate =
     canUseDatasetForTraining &&
@@ -1366,10 +1395,14 @@ export function TrainingPage({ showToast }) {
             <div className="field">
               <label>特征提取器</label>
               <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
-                <option value="color_stats">color_stats · 快速 smoke</option>
-                <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
-                <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
-                <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
+                <optgroup label="DINOv3 真实训练">
+                  <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
+                  <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
+                  <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
+                </optgroup>
+                <optgroup label="开发诊断">
+                  <option value="color_stats">color_stats · 开发 smoke，不用于真实模型</option>
+                </optgroup>
               </select>
             </div>
             <div className="field">
@@ -1399,6 +1432,33 @@ export function TrainingPage({ showToast }) {
           <p className="panel-caption section-gap-small">
             DINOv3 batch_size 只影响特征提取吞吐和内存；当前分类头训练是 ridge/linear head 矩阵求解，没有独立的训练 batch size。
           </p>
+          <div className="weight-status-grid section-gap-small">
+            {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
+              const weight = weightByExtractor[extractor];
+              const state = weight?.state ?? (weightsLoading ? "loading" : "missing");
+              const sizeLabel =
+                state === "cached"
+                  ? formatBytes(weight?.cacheBytes)
+                  : state === "partial"
+                    ? `${formatBytes(weight?.partialBytes)} partial`
+                    : "首次训练会下载";
+              return (
+                <button
+                  className={`weight-status-card ${trainingForm.extractor === extractor ? "selected" : ""}`}
+                  key={extractor}
+                  onClick={() => updateTrainingField("extractor", extractor)}
+                  type="button"
+                >
+                  <div>
+                    <strong>{extractorShortLabel(extractor)}</strong>
+                    <span>{weight?.modelName ?? "等待权重状态"}</span>
+                  </div>
+                  <StatusChip tone={modelWeightTone(state)}>{state === "loading" ? "读取中" : modelWeightLabel(state)}</StatusChip>
+                  <small>{sizeLabel}</small>
+                </button>
+              );
+            })}
+          </div>
           <div className="toolbar section-gap-small">
             <button className="ghost-button" onClick={refresh} disabled={loading}>
               <Icon name="RefreshCw" size={16} />
@@ -1408,8 +1468,15 @@ export function TrainingPage({ showToast }) {
               <Icon name="RefreshCw" size={16} />
               刷新数据集
             </button>
+            <button className="ghost-button" onClick={refreshWeights} disabled={weightsLoading}>
+              <Icon name="RefreshCw" size={16} />
+              刷新权重状态
+            </button>
             <StatusChip tone={datasetSource === "api" ? "default" : "warn"}>
               {datasetSource === "api" ? `${trainingDatasetOptions.length} 个可选数据集版本` : "dataset api unavailable"}
+            </StatusChip>
+            <StatusChip tone={weightSource === "api" ? "default" : "warn"}>
+              {weightSource === "api" ? "weight cache visible" : "weight cache unavailable"}
             </StatusChip>
           </div>
           {createBlockReason && (
@@ -1581,7 +1648,11 @@ export function InferencePage({ showToast }) {
   const [state, setState] = useState({ status: "idle", result: null, error: null });
   const [previewUrl, setPreviewUrl] = useState("");
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
-  const modelVersionOptions = inferenceTrainingRuns
+  const selectedDatasetVersionId = form.datasetVersionId.trim();
+  const modelRunsForDataset = inferenceTrainingRuns.filter(
+    (run) => run.modelVersionId && run.datasetVersionId === selectedDatasetVersionId && run.status === "succeeded",
+  );
+  const modelVersionOptions = modelRunsForDataset
     .map((run) => run.modelVersionId)
     .filter(Boolean);
   const canUseInferenceInputs = datasetSource === "api" && trainingSource === "api" && datasetVersionOptions.length > 0 && modelVersionOptions.length > 0;
@@ -1598,7 +1669,7 @@ export function InferencePage({ showToast }) {
       : trainingSource !== "api"
         ? "Training API 暂不可用，不能运行真实推理。"
         : modelVersionOptions.length === 0
-          ? "当前没有真实候选模型版本，请先完成训练。"
+          ? "当前数据版本没有可用模型版本，请先用该 dataset version 完成训练。"
           : "当前没有真实 dataset version 可用于推理。";
 
   useEffect(() => {
@@ -1611,9 +1682,12 @@ export function InferencePage({ showToast }) {
       if (modelVersionOptions.length > 0 && !modelVersionOptions.includes(next.modelVersionId)) {
         next.modelVersionId = modelVersionOptions[0];
       }
+      if (modelVersionOptions.length === 0) {
+        next.modelVersionId = "";
+      }
       return next;
     });
-  }, [datasetSource, datasetVersionOptions.join("|"), modelVersionOptions.join("|")]);
+  }, [datasetSource, datasetVersionOptions.join("|"), selectedDatasetVersionId, modelVersionOptions.join("|")]);
 
   useEffect(() => {
     if (!form.imageFile) {
@@ -1697,7 +1771,11 @@ export function InferencePage({ showToast }) {
             <span>{queryLabel}</span>
           </div>
         ) : (
-          <SampleImage src={sampleImageFor("bird")} label={queryLabel} low />
+          <div className="empty-query-preview">
+            <Icon name="ImageUp" size={22} />
+            <strong>等待 query 图片</strong>
+            <span>上传本地图片，或填写当前数据版本里的样本 ID。</span>
+          </div>
         )}
         <div className="field-grid section-gap-small">
           <div className="field">
@@ -1711,12 +1789,13 @@ export function InferencePage({ showToast }) {
           </div>
           <div className="field">
             <label>模型版本</label>
-            <input list="model-version-options" value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} placeholder="model_version_id" />
-            <datalist id="model-version-options">
+            <select value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionOptions.length === 0}>
+              <option value="">{modelVersionOptions.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
               {modelVersionOptions.map((modelVersionId) => (
                 <option value={modelVersionId} key={modelVersionId}>{modelVersionId}</option>
               ))}
-            </datalist>
+            </select>
+            <span className="field-hint">{modelVersionOptions.length} 个模型匹配当前数据版本。</span>
           </div>
           <div className="field full-span">
             <label>上传图片</label>
@@ -1757,7 +1836,7 @@ export function InferencePage({ showToast }) {
           </div>
         )}
       </Panel>
-      <Panel title="推理结果" caption="MVP 推理实验室：结果会记录为 inference event；abstain / reject_ood 会路由到人工复核。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
+      <Panel title="推理结果" caption="结果会记录为 inference event；abstain / reject_ood 会路由到人工复核。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
         {state.status === "idle" && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>

@@ -95,6 +95,10 @@ class DatabaseTrainingStore:
             row = conn.execute(_training_run_select().where(training_runs.c.run_key == run_id)).mappings().first()
         return _training_run_from_row(row) if row else None
 
+    def get_status(self, run_id: str) -> str | None:
+        with self.engine.begin() as conn:
+            return conn.scalar(sa.select(training_runs.c.status).where(training_runs.c.run_key == run_id))
+
     def list_training_runs(self) -> list[TrainingRunRecord]:
         with self.engine.begin() as conn:
             rows = conn.execute(_training_run_select().order_by(training_runs.c.created_at.desc())).mappings().all()
@@ -105,7 +109,7 @@ class DatabaseTrainingStore:
         with self.engine.begin() as conn:
             conn.execute(
                 training_runs.update()
-                .where(training_runs.c.run_key == run_id)
+                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "running"]))
                 .values(status="running", started_at=now, updated_at=now, error_message=None)
             )
 
@@ -150,21 +154,36 @@ class DatabaseTrainingStore:
         if result.rowcount == 0:
             raise ValueError(f"Queued training run not found for job: {job_id}")
 
+    def is_cancelled(self, run_id: str) -> bool:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(training_runs.c.status, jobs.c.status.label("job_status"))
+                .select_from(training_runs.join(jobs, jobs.c.id == training_runs.c.job_id))
+                .where(training_runs.c.run_key == run_id)
+            ).mappings().first()
+        if row is None:
+            raise ValueError(f"Training run not found: {run_id}")
+        return row["status"] == "cancelled" or row["job_status"] == "cancelled"
+
     def pause_training_run(self, run_id: str) -> TrainingRunRecord:
         now = _now()
         with self.engine.begin() as conn:
             row = conn.execute(
                 sa.select(training_runs.c.id, training_runs.c.job_id)
-                .where(training_runs.c.run_key == run_id, training_runs.c.status == "queued")
+                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "running"]))
             ).mappings().first()
             if row is None:
-                raise ValueError(f"Only queued training runs can be paused: {run_id}")
+                raise ValueError(f"Only queued or running training runs can be paused: {run_id}")
             conn.execute(
                 training_runs.update()
                 .where(training_runs.c.id == row["id"])
                 .values(status="paused", updated_at=now)
             )
-            conn.execute(jobs.update().where(jobs.c.id == row["job_id"]).values(status="paused", updated_at=now))
+            conn.execute(
+                jobs.update()
+                .where(jobs.c.id == row["job_id"])
+                .values(status="paused", updated_at=now, lease_owner=None, lease_expires_at=None)
+            )
         record = self.get_training_run(run_id)
         if record is None:
             raise ValueError(f"Training run not found after pause: {run_id}")
@@ -199,10 +218,10 @@ class DatabaseTrainingStore:
         with self.engine.begin() as conn:
             row = conn.execute(
                 sa.select(training_runs.c.id, training_runs.c.job_id)
-                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "paused"]))
+                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "paused", "running"]))
             ).mappings().first()
             if row is None:
-                raise ValueError(f"Only queued or paused training runs can be cancelled: {run_id}")
+                raise ValueError(f"Only queued, paused, or running training runs can be cancelled: {run_id}")
             conn.execute(
                 training_runs.update()
                 .where(training_runs.c.id == row["id"])
@@ -211,7 +230,14 @@ class DatabaseTrainingStore:
             conn.execute(
                 jobs.update()
                 .where(jobs.c.id == row["job_id"])
-                .values(status="cancelled", finished_at=now, updated_at=now)
+                .values(
+                    status="cancelled",
+                    error_message=reason,
+                    finished_at=now,
+                    updated_at=now,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
             )
         record = self.get_training_run(run_id)
         if record is None:
