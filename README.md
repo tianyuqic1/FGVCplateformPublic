@@ -100,6 +100,17 @@ the current synchronous uploaded-image inference endpoint; this is an MVP bridge
 inference is moved behind worker jobs. Both services mount the host Hugging Face and Torch caches so
 DINOv3 weights can be reused across container rebuilds.
 
+GPU execution is supported through the optional Compose override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d api ml-worker
+```
+
+The override sets DINOv3 feature extraction and the ridge/linear head solver to `cuda`. The host
+Docker daemon must expose NVIDIA GPUs to containers first, for example via NVIDIA Container Toolkit;
+otherwise Compose will fail before the service starts. The base `docker-compose.yml` remains CPU-safe
+so the workbench can still boot on machines without a configured container GPU runtime.
+
 The first real-data DINOv3 validation is documented in:
 
 ```text

@@ -980,7 +980,10 @@ def _run_inference_from_context(
     if not image_path.is_file():
         raise ValueError(f"Image path must be a file: {image_path}")
 
-    extractor = build_extractor_from_config(context.feature_artifact.extractor_config)
+    extractor = build_extractor_from_config(
+        context.feature_artifact.extractor_config,
+        overrides={"device": os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")},
+    )
     return run_image_inference(
         image_path=str(image_path),
         extractor=extractor,

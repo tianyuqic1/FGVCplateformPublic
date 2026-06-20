@@ -33,6 +33,70 @@ def apply_linear_head(features: np.ndarray, weights: np.ndarray, bias: np.ndarra
     return normalized @ weights + bias
 
 
+def _train_linear_head_numpy(
+    features: np.ndarray,
+    y: np.ndarray,
+    train_mask: np.ndarray,
+    class_count: int,
+    ridge_lambda: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    x_train, mean, std = _standardize_train(features[train_mask])
+    y_train = y[train_mask]
+    targets = _one_hot(y_train, class_count)
+
+    xtx = x_train.T @ x_train
+    regularizer = ridge_lambda * np.eye(xtx.shape[0], dtype=np.float32)
+    weights = np.linalg.solve(xtx + regularizer, x_train.T @ targets)
+    bias = targets.mean(axis=0) - x_train.mean(axis=0) @ weights
+    logits = apply_linear_head(features, weights, bias, mean, std)
+    return weights, bias, mean, std, logits
+
+
+def _train_linear_head_torch(
+    features: np.ndarray,
+    y: np.ndarray,
+    train_mask: np.ndarray,
+    class_count: int,
+    ridge_lambda: float,
+    device: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    try:
+        import torch
+        import torch.nn.functional as functional
+    except ImportError as exc:
+        raise RuntimeError("GPU linear head training requires torch to be installed.") from exc
+
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError("FINEVISION_LINEAR_HEAD_DEVICE is cuda, but torch.cuda.is_available() is false.")
+
+    torch_device = torch.device(device)
+    x_all = torch.as_tensor(features, dtype=torch.float32, device=torch_device)
+    y_all = torch.as_tensor(y, dtype=torch.long, device=torch_device)
+    train_mask_tensor = torch.as_tensor(train_mask, dtype=torch.bool, device=torch_device)
+    x_train_raw = x_all[train_mask_tensor]
+    y_train = y_all[train_mask_tensor]
+
+    mean = x_train_raw.mean(dim=0)
+    std = x_train_raw.std(dim=0, unbiased=False)
+    std = torch.where(std < 1e-6, torch.ones_like(std), std)
+    x_train = (x_train_raw - mean) / std
+    targets = functional.one_hot(y_train, num_classes=class_count).to(dtype=torch.float32)
+
+    xtx = x_train.T @ x_train
+    identity = torch.eye(xtx.shape[0], dtype=torch.float32, device=torch_device)
+    weights = torch.linalg.solve(xtx + ridge_lambda * identity, x_train.T @ targets)
+    bias = targets.mean(dim=0) - x_train.mean(dim=0) @ weights
+    logits = ((x_all - mean) / std) @ weights + bias
+
+    return (
+        weights.detach().cpu().numpy().astype(np.float32),
+        bias.detach().cpu().numpy().astype(np.float32),
+        mean.detach().cpu().numpy().astype(np.float32),
+        std.detach().cpu().numpy().astype(np.float32),
+        logits.detach().cpu().numpy().astype(np.float32),
+    )
+
+
 def train_linear_head(
     feature_artifact: FeatureArtifact,
     features: np.ndarray,
@@ -40,6 +104,7 @@ def train_linear_head(
     run_id: str = "run-smoke",
     ridge_lambda: float = 1e-2,
     artifact_id: str | None = None,
+    device: str = "cpu",
 ) -> tuple[ModelArtifact, TrainingRunReport, np.ndarray]:
     labels = list(feature_artifact.labels)
     classes = sorted(set(labels))
@@ -52,22 +117,21 @@ def train_linear_head(
     if not eval_mask.any():
         eval_mask = ~train_mask
 
-    x_train, mean, std = _standardize_train(features[train_mask])
-    y_train = y[train_mask]
-    targets = _one_hot(y_train, len(classes))
+    if device == "cpu":
+        weights, bias, mean, std, logits = _train_linear_head_numpy(features, y, train_mask, len(classes), ridge_lambda)
+        solver = "numpy"
+    else:
+        weights, bias, mean, std, logits = _train_linear_head_torch(features, y, train_mask, len(classes), ridge_lambda, device)
+        solver = "torch"
 
-    xtx = x_train.T @ x_train
-    regularizer = ridge_lambda * np.eye(xtx.shape[0], dtype=np.float32)
-    weights = np.linalg.solve(xtx + regularizer, x_train.T @ targets)
-    bias = targets.mean(axis=0) - x_train.mean(axis=0) @ weights
-
-    logits = apply_linear_head(features, weights, bias, mean, std)
     y_pred = logits[eval_mask].argmax(axis=1)
     run_config = {
         "run_id": run_id,
         "head_type": "ridge_linear",
         "ridge_lambda": ridge_lambda,
         "feature_artifact_id": feature_artifact.artifact_id,
+        "head_device": device,
+        "head_solver": solver,
     }
     report = classification_report(
         y_true=y[eval_mask],
@@ -87,7 +151,7 @@ def train_linear_head(
         classes=classes,
         head_type="ridge_linear",
         feature_dim=feature_artifact.feature_dim,
-        training_config={"run_id": run_id, "ridge_lambda": ridge_lambda},
+        training_config={"run_id": run_id, "ridge_lambda": ridge_lambda, "head_device": device, "head_solver": solver},
     )
     model_artifact = write_model_artifact(artifact_dir, model_artifact, weights, bias, mean, std)
     run_report = TrainingRunReport(

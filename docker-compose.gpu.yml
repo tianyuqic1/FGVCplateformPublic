@@ -1,0 +1,11 @@
+services:
+  api:
+    environment:
+      FINEVISION_DINOV3_DEVICE: cuda
+    gpus: all
+
+  ml-worker:
+    environment:
+      FINEVISION_DINOV3_DEVICE: cuda
+      FINEVISION_LINEAR_HEAD_DEVICE: cuda
+    gpus: all

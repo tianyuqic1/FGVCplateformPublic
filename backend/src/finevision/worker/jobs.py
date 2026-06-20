@@ -131,6 +131,11 @@ def _run_train_classifier(
             run_id=run_id,
             ridge_lambda=ridge_lambda,
             artifact_id=f"{manifest.dataset_version_id}-{run_id}-linear-head",
+            device=str(
+                payload.get("head_device")
+                or os.environ.get("FINEVISION_LINEAR_HEAD_DEVICE")
+                or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")
+            ),
         )
         calibration = fit_temperature_scaling(
             model_artifact,
