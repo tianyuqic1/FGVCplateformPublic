@@ -100,8 +100,9 @@ the current synchronous uploaded-image inference endpoint; this is an MVP bridge
 inference is moved behind worker jobs. Both services mount the host Hugging Face and Torch caches so
 DINOv3 weights can be reused across container rebuilds.
 
-For local iteration, Compose bind-mounts `./backend/src` into the API and worker containers. Python
-source changes therefore take effect after a service restart without rebuilding the image. Dependency,
+For local iteration, Compose bind-mounts `./backend/src` into the API and worker containers and the
+frontend source into the Vite container. Python source changes therefore take effect after a service
+restart, and frontend source changes flow through Vite, without rebuilding the images. Dependency,
 Dockerfile, or system package changes still require `docker compose build`.
 
 GPU execution is supported through the optional Compose override:

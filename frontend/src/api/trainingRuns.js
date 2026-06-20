@@ -1,4 +1,5 @@
 const DEFAULT_TIMEOUT_MS = 2500;
+const CREATE_TRAINING_TIMEOUT_MS = 15000;
 
 function apiBaseUrl() {
   const configured = import.meta.env?.VITE_API_BASE_URL;
@@ -20,7 +21,7 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
     let detail = `${response.status} ${method} ${path}`;
     try {
       const payload = await response.json();
-      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      const message = errorMessageFromDetail(payload?.detail);
       detail = message ? `${detail}: ${message}` : detail;
     } catch {
       // Keep the HTTP status fallback when the response body is not JSON.
@@ -123,7 +124,7 @@ export async function createTrainingRun(input) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/training-runs", { method: "POST", body: input, signal });
     return normalizeTrainingRun(extractTrainingRun(payload));
-  });
+  }, CREATE_TRAINING_TIMEOUT_MS);
 }
 
 export async function pauseTrainingRun(runId) {
@@ -152,4 +153,19 @@ export async function deleteTrainingRun(runId) {
     await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}`, { method: "DELETE", signal });
     return true;
   });
+}
+
+function errorMessageFromDetail(detail) {
+  if (typeof detail === "string") return detail;
+  if (typeof detail?.message === "string") return detail.message;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        const field = Array.isArray(item?.loc) ? item.loc.join(".") : "field";
+        return item?.msg ? `${field}: ${item.msg}` : null;
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return null;
 }

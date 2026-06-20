@@ -11,6 +11,10 @@ services:
       - "5173:5173"
     depends_on:
       - api
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/scripts:/app/scripts:ro
+      - ./frontend/index.html:/app/index.html:ro
 
   api:
     build:
