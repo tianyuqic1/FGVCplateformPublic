@@ -108,6 +108,8 @@ export function normalizeTrainingRun(raw) {
   const id = raw?.id ?? raw?.run_id ?? "run-preview";
   const datasetVersionId = raw?.datasetVersionId ?? raw?.dataset_version_id ?? null;
   const trainingProgress = normalizeTrainingProgress(metrics, status);
+  const extractorConfig = raw?.extractorConfig ?? raw?.extractor_config ?? {};
+  const headConfig = raw?.headConfig ?? raw?.head_config ?? {};
 
   return {
     id,
@@ -121,6 +123,16 @@ export function normalizeTrainingRun(raw) {
     reportArtifactId: raw?.reportArtifactId ?? raw?.report_artifact_id ?? null,
     calibrationArtifactId: raw?.calibrationArtifactId ?? raw?.calibration_artifact_id ?? null,
     thresholdStrategyArtifactId: raw?.thresholdStrategyArtifactId ?? raw?.threshold_strategy_artifact_id ?? null,
+    backboneId: raw?.backboneId ?? raw?.backbone_id ?? extractorConfig?.backbone_id ?? null,
+    extractorConfig,
+    headConfig,
+    featurePool: raw?.featurePool ?? raw?.feature_pool ?? extractorConfig?.feature_pool ?? null,
+    imageSize: raw?.imageSize ?? raw?.image_size ?? extractorConfig?.image_size ?? null,
+    featureBatchSize:
+      raw?.featureBatchSize ??
+      raw?.feature_batch_size ??
+      extractorConfig?.runtime?.feature_batch_size ??
+      null,
     jobId: raw?.jobId ?? raw?.job_id ?? null,
     status,
     progress: Number.isFinite(Number(raw?.progress)) ? Number(raw.progress) : trainingProgress.overallPercent,

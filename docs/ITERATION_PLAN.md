@@ -392,6 +392,9 @@ Acceptance:
 - Done: extractor/backbone metadata is canonicalized at the API boundary, so DINOv3 requests record `dinov3_vits16`, `dinov3_vitb16`, or `dinov3_vitl16` instead of the color-stats default.
 - Done: training creation exposes DINOv3 feature extraction batch size. The default is `8`; this affects feature extraction throughput/memory only, while the ridge/linear head is solved without a mini-batch training loop.
 - Done: DINOv3 feature cache identity ignores runtime `device` and `batch_size`, so tuning batch size does not duplicate identical feature artifacts.
+- Done: DINOv3 feature cache identity now includes `feature_pool`; new DINOv3 runs default to
+  `cls` and use the ViT CLS token. Older artifacts without `feature_pool` remain compatible as
+  legacy `model` pooled features and should be treated as a different feature semantic.
 - Partial: top-k/candidate recall is deferred until model registry and inference evaluation are expanded.
 - Done: running DINOv3 cancellation is productized as cooperative worker stop checks at stage
   boundaries, before/after weight preparation, and during feature extraction progress callbacks.

@@ -467,7 +467,7 @@ function RunRow({ run, onAction, busy = false }) {
         <div>
           <strong>{run.name}</strong>
           <div className="row-meta">
-            {run.datasetName} · {run.metric}
+            {run.datasetName} · {run.metric} · {featurePoolLabel(run.featurePool)}
           </div>
           <ProgressBar value={run.progress} fill={done ? "#0f766e" : run.status === "paused" ? "#6b7280" : "#a15c07"} shimmer={run.status === "running"} />
         </div>
@@ -1058,6 +1058,12 @@ function extractorShortLabel(extractor) {
   return extractor;
 }
 
+function featurePoolLabel(featurePool) {
+  if (featurePool === "cls") return "CLS token";
+  if (featurePool === "model") return "legacy model output";
+  return "legacy/unknown";
+}
+
 function filterTrainingRuns(runs, statusFilter, sortMode) {
   const filtered = runs.filter((run) => {
     if (statusFilter === "all") return true;
@@ -1348,6 +1354,7 @@ export function TrainingPage({ showToast }) {
           batch_size: Number(trainingForm.headBatchSize),
           weight_decay: Number(trainingForm.weightDecay),
         },
+        feature_pool: isDinoExtractor(trainingForm.extractor) ? "cls" : undefined,
       });
       setCreateState({ status: "succeeded", run, error: null });
       refresh();
@@ -1443,6 +1450,10 @@ export function TrainingPage({ showToast }) {
               </select>
             </div>
             <div className="field">
+              <label>特征池化</label>
+              <input value={isDinoExtractor(trainingForm.extractor) ? "CLS token" : "color stats"} disabled />
+            </div>
+            <div className="field">
               <label>learning_rate</label>
               <input type="number" min="0.000001" step="0.0001" value={trainingForm.learningRate} onChange={(event) => updateTrainingField("learningRate", event.target.value)} />
             </div>
@@ -1467,7 +1478,7 @@ export function TrainingPage({ showToast }) {
             </div>
           </div>
           <p className="panel-caption section-gap-small">
-            DINOv3 batch_size 控制特征提取；输入分辨率会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
+            DINOv3 batch_size 控制特征提取；输入分辨率和 CLS token 特征池化会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
           </p>
           <div className="weight-status-grid section-gap-small">
             {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
@@ -1593,7 +1604,7 @@ export function TrainingPage({ showToast }) {
           )}
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
-          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />image_size: 448<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_pool: cls<br />image_size: 448<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
         </Panel>
       </div>
     </>
@@ -1638,7 +1649,7 @@ export function TrainingDetailPage({ showToast }) {
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
   return (
     <>
-      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="ExternalLink" size={16} />产物 API 待接入</button></>} />
+      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · ${featurePoolLabel(run.featurePool)} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="ExternalLink" size={16} />产物 API 待接入</button></>} />
       <div className="grid metrics">
         <MetricCard title="进度" value={`${run.progress}%`} caption={trainingStatus(run).label} fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
         <MetricCard title="Val Acc" value={accuracy === null ? "待生成" : `${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy ?? 0} icon="Target" />
@@ -1661,7 +1672,7 @@ export function TrainingDetailPage({ showToast }) {
           <CurveRow label="review cost" value={reviewCost} percent={coverage ?? 0} fill="#a15c07" />
         </Panel>
         <Panel title="产物元数据" caption="原始字段便于和 API / artifact store 对账。">
-          <div className="code-panel">run: {run.id}<br />job: {run.jobId ?? "n/a"}<br />dataset: {run.datasetVersionId ?? "n/a"}<br />model_version: {run.modelVersionId ?? "n/a"}<br />feature: {run.featureArtifactId ?? "n/a"}<br />model_artifact: {run.modelArtifactId ?? "n/a"}<br />report: {run.reportArtifactId ?? "n/a"}<br />calibration: {run.calibrationArtifactId ?? "n/a"}<br />threshold_strategy: {run.thresholdStrategyArtifactId ?? "n/a"}<br />error: {run.error ?? "n/a"}</div>
+          <div className="code-panel">run: {run.id}<br />job: {run.jobId ?? "n/a"}<br />dataset: {run.datasetVersionId ?? "n/a"}<br />backbone: {run.backboneId ?? "n/a"}<br />feature_pool: {run.featurePool ?? "legacy/model"}<br />image_size: {run.imageSize ?? "n/a"}<br />feature_batch_size: {run.featureBatchSize ?? "n/a"}<br />model_version: {run.modelVersionId ?? "n/a"}<br />feature: {run.featureArtifactId ?? "n/a"}<br />model_artifact: {run.modelArtifactId ?? "n/a"}<br />report: {run.reportArtifactId ?? "n/a"}<br />calibration: {run.calibrationArtifactId ?? "n/a"}<br />threshold_strategy: {run.thresholdStrategyArtifactId ?? "n/a"}<br />error: {run.error ?? "n/a"}</div>
         </Panel>
       </div>
     </>

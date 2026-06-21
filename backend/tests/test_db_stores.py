@@ -381,8 +381,10 @@ def test_dinov3_training_request_uses_canonical_backbone_metadata(
         assert created_run["extractor_config"]["type"] == "timm_dinov3"
         assert created_run["extractor_config"]["preset"] == extractor
         assert created_run["extractor_config"]["model_name"] == model_name
+        assert created_run["extractor_config"]["feature_pool"] == "cls"
         assert created_run["extractor_config"]["runtime"]["feature_batch_size"] == 4
         assert body["job"]["payload"]["batch_size"] == 4
+        assert body["job"]["payload"]["feature_pool"] == "cls"
 
 
 def test_training_run_cancel_tracks_business_run_status(

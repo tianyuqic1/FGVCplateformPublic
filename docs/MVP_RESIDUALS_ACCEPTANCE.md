@@ -102,13 +102,14 @@ trained with cross-entropy and Adam. It records learning rate, epoch count, batc
 device, solver, and per-epoch metrics in the model artifact and training report. `ridge_linear`
 remains available for backward compatibility and fast smoke checks.
 
-June 21 diagnosis on `run-fa63f219eaf5` found that `dinov3_vitl16` had been trained with
-`learning_rate=0.01`, `batch_size=16`, `epochs=50`, and 256px timm default features, producing
-60.6% CUB test accuracy. Reusing the same cached 256px ViT-L features offline gave 74.5% with
-Adam `learning_rate=0.001`, `batch_size=256`, `epochs=100`, and 78.1% with ridge, so the low run
-was primarily a head-configuration issue plus likely resolution/preprocessing mismatch with stronger
-historical experiments. DINOv3 now exposes `image_size` and defaults new DINOv3 feature extraction to
-448px for fine-grained datasets; 256px remains selectable and comparable.
+June 21 diagnosis found a more important feature-semantics issue than the optimizer alone:
+FineVision had been using timm's `model(tensor)` output, which resolves to `global_pool=avg` for
+`vit_*_patch16_dinov3`, while the stronger FGVC baseline uses the ViT CLS token from
+`forward_features(... )[:, 0]`. New DINOv3 runs now default to `feature_pool=cls`, include that value
+in the feature cache identity, and keep older artifacts without `feature_pool` compatible as legacy
+`model` pooled features. A CUB rerun with ViT-S/16, 448px, CLS pooling, Adam `learning_rate=0.0005`,
+`batch_size=256`, and `epochs=100` reached 88.23% accuracy / 88.26% macro F1, compared with roughly
+70.8% for the old ViT-S avg-pooled cache under the same dataset and head family.
 
 Acceptance for completion:
 
@@ -116,6 +117,7 @@ Acceptance for completion:
 - Done: use Adam as the default training head from the UI/API.
 - Done: training reports record optimizer configuration and per-epoch metrics.
 - Done: expose DINOv3 `image_size` as a semantic feature-cache parameter.
+- Done: expose DINOv3 `feature_pool=cls` as the default semantic feature-cache parameter.
 - Remaining: early stopping and scheduler support can be added after the MVP baseline is stable.
 
 ### Feature Extraction Progress

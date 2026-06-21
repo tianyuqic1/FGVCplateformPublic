@@ -146,6 +146,7 @@ Training run request:
   "extractor": "dinov3_vitb",
   "feature_batch_size": 8,
   "image_size": 448,
+  "feature_pool": "cls",
   "head_config": {
     "head_type": "torch_linear_adam",
     "learning_rate": 0.001,
@@ -198,7 +199,10 @@ dinov3_vitl   -> dinov3_vitl16, timm vit_large_patch16_dinov3
 
 `feature_batch_size` defaults to `8` and only affects DINOv3 feature extraction runtime memory and
 throughput. `image_size` defaults to `448` for DINOv3 patch16 backbones, must be divisible by `16`,
-and is part of the feature cache identity because it changes the extracted embeddings. The Adam
+and is part of the feature cache identity because it changes the extracted embeddings. `feature_pool`
+defaults to `cls` for new DINOv3 runs, so the worker stores the ViT CLS token instead of timm's
+legacy `model(tensor)` pooled output. Older DINOv3 feature artifacts without `feature_pool` are treated
+as `model` pooling for compatibility and must not be mixed with new CLS feature caches. The Adam
 classifier head has a separate `head_config.batch_size`.
 
 Training queue controls:

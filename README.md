@@ -89,10 +89,12 @@ large weights, so they are not used by the default smoke test:
 uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vits --batch-size 8
 ```
 
-`--batch-size` only controls DINOv3 feature extraction throughput and memory use. The MVP classifier
-head uses a ridge/linear closed-form solve and does not have a separate training batch size. Feature
-cache identity is based on dataset version, DINOv3 model, pretrained flag, and backbone id, not the
-runtime batch size.
+`--batch-size` only controls DINOv3 feature extraction throughput and memory use. New DINOv3 training
+runs extract the ViT CLS token by default (`feature_pool=cls`), matching the fine-grained
+classification baseline. The MVP classifier head defaults to `torch_linear_adam`; its
+`head_config.batch_size` controls Adam mini-batches separately from feature extraction. Feature cache
+identity is based on dataset version, DINOv3 model, pretrained flag, backbone id, image size, and
+feature pooling, not the runtime batch size.
 
 In Docker Compose, `ml-worker` is built from `Dockerfile.worker` with the `dinov3` optional
 dependencies installed. The API image also installs the same optional extractor dependencies for

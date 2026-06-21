@@ -55,6 +55,7 @@ class CreateTrainingRunRequest(BaseModel):
     extractor: Literal["color_stats", "dinov3_vits", "dinov3_vitb", "dinov3_vitl"] = "color_stats"
     feature_batch_size: int | None = Field(default=None, ge=1, le=128)
     image_size: int | None = Field(default=None, ge=128, le=1024)
+    feature_pool: Literal["cls", "model"] = "cls"
     head_config: dict[str, Any] = Field(
         default_factory=lambda: {
             "head_type": "torch_linear_adam",
@@ -327,9 +328,16 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "dataset_version_id": manifest.dataset_version_id,
             "backbone_id": backbone_id,
             "extractor": request.extractor,
-            "extractor_config": _extractor_config(request.extractor, backbone_id, feature_batch_size, image_size),
+            "extractor_config": _extractor_config(
+                request.extractor,
+                backbone_id,
+                feature_batch_size,
+                image_size,
+                request.feature_pool,
+            ),
             "batch_size": feature_batch_size,
             "image_size": image_size,
+            "feature_pool": request.feature_pool if request.extractor in DINOV3_MODEL_PRESETS else None,
             "head_config": request.head_config,
             "target_selective_risk": request.target_selective_risk,
             "review_cost_per_item": request.review_cost_per_item,
@@ -1051,9 +1059,10 @@ def _extractor_config(
     backbone_id: str,
     feature_batch_size: int | None = None,
     image_size: int | None = None,
+    feature_pool: str = "cls",
 ) -> dict[str, Any]:
     if extractor in DINOV3_MODEL_PRESETS:
-        config = dinov3_extractor_config(extractor, backbone_id, image_size=image_size)
+        config = dinov3_extractor_config(extractor, backbone_id, image_size=image_size, feature_pool=feature_pool)
         config["runtime"] = {"feature_batch_size": feature_batch_size or 8}
         return config
     return {"type": "color_stats", "bins": 8, "backbone_id": backbone_id}
