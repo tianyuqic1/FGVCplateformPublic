@@ -54,11 +54,12 @@ class CreateTrainingRunRequest(BaseModel):
     backbone_id: str | None = None
     extractor: Literal["color_stats", "dinov3_vits", "dinov3_vitb", "dinov3_vitl"] = "color_stats"
     feature_batch_size: int | None = Field(default=None, ge=1, le=128)
+    image_size: int | None = Field(default=None, ge=128, le=1024)
     head_config: dict[str, Any] = Field(
         default_factory=lambda: {
             "head_type": "torch_linear_adam",
             "learning_rate": 1e-3,
-            "epochs": 50,
+            "epochs": 100,
             "batch_size": 256,
             "weight_decay": 1e-4,
         }
@@ -312,6 +313,12 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         backbone_id = request.backbone_id or _default_backbone_id(request.extractor)
         _validate_training_config(request.extractor, backbone_id, request.head_config)
         feature_batch_size = request.feature_batch_size or 8
+        image_size = request.image_size or (448 if request.extractor in DINOV3_MODEL_PRESETS else None)
+        if image_size is not None and image_size % 16 != 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="image_size must be divisible by 16 for DINOv3 patch16 backbones",
+            )
 
         run_id = f"run-{uuid4().hex[:12]}"
         payload = {
@@ -320,8 +327,9 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "dataset_version_id": manifest.dataset_version_id,
             "backbone_id": backbone_id,
             "extractor": request.extractor,
-            "extractor_config": _extractor_config(request.extractor, backbone_id, feature_batch_size),
+            "extractor_config": _extractor_config(request.extractor, backbone_id, feature_batch_size, image_size),
             "batch_size": feature_batch_size,
+            "image_size": image_size,
             "head_config": request.head_config,
             "target_selective_risk": request.target_selective_risk,
             "review_cost_per_item": request.review_cost_per_item,
@@ -1038,9 +1046,14 @@ def _default_backbone_id(extractor: str) -> str:
     return "color_stats_v1"
 
 
-def _extractor_config(extractor: str, backbone_id: str, feature_batch_size: int | None = None) -> dict[str, Any]:
+def _extractor_config(
+    extractor: str,
+    backbone_id: str,
+    feature_batch_size: int | None = None,
+    image_size: int | None = None,
+) -> dict[str, Any]:
     if extractor in DINOV3_MODEL_PRESETS:
-        config = dinov3_extractor_config(extractor, backbone_id)
+        config = dinov3_extractor_config(extractor, backbone_id, image_size=image_size)
         config["runtime"] = {"feature_batch_size": feature_batch_size or 8}
         return config
     return {"type": "color_stats", "bins": 8, "backbone_id": backbone_id}

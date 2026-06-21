@@ -399,6 +399,8 @@ Acceptance:
   supports callbacks.
 - Done: `/api/model-weights` and the training UI expose DINOv3 ViT-S/B/L cache status, complete
   cache size, partial download size, and HF token configuration.
+- Done: DINOv3 training exposes `image_size`; new DINOv3 runs default to 448px and include the
+  resolution in the feature cache identity.
 - Partial: Hugging Face/timm weight download calls are still not preempted mid-request; cancellation
   is observed after the blocking download returns.
 - Done: the default trainable head is `torch_linear_adam`, with `ridge_linear` kept as a

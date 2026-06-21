@@ -56,7 +56,7 @@ class DatabaseTrainingStore:
             or {
                 "head_type": "torch_linear_adam",
                 "learning_rate": 1e-3,
-                "epochs": 50,
+                "epochs": 100,
                 "batch_size": 256,
                 "weight_decay": 1e-4,
             }

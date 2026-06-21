@@ -102,11 +102,20 @@ trained with cross-entropy and Adam. It records learning rate, epoch count, batc
 device, solver, and per-epoch metrics in the model artifact and training report. `ridge_linear`
 remains available for backward compatibility and fast smoke checks.
 
+June 21 diagnosis on `run-fa63f219eaf5` found that `dinov3_vitl16` had been trained with
+`learning_rate=0.01`, `batch_size=16`, `epochs=50`, and 256px timm default features, producing
+60.6% CUB test accuracy. Reusing the same cached 256px ViT-L features offline gave 74.5% with
+Adam `learning_rate=0.001`, `batch_size=256`, `epochs=100`, and 78.1% with ridge, so the low run
+was primarily a head-configuration issue plus likely resolution/preprocessing mismatch with stronger
+historical experiments. DINOv3 now exposes `image_size` and defaults new DINOv3 feature extraction to
+448px for fine-grained datasets; 256px remains selectable and comparable.
+
 Acceptance for completion:
 
 - Done: add `torch_linear_adam` with `epochs`, `learning_rate`, `batch_size`, and `weight_decay`.
 - Done: use Adam as the default training head from the UI/API.
 - Done: training reports record optimizer configuration and per-epoch metrics.
+- Done: expose DINOv3 `image_size` as a semantic feature-cache parameter.
 - Remaining: early stopping and scheduler support can be added after the MVP baseline is stable.
 
 ### Feature Extraction Progress

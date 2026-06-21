@@ -145,10 +145,11 @@ Training run request:
   "backbone_id": "dinov3_vitb16",
   "extractor": "dinov3_vitb",
   "feature_batch_size": 8,
+  "image_size": 448,
   "head_config": {
     "head_type": "torch_linear_adam",
     "learning_rate": 0.001,
-    "epochs": 50,
+    "epochs": 100,
     "batch_size": 256,
     "weight_decay": 0.0001
   },
@@ -196,8 +197,9 @@ dinov3_vitl   -> dinov3_vitl16, timm vit_large_patch16_dinov3
 ```
 
 `feature_batch_size` defaults to `8` and only affects DINOv3 feature extraction runtime memory and
-throughput. The current ridge/linear classifier head uses a closed-form solve, so there is no
-separate training mini-batch size.
+throughput. `image_size` defaults to `448` for DINOv3 patch16 backbones, must be divisible by `16`,
+and is part of the feature cache identity because it changes the extracted embeddings. The Adam
+classifier head has a separate `head_config.batch_size`.
 
 Training queue controls:
 
@@ -222,9 +224,10 @@ remaining limitation: Hugging Face/timm weight downloads are not preempted mid-r
 ```
 
 The default classifier head is `torch_linear_adam`, a `torch.nn.Linear` head trained with
-cross-entropy and Adam. It records `learning_rate`, `epochs`, `batch_size`, `weight_decay`, device,
-solver, and per-epoch loss/accuracy in the training report. `ridge_linear` remains supported as a
-fast compatibility baseline for old runs and local smoke checks.
+cross-entropy and Adam. The current baseline defaults are `learning_rate=0.001`, `epochs=100`,
+`batch_size=256`, and `weight_decay=0.0001`. It records optimizer configuration, device, solver,
+and per-epoch loss/accuracy in the training report. `ridge_linear` remains supported as a fast
+compatibility baseline for old runs and local smoke checks.
 
 DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub.
 

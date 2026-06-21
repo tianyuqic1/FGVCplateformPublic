@@ -1283,8 +1283,9 @@ export function TrainingPage({ showToast }) {
     datasetVersionId: "",
     extractor: "dinov3_vits",
     featureBatchSize: "8",
+    imageSize: "448",
     learningRate: "0.001",
-    epochs: "50",
+    epochs: "100",
     headBatchSize: "256",
     weightDecay: "0.0001",
   });
@@ -1307,7 +1308,8 @@ export function TrainingPage({ showToast }) {
     Number(trainingForm.epochs) > 0 &&
     Number(trainingForm.headBatchSize) > 0 &&
     Number(trainingForm.weightDecay) >= 0 &&
-    (!isDinoExtractor(trainingForm.extractor) || Number(trainingForm.featureBatchSize) > 0);
+    (!isDinoExtractor(trainingForm.extractor) ||
+      (Number(trainingForm.featureBatchSize) > 0 && Number(trainingForm.imageSize) >= 128 && Number(trainingForm.imageSize) % 16 === 0));
   const createBlockReason = canUseDatasetForTraining
     ? ""
     : datasetSource === "api"
@@ -1338,6 +1340,7 @@ export function TrainingPage({ showToast }) {
         dataset_version_id: trainingForm.datasetVersionId.trim(),
         extractor: trainingForm.extractor,
         feature_batch_size: isDinoExtractor(trainingForm.extractor) ? Number(trainingForm.featureBatchSize) : undefined,
+        image_size: isDinoExtractor(trainingForm.extractor) ? Number(trainingForm.imageSize) : undefined,
         head_config: {
           head_type: "torch_linear_adam",
           learning_rate: Number(trainingForm.learningRate),
@@ -1427,6 +1430,19 @@ export function TrainingPage({ showToast }) {
               />
             </div>
             <div className="field">
+              <label>输入分辨率</label>
+              <select
+                value={trainingForm.imageSize}
+                onChange={(event) => updateTrainingField("imageSize", event.target.value)}
+                disabled={!isDinoExtractor(trainingForm.extractor)}
+              >
+                <option value="256">256 · timm 默认</option>
+                <option value="384">384 · 更细</option>
+                <option value="448">448 · CUB 推荐</option>
+                <option value="512">512 · 更慢</option>
+              </select>
+            </div>
+            <div className="field">
               <label>learning_rate</label>
               <input type="number" min="0.000001" step="0.0001" value={trainingForm.learningRate} onChange={(event) => updateTrainingField("learningRate", event.target.value)} />
             </div>
@@ -1451,7 +1467,7 @@ export function TrainingPage({ showToast }) {
             </div>
           </div>
           <p className="panel-caption section-gap-small">
-            DINOv3 batch_size 控制特征提取；分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
+            DINOv3 batch_size 控制特征提取；输入分辨率会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
           </p>
           <div className="weight-status-grid section-gap-small">
             {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
@@ -1577,7 +1593,7 @@ export function TrainingPage({ showToast }) {
           )}
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
-          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />image_size: 448<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
         </Panel>
       </div>
     </>

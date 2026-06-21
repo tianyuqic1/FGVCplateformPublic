@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from finevision.api import create_app
-from finevision.ml_toolkit.features import inspect_dinov3_weight_cache
+from finevision.ml_toolkit.features import build_extractor_from_config, dinov3_extractor_config, inspect_dinov3_weight_cache
 
 
 def test_inspect_dinov3_weight_cache_reports_cached_partial_and_missing(tmp_path: Path, monkeypatch) -> None:
@@ -45,3 +45,11 @@ def test_model_weights_api_returns_cache_status(tmp_path: Path, monkeypatch) -> 
     assert payload["cache_root"] == str(hub_cache)
     assert payload["hf_token_configured"] is False
     assert {item["preset"] for item in payload["weights"]} == {"dinov3_vits", "dinov3_vitb", "dinov3_vitl"}
+
+
+def test_dinov3_image_size_is_part_of_feature_config() -> None:
+    config = dinov3_extractor_config("dinov3_vitl", image_size=448)
+    extractor = build_extractor_from_config(config, {"device": "cpu", "batch_size": 2})
+
+    assert extractor.config["image_size"] == 448
+    assert extractor.config["model_name"] == "vit_large_patch16_dinov3"

@@ -94,15 +94,23 @@ def _resolve_huggingface_hub_cache(cache_root: str | Path | None = None) -> Path
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
-def dinov3_extractor_config(extractor: str, backbone_id: str | None = None) -> dict[str, object]:
+def dinov3_extractor_config(
+    extractor: str,
+    backbone_id: str | None = None,
+    *,
+    image_size: int | None = None,
+) -> dict[str, object]:
     preset = DINOV3_MODEL_PRESETS[extractor]
-    return {
+    config: dict[str, object] = {
         "type": "timm_dinov3",
         "preset": extractor,
         "model_name": preset["model_name"],
         "pretrained": True,
         "backbone_id": backbone_id or preset["backbone_id"],
     }
+    if image_size is not None:
+        config["image_size"] = image_size
+    return config
 
 
 class ImageFeatureExtractor(Protocol):
@@ -151,6 +159,7 @@ class TimmDinoV3Extractor:
     pretrained: bool = True
     device: str = "cpu"
     batch_size: int = 8
+    image_size: int | None = None
     backbone_id: str = "dinov3_vitb16"
     config: dict[str, object] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
@@ -166,6 +175,8 @@ class TimmDinoV3Extractor:
             "pretrained": self.pretrained,
             "backbone_id": self.backbone_id,
         }
+        if self.image_size is not None:
+            self.config["image_size"] = int(self.image_size)
 
     def prepare(self) -> None:
         try:
@@ -185,6 +196,8 @@ class TimmDinoV3Extractor:
             model = timm.create_model(self.model_name, pretrained=self.pretrained, num_classes=0)
             model.eval().to(self.device)
             data_config = resolve_model_data_config(model)
+            if self.image_size is not None:
+                data_config["input_size"] = (3, int(self.image_size), int(self.image_size))
             self._model = model
             self._transform = create_transform(**data_config, is_training=False)
 
@@ -229,6 +242,7 @@ def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any
             pretrained=bool(merged.get("pretrained", True)),
             device=str(merged.get("device", "cpu")),
             batch_size=int(merged.get("batch_size", 8)),
+            image_size=int(merged["image_size"]) if merged.get("image_size") is not None else None,
             backbone_id=str(merged.get("backbone_id", preset["backbone_id"])),
         )
     raise ValueError(f"Unsupported extractor config type: {extractor_type}")
