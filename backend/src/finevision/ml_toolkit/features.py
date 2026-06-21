@@ -99,6 +99,7 @@ def dinov3_extractor_config(
     backbone_id: str | None = None,
     *,
     image_size: int | None = None,
+    feature_pool: str = "cls",
 ) -> dict[str, object]:
     preset = DINOV3_MODEL_PRESETS[extractor]
     config: dict[str, object] = {
@@ -107,6 +108,7 @@ def dinov3_extractor_config(
         "model_name": preset["model_name"],
         "pretrained": True,
         "backbone_id": backbone_id or preset["backbone_id"],
+        "feature_pool": feature_pool,
     }
     if image_size is not None:
         config["image_size"] = image_size
@@ -160,6 +162,7 @@ class TimmDinoV3Extractor:
     device: str = "cpu"
     batch_size: int = 8
     image_size: int | None = None
+    feature_pool: str = "cls"
     backbone_id: str = "dinov3_vitb16"
     config: dict[str, object] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
@@ -174,6 +177,7 @@ class TimmDinoV3Extractor:
             "model_name": self.model_name,
             "pretrained": self.pretrained,
             "backbone_id": self.backbone_id,
+            "feature_pool": self.feature_pool,
         }
         if self.image_size is not None:
             self.config["image_size"] = int(self.image_size)
@@ -220,7 +224,16 @@ class TimmDinoV3Extractor:
             for start in range(0, len(paths), self.batch_size):
                 images = [transform(Image.open(path).convert("RGB")) for path in paths[start : start + self.batch_size]]
                 tensor = torch.stack(images).to(self.device)
-                output = model(tensor)
+                if self.feature_pool == "cls":
+                    output = model.forward_features(tensor)
+                    if isinstance(output, (tuple, list)):
+                        output = output[0]
+                    if output.ndim == 3:
+                        output = output[:, 0]
+                elif self.feature_pool == "model":
+                    output = model(tensor)
+                else:
+                    raise ValueError(f"Unsupported DINOv3 feature_pool: {self.feature_pool}")
                 if isinstance(output, (tuple, list)):
                     output = output[0]
                 batches.append(output.detach().cpu().float().numpy())
@@ -243,6 +256,7 @@ def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any
             device=str(merged.get("device", "cpu")),
             batch_size=int(merged.get("batch_size", 8)),
             image_size=int(merged["image_size"]) if merged.get("image_size") is not None else None,
+            feature_pool=str(merged.get("feature_pool") or "model"),
             backbone_id=str(merged.get("backbone_id", preset["backbone_id"])),
         )
     raise ValueError(f"Unsupported extractor config type: {extractor_type}")

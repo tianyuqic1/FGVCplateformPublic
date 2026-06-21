@@ -53,3 +53,20 @@ def test_dinov3_image_size_is_part_of_feature_config() -> None:
 
     assert extractor.config["image_size"] == 448
     assert extractor.config["model_name"] == "vit_large_patch16_dinov3"
+    assert extractor.config["feature_pool"] == "cls"
+
+
+def test_legacy_dinov3_config_keeps_model_pooling_for_artifact_compatibility() -> None:
+    extractor = build_extractor_from_config(
+        {
+            "type": "timm_dinov3",
+            "preset": "dinov3_vitl",
+            "model_name": "vit_large_patch16_dinov3",
+            "pretrained": True,
+            "backbone_id": "dinov3_vitl16",
+            "image_size": 448,
+        },
+        {"device": "cpu", "batch_size": 2},
+    )
+
+    assert extractor.config["feature_pool"] == "model"
