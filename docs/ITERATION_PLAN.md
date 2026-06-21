@@ -401,8 +401,8 @@ Acceptance:
   cache size, partial download size, and HF token configuration.
 - Partial: Hugging Face/timm weight download calls are still not preempted mid-request; cancellation
   is observed after the blocking download returns.
-- Partial: the only trainable head is `ridge_linear`; optimizer-based heads such as
-  `torch_linear_adam` are a P1 follow-up.
+- Done: the default trainable head is `torch_linear_adam`, with `ridge_linear` kept as a
+  compatibility baseline.
 
 Implementation notes:
 

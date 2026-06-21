@@ -140,7 +140,12 @@ def _run_train_classifier(
             _update_training_progress(training_store, run_id, "weights", "completed", note="feature cache reused")
             _update_training_progress(training_store, run_id, "features", "completed", note="feature cache reused")
         head_config = dict(payload.get("head_config") or {})
+        head_type = str(head_config.get("head_type", "torch_linear_adam"))
         ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
+        learning_rate = float(head_config.get("learning_rate", 1e-3))
+        epochs = int(head_config.get("epochs", 50))
+        head_batch_size = int(head_config.get("batch_size", 256))
+        weight_decay = float(head_config.get("weight_decay", 1e-4))
         _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "head", "running")
         model_artifact, training_report, logits = train_linear_head(
@@ -155,6 +160,12 @@ def _run_train_classifier(
                 or os.environ.get("FINEVISION_LINEAR_HEAD_DEVICE")
                 or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")
             ),
+            head_type=head_type,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            batch_size=head_batch_size,
+            weight_decay=weight_decay,
+            progress_callback=_head_progress_callback(training_store, run_id),
         )
         _update_training_progress(training_store, run_id, "head", "completed")
         _check_training_control(training_store, run_id)
@@ -359,6 +370,30 @@ def _feature_progress_callback(training_store: TrainingStoreLike, run_id: str):
             "features",
             "running",
             note=f"{done}/{total} samples",
+            stage_percent=percent,
+        )
+
+    return update
+
+
+def _head_progress_callback(training_store: TrainingStoreLike, run_id: str):
+    last_percent = -1
+
+    def update(epoch: int, epochs: int, metrics: dict[str, float]) -> None:
+        nonlocal last_percent
+        _check_training_control(training_store, run_id)
+        if epochs <= 0:
+            return
+        percent = int((epoch / epochs) * 100)
+        if percent < 100 and percent - last_percent < 5:
+            return
+        last_percent = percent
+        _update_training_progress(
+            training_store,
+            run_id,
+            "head",
+            "running",
+            note=f"epoch {epoch}/{epochs} · loss {metrics.get('train_loss', 0.0):.4f} · acc {metrics.get('eval_accuracy', 0.0):.3f}",
             stage_percent=percent,
         )
 

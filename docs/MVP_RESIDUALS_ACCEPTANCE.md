@@ -93,20 +93,21 @@ Acceptance for productized completion:
 
 P1 issues reduce efficiency or trust and should be addressed soon.
 
-### Training Head Limitation
+### Training Head
 
-Current status: `ridge_linear` only.
+Current status: Adam default.
 
-The classifier head currently uses a ridge/linear closed-form solve. It has `ridge_lambda`, but no
-learning rate, epoch count, optimizer, scheduler, or early stopping.
+The classifier head now defaults to `torch_linear_adam`, implemented as a `torch.nn.Linear` layer
+trained with cross-entropy and Adam. It records learning rate, epoch count, batch size, weight decay,
+device, solver, and per-epoch metrics in the model artifact and training report. `ridge_linear`
+remains available for backward compatibility and fast smoke checks.
 
 Acceptance for completion:
 
-- Add `torch_linear_adam` with `epochs`, `learning_rate`, `batch_size`, `weight_decay`, and
-  `early_stopping_patience`.
-- Keep `ridge_linear` as the default fast baseline.
-- Training reports record optimizer configuration and per-epoch metrics when an iterative trainer is
-  selected.
+- Done: add `torch_linear_adam` with `epochs`, `learning_rate`, `batch_size`, and `weight_decay`.
+- Done: use Adam as the default training head from the UI/API.
+- Done: training reports record optimizer configuration and per-epoch metrics.
+- Remaining: early stopping and scheduler support can be added after the MVP baseline is stable.
 
 ### Feature Extraction Progress
 
@@ -224,5 +225,5 @@ Manual MVP walkthrough:
   `HF_TOKEN` configuration.
 - Candidate models can be used for experiments, but release governance is not complete until model
   registry promotion and rollback exist.
-- `ridge_linear` is a strong baseline, not a full optimizer-based training stack.
+- `torch_linear_adam` is now the default training stack; scheduler and early stopping are still deferred.
 - The feedback pool is visible, but feedback-to-new-dataset-version curation is not implemented yet.

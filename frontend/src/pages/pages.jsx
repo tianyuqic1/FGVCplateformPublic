@@ -1283,7 +1283,10 @@ export function TrainingPage({ showToast }) {
     datasetVersionId: "",
     extractor: "dinov3_vits",
     featureBatchSize: "8",
-    ridgeLambda: "0.01",
+    learningRate: "0.001",
+    epochs: "50",
+    headBatchSize: "256",
+    weightDecay: "0.0001",
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const [queueActionState, setQueueActionState] = useState({ status: "idle", runId: null, error: null });
@@ -1300,7 +1303,10 @@ export function TrainingPage({ showToast }) {
     canUseDatasetForTraining &&
     createState.status !== "running" &&
     trainingForm.datasetVersionId.trim() &&
-    Number(trainingForm.ridgeLambda) > 0 &&
+    Number(trainingForm.learningRate) > 0 &&
+    Number(trainingForm.epochs) > 0 &&
+    Number(trainingForm.headBatchSize) > 0 &&
+    Number(trainingForm.weightDecay) >= 0 &&
     (!isDinoExtractor(trainingForm.extractor) || Number(trainingForm.featureBatchSize) > 0);
   const createBlockReason = canUseDatasetForTraining
     ? ""
@@ -1333,8 +1339,11 @@ export function TrainingPage({ showToast }) {
         extractor: trainingForm.extractor,
         feature_batch_size: isDinoExtractor(trainingForm.extractor) ? Number(trainingForm.featureBatchSize) : undefined,
         head_config: {
-          head_type: "ridge_linear",
-          ridge_lambda: Number(trainingForm.ridgeLambda),
+          head_type: "torch_linear_adam",
+          learning_rate: Number(trainingForm.learningRate),
+          epochs: Number(trainingForm.epochs),
+          batch_size: Number(trainingForm.headBatchSize),
+          weight_decay: Number(trainingForm.weightDecay),
         },
       });
       setCreateState({ status: "succeeded", run, error: null });
@@ -1418,8 +1427,20 @@ export function TrainingPage({ showToast }) {
               />
             </div>
             <div className="field">
-              <label>ridge_lambda</label>
-              <input type="number" min="0.000001" step="0.001" value={trainingForm.ridgeLambda} onChange={(event) => updateTrainingField("ridgeLambda", event.target.value)} />
+              <label>learning_rate</label>
+              <input type="number" min="0.000001" step="0.0001" value={trainingForm.learningRate} onChange={(event) => updateTrainingField("learningRate", event.target.value)} />
+            </div>
+            <div className="field">
+              <label>epochs</label>
+              <input type="number" min="1" max="1000" step="1" value={trainingForm.epochs} onChange={(event) => updateTrainingField("epochs", event.target.value)} />
+            </div>
+            <div className="field">
+              <label>head batch_size</label>
+              <input type="number" min="1" max="4096" step="1" value={trainingForm.headBatchSize} onChange={(event) => updateTrainingField("headBatchSize", event.target.value)} />
+            </div>
+            <div className="field">
+              <label>weight_decay</label>
+              <input type="number" min="0" step="0.0001" value={trainingForm.weightDecay} onChange={(event) => updateTrainingField("weightDecay", event.target.value)} />
             </div>
             <div className="field">
               <label>执行</label>
@@ -1430,7 +1451,7 @@ export function TrainingPage({ showToast }) {
             </div>
           </div>
           <p className="panel-caption section-gap-small">
-            DINOv3 batch_size 只影响特征提取吞吐和内存；当前分类头训练是 ridge/linear head 矩阵求解，没有独立的训练 batch size。
+            DINOv3 batch_size 控制特征提取；分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
           </p>
           <div className="weight-status-grid section-gap-small">
             {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
@@ -1556,7 +1577,7 @@ export function TrainingPage({ showToast }) {
           )}
         </Panel>
         <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
-          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_batch_size: 8<br />feature_cache: true<br />head: ridge_linear<br />head_training: closed_form_solver<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
         </Panel>
       </div>
     </>

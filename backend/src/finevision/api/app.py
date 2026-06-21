@@ -54,7 +54,15 @@ class CreateTrainingRunRequest(BaseModel):
     backbone_id: str | None = None
     extractor: Literal["color_stats", "dinov3_vits", "dinov3_vitb", "dinov3_vitl"] = "color_stats"
     feature_batch_size: int | None = Field(default=None, ge=1, le=128)
-    head_config: dict[str, Any] = Field(default_factory=lambda: {"head_type": "ridge_linear", "ridge_lambda": 1e-2})
+    head_config: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "head_type": "torch_linear_adam",
+            "learning_rate": 1e-3,
+            "epochs": 50,
+            "batch_size": 256,
+            "weight_decay": 1e-4,
+        }
+    )
     target_selective_risk: float = Field(default=0.01, ge=0.0, le=1.0)
     review_cost_per_item: float = Field(default=1.0, ge=0.0)
 
@@ -1045,22 +1053,56 @@ def _validate_training_config(extractor: str, backbone_id: str, head_config: dic
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"backbone_id must be {expected_backbone} for extractor {extractor}",
         )
-    if head_config.get("head_type", "ridge_linear") != "ridge_linear":
+    head_type = str(head_config.get("head_type", "torch_linear_adam"))
+    if head_type not in {"torch_linear_adam", "ridge_linear"}:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only ridge_linear head_config.head_type is supported",
+            detail="head_config.head_type must be torch_linear_adam or ridge_linear",
         )
-    try:
-        ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="head_config.ridge_lambda must be a positive number",
-        ) from exc
-    if ridge_lambda <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="head_config.ridge_lambda must be greater than 0",
-        )
+    if head_type == "ridge_linear":
+        try:
+            ridge_lambda = float(head_config.get("ridge_lambda", 1e-2))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="head_config.ridge_lambda must be a positive number",
+            ) from exc
+        if ridge_lambda <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="head_config.ridge_lambda must be greater than 0",
+            )
+        return
+
+    numeric_fields = {
+        "learning_rate": (1e-3, True),
+        "weight_decay": (1e-4, False),
+    }
+    for field, (default, must_be_positive) in numeric_fields.items():
+        try:
+            value = float(head_config.get(field, default))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"head_config.{field} must be numeric",
+            ) from exc
+        if (must_be_positive and value <= 0) or (not must_be_positive and value < 0):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"head_config.{field} is out of range",
+            )
+    for field, default in {"epochs": 50, "batch_size": 256}.items():
+        try:
+            value = int(head_config.get(field, default))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"head_config.{field} must be an integer",
+            ) from exc
+        if value <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"head_config.{field} must be greater than 0",
+            )
 
 app = create_app()

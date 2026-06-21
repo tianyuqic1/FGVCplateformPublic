@@ -51,7 +51,16 @@ class DatabaseTrainingStore:
         dataset_version_key = str(payload["dataset_version_id"])
         backbone_id = str(payload.get("backbone_id") or "color_stats_v1")
         extractor_config = dict(payload.get("extractor_config") or {"type": "color_stats"})
-        head_config = dict(payload.get("head_config") or {"head_type": "ridge_linear", "ridge_lambda": 1e-2})
+        head_config = dict(
+            payload.get("head_config")
+            or {
+                "head_type": "torch_linear_adam",
+                "learning_rate": 1e-3,
+                "epochs": 50,
+                "batch_size": 256,
+                "weight_decay": 1e-4,
+            }
+        )
 
         with self.engine.begin() as conn:
             version_row = conn.execute(

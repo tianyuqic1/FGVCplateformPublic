@@ -254,7 +254,6 @@ def test_database_backed_training_run_executes_toolkit_flow(
             "dataset_version_id": "dataset@train-toy-001",
             "extractor": "color_stats",
             "backbone_id": "color_stats_v1",
-            "head_config": {"head_type": "ridge_linear", "ridge_lambda": 0.01},
         },
     )
     assert create_run_response.status_code == 202
@@ -297,7 +296,9 @@ def test_database_backed_training_run_executes_toolkit_flow(
     assert Path(feature_uri).exists()
     assert training_report["evaluation"]["per_class"]
     assert training_report["evaluation"]["confusion_matrix"]
-    assert training_report["run_config"]["ridge_lambda"] == 0.01
+    assert training_report["run_config"]["head_type"] == "torch_linear_adam"
+    assert training_report["run_config"]["learning_rate"] == 0.001
+    assert training_report["run_config"]["optimizer_history"]
     assert {
         "dataset_manifest",
         "feature_matrix",

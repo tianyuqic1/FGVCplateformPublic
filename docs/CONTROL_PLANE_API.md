@@ -146,8 +146,11 @@ Training run request:
   "extractor": "dinov3_vitb",
   "feature_batch_size": 8,
   "head_config": {
-    "head_type": "ridge_linear",
-    "ridge_lambda": 0.01
+    "head_type": "torch_linear_adam",
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "batch_size": 256,
+    "weight_decay": 0.0001
   },
   "target_selective_risk": 0.01,
   "review_cost_per_item": 1.0
@@ -218,9 +221,10 @@ implemented: worker cooperative stop checks between training stages and feature 
 remaining limitation: Hugging Face/timm weight downloads are not preempted mid-request; the worker observes cancellation after the blocking download call returns
 ```
 
-The current classifier head is `ridge_linear`. It has `ridge_lambda`, but no `learning_rate`,
-`epochs`, optimizer, scheduler, or early stopping. Optimizer-backed heads such as
-`torch_linear_adam` are a P1 follow-up and should keep `ridge_linear` as the fast baseline.
+The default classifier head is `torch_linear_adam`, a `torch.nn.Linear` head trained with
+cross-entropy and Adam. It records `learning_rate`, `epochs`, `batch_size`, `weight_decay`, device,
+solver, and per-epoch loss/accuracy in the training report. `ridge_linear` remains supported as a
+fast compatibility baseline for old runs and local smoke checks.
 
 DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub.
 
