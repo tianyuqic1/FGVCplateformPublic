@@ -171,14 +171,43 @@ Training run response shape:
     "job_id": "job-def456",
     "dataset_id": "cifar10-mini",
     "dataset_version_id": "dataset@cifar10-mini-001",
-    "backbone_id": "color_stats_v1",
+    "backbone_id": "dinov3_vitb16",
+    "extractor_config": {
+      "type": "timm_dinov3",
+      "preset": "dinov3_vitb",
+      "model_name": "vit_base_patch16_dinov3",
+      "backbone_id": "dinov3_vitb16",
+      "feature_pool": "cls",
+      "image_size": 448,
+      "runtime": {
+        "feature_batch_size": 8
+      }
+    },
+    "head_config": {
+      "head_type": "torch_linear_adam",
+      "learning_rate": 0.001,
+      "epochs": 100,
+      "batch_size": 256,
+      "weight_decay": 0.0001
+    },
     "feature_artifact_id": null,
     "model_artifact_id": null,
     "model_version_id": null,
     "report_artifact_id": null,
     "calibration_artifact_id": null,
     "threshold_strategy_artifact_id": null,
-    "metrics": {}
+    "metrics": {
+      "training_progress": {
+        "current_stage": "queued",
+        "overall_percent": 0,
+        "stages": []
+      }
+    },
+    "error": null,
+    "created_at": "2026-06-22T00:00:00Z",
+    "updated_at": "2026-06-22T00:00:00Z",
+    "started_at": null,
+    "finished_at": null
   },
   "job": {
     "job_id": "job-def456",
@@ -189,6 +218,12 @@ Training run response shape:
 ```
 
 Training jobs must be created through `POST /api/training-runs`, not raw `POST /api/jobs`, so the job row and `training_runs` row remain consistent. The API rejects dataset versions whose readiness report is not ready, canonicalizes `backbone_id` from the selected extractor when omitted, and synchronizes queued training-run cancellation through `POST /api/jobs/{job_id}/cancel`.
+
+Frontend model selection uses the same response shape: succeeded DINOv3 runs with
+`extractor_config.feature_pool=cls`, `head_config.head_type=torch_linear_adam`, and a
+`model_version_id` are treated as the current CLS baseline. Older DINOv3 runs without
+`feature_pool` are displayed as legacy/model-output runs and should not be auto-selected ahead of
+new CLS runs.
 
 Supported extractors:
 

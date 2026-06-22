@@ -452,7 +452,7 @@ function DatasetTable({ items = [] }) {
   );
 }
 
-function RunRow({ run, onAction, busy = false }) {
+function RunRow({ run, onAction, busy = false, highlighted = false, legacy = false }) {
   const state = trainingStatus(run);
   const done = run.status === "succeeded" || run.status === "done";
   const canPause = ["queued", "running"].includes(run.status);
@@ -460,7 +460,7 @@ function RunRow({ run, onAction, busy = false }) {
   const canCancel = ["queued", "paused", "running"].includes(run.status);
   const canDelete = !["running", "succeeded"].includes(run.status) && !run.featureArtifactId && !run.modelVersionId;
   return (
-    <div className="timeline-item queue-row">
+    <div className={`timeline-item queue-row ${highlighted ? "recommended" : ""} ${legacy ? "legacy" : ""}`}>
       <Link className="queue-row-main" to={`/training/${run.id}`}>
         <div className="timeline-icon">
           <Icon name={state.icon} size={18} />
@@ -468,7 +468,7 @@ function RunRow({ run, onAction, busy = false }) {
         <div>
           <strong>{run.name}</strong>
           <div className="row-meta">
-            {run.datasetName} · {run.metric} · {featurePoolLabel(run.featurePool)}
+            {run.datasetName} · {extractorShortLabel(run.backboneId)} · {run.metric} · {featurePoolLabel(run.featurePool)}
           </div>
           <ProgressBar value={run.progress} fill={done ? "#0f766e" : run.status === "paused" ? "#6b7280" : "#a15c07"} shimmer={run.status === "running"} />
         </div>
@@ -479,6 +479,8 @@ function RunRow({ run, onAction, busy = false }) {
         {canCancel && <button className="icon-button" title="取消任务" onClick={() => onAction("cancel", run)} disabled={busy}><Icon name="Ban" size={16} /></button>}
         {canDelete && <button className="icon-button danger" title="删除队列记录" onClick={() => onAction("delete", run)} disabled={busy}><Icon name="Trash2" size={16} /></button>}
       </div>
+      {highlighted && <StatusChip tone="default">推荐 CLS</StatusChip>}
+      {legacy && <StatusChip tone="warn">legacy</StatusChip>}
       <StatusChip tone={state.tone}>{state.label}</StatusChip>
     </div>
   );
@@ -525,9 +527,15 @@ function RecentJobsPanel({ limit = 5, selectedJobId = "" }) {
 function ModelCard({ model }) {
   const tone = model.state === "production" ? "default" : model.state === "candidate" || model.state === "staging" ? "info" : "warn";
   const accuracy = Number.isFinite(Number(model.accuracy)) ? Math.round(Number(model.accuracy)) : 0;
+  const isRecommended = model.featurePool === "cls" && isDinoExtractor(model.backboneId);
+  const isLegacy = isDinoExtractor(model.backboneId) && model.featurePool !== "cls";
   return (
     <Link className="card clickable" to={`/models/${model.id}`}>
-      <StatusChip tone={tone}>{model.state}</StatusChip>
+      <div className="chips">
+        <StatusChip tone={tone}>{model.state}</StatusChip>
+        {isRecommended && <StatusChip tone="default">CLS baseline</StatusChip>}
+        {isLegacy && <StatusChip tone="warn">legacy</StatusChip>}
+      </div>
       <h3>{model.id}</h3>
       <p>{model.description}</p>
       <ProgressBar value={accuracy} fill={model.state === "experiment" ? "#a15c07" : "#0f766e"} />
@@ -552,6 +560,11 @@ function modelRecordFromRun(run) {
     thresholdStrategyId: run.thresholdStrategyArtifactId,
     reportArtifactId: run.reportArtifactId,
     calibrationArtifactId: run.calibrationArtifactId,
+    backboneId: run.backboneId,
+    featurePool: run.featurePool,
+    imageSize: run.imageSize,
+    featureBatchSize: run.featureBatchSize,
+    headType: run.headConfig?.head_type ?? run.headConfig?.headType ?? null,
     accuracy,
     coverage,
     selectiveRisk,
@@ -1065,6 +1078,60 @@ function featurePoolLabel(featurePool) {
   return "legacy/unknown";
 }
 
+function metricNumber(run, key) {
+  const value = Number(run?.metrics?.[key]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function metricPercent(run, key) {
+  const value = metricNumber(run, key);
+  return value === null ? null : value * 100;
+}
+
+function formatRunMetricPercent(run, key, digits = 1) {
+  const value = metricPercent(run, key);
+  return value === null ? "n/a" : `${value.toFixed(digits)}%`;
+}
+
+function isSucceededModelRun(run) {
+  return run?.status === "succeeded" && Boolean(run.modelVersionId);
+}
+
+function isDinoTrainingRun(run) {
+  return isDinoExtractor(run?.backboneId);
+}
+
+function isRecommendedClsRun(run) {
+  return isSucceededModelRun(run) && isDinoTrainingRun(run) && run.featurePool === "cls";
+}
+
+function isLegacyFeatureRun(run) {
+  return isSucceededModelRun(run) && isDinoTrainingRun(run) && run.featurePool !== "cls";
+}
+
+function trainingRunRankValue(run) {
+  return metricNumber(run, "accuracy") ?? metricNumber(run, "macro_f1") ?? -1;
+}
+
+function sortTrainingRunsForSelection(runs) {
+  return [...runs].sort((a, b) => {
+    const clsDelta = Number(isRecommendedClsRun(b)) - Number(isRecommendedClsRun(a));
+    if (clsDelta !== 0) return clsDelta;
+    const legacyDelta = Number(isLegacyFeatureRun(a)) - Number(isLegacyFeatureRun(b));
+    if (legacyDelta !== 0) return legacyDelta;
+    const rankDelta = trainingRunRankValue(b) - trainingRunRankValue(a);
+    if (rankDelta !== 0) return rankDelta;
+    return runTimeValue(b) - runTimeValue(a);
+  });
+}
+
+function selectRecommendedClsRun(runs, datasetVersionId = "") {
+  const scopedRuns = datasetVersionId
+    ? runs.filter((run) => run.datasetVersionId === datasetVersionId)
+    : runs;
+  return sortTrainingRunsForSelection(scopedRuns).find(isRecommendedClsRun) ?? null;
+}
+
 function weightUsageLabel(extractor) {
   if (extractor === "dinov3_vits") return "当前 MVP 推荐默认，用于快速 CLS 特征训练和日常验证。";
   if (extractor === "dinov3_vitb") return "中等规模对照模型，适合后续做速度/精度折中评估。";
@@ -1405,6 +1472,7 @@ export function TrainingPage({ showToast }) {
   const trainingDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId);
   const datasetVersionOptions = trainingDatasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
+  const recommendedBaseline = selectRecommendedClsRun(runItems);
   const failedRunCount = runItems.filter((run) => run.status === "failed").length;
   const activeRunCount = runItems.filter((run) => ["queued", "running"].includes(run.status)).length;
   const pausedRunCount = runItems.filter((run) => run.status === "paused").length;
@@ -1649,6 +1717,43 @@ export function TrainingPage({ showToast }) {
           {createState.error && <div className="row-meta section-gap-small">{createState.error.message}</div>}
         </Panel>
       )}
+      <Panel
+        title="当前推荐 CLS 基线"
+        caption="只从已完成的 DINOv3 CLS token 训练运行中选择；legacy/model-output 运行不会作为默认推理模型。"
+        action={
+          recommendedBaseline ? (
+            <Link className="ghost-button" to={`/training/${recommendedBaseline.id}`}>
+              <Icon name="ExternalLink" size={16} />
+              打开运行
+            </Link>
+          ) : (
+            <StatusChip tone="warn">等待完成训练</StatusChip>
+          )
+        }
+      >
+        {recommendedBaseline ? (
+          <div className="baseline-summary">
+            <div>
+              <strong>{recommendedBaseline.modelVersionId}</strong>
+              <div className="row-meta">
+                {recommendedBaseline.datasetVersionId} · {extractorShortLabel(recommendedBaseline.backboneId)} · {featurePoolLabel(recommendedBaseline.featurePool)} · image {recommendedBaseline.imageSize ?? "n/a"}
+              </div>
+            </div>
+            <div className="baseline-metrics">
+              <div><span>accuracy</span><strong>{formatRunMetricPercent(recommendedBaseline, "accuracy", 1)}</strong></div>
+              <div><span>macro F1</span><strong>{formatRunMetricPercent(recommendedBaseline, "macro_f1", 1)}</strong></div>
+              <div><span>coverage</span><strong>{formatRunMetricPercent(recommendedBaseline, "expected_coverage", 0)}</strong></div>
+              <div><span>risk</span><strong>{formatRunMetricPercent(recommendedBaseline, "expected_selective_risk", 2)}</strong></div>
+            </div>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <Icon name="Target" size={24} />
+            <strong>还没有可推荐的 CLS 基线</strong>
+            <span>完成一次 DINOv3 CLS + torch_linear_adam 训练后，推理实验室会默认选择它。</span>
+          </div>
+        )}
+      </Panel>
       <div className="grid two">
         <Panel
           title="训练队列"
@@ -1695,6 +1800,8 @@ export function TrainingPage({ showToast }) {
                     key={run.id}
                     onAction={handleQueueAction}
                     busy={queueActionState.status === "running" && queueActionState.runId === run.id}
+                    highlighted={recommendedBaseline?.id === run.id}
+                    legacy={isLegacyFeatureRun(run)}
                   />
                 ))
             ) : (
@@ -1804,10 +1911,12 @@ export function InferencePage({ showToast }) {
   const modelRunsForDataset = inferenceTrainingRuns.filter(
     (run) => run.modelVersionId && run.datasetVersionId === selectedDatasetVersionId && run.status === "succeeded",
   );
-  const modelVersionOptions = modelRunsForDataset
+  const modelVersionOptions = sortTrainingRunsForSelection(modelRunsForDataset);
+  const modelVersionIds = modelVersionOptions
     .map((run) => run.modelVersionId)
     .filter(Boolean);
-  const canUseInferenceInputs = datasetSource === "api" && trainingSource === "api" && datasetVersionOptions.length > 0 && modelVersionOptions.length > 0;
+  const selectedModelRun = modelVersionOptions.find((run) => run.modelVersionId === form.modelVersionId) ?? null;
+  const canUseInferenceInputs = datasetSource === "api" && trainingSource === "api" && datasetVersionOptions.length > 0 && modelVersionIds.length > 0;
   const canRun =
     canUseInferenceInputs &&
     state.status !== "running" &&
@@ -1820,7 +1929,7 @@ export function InferencePage({ showToast }) {
       ? "Control-plane API 暂不可用，不能运行真实推理。"
       : trainingSource !== "api"
         ? "Training API 暂不可用，不能运行真实推理。"
-        : modelVersionOptions.length === 0
+        : modelVersionIds.length === 0
           ? "当前数据版本没有可用模型版本，请先用该 dataset version 完成训练。"
           : "当前没有真实 dataset version 可用于推理。";
 
@@ -1831,15 +1940,15 @@ export function InferencePage({ showToast }) {
       if (!datasetVersionOptions.includes(next.datasetVersionId)) {
         next.datasetVersionId = datasetVersionOptions[0];
       }
-      if (modelVersionOptions.length > 0 && !modelVersionOptions.includes(next.modelVersionId)) {
-        next.modelVersionId = modelVersionOptions[0];
+      if (modelVersionIds.length > 0 && !modelVersionIds.includes(next.modelVersionId)) {
+        next.modelVersionId = modelVersionIds[0];
       }
-      if (modelVersionOptions.length === 0) {
+      if (modelVersionIds.length === 0) {
         next.modelVersionId = "";
       }
       return next;
     });
-  }, [datasetSource, datasetVersionOptions.join("|"), selectedDatasetVersionId, modelVersionOptions.join("|")]);
+  }, [datasetSource, datasetVersionOptions.join("|"), selectedDatasetVersionId, modelVersionIds.join("|")]);
 
   useEffect(() => {
     if (!form.imageFile) {
@@ -1941,13 +2050,27 @@ export function InferencePage({ showToast }) {
           </div>
           <div className="field">
             <label>模型版本</label>
-            <select value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionOptions.length === 0}>
-              <option value="">{modelVersionOptions.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
-              {modelVersionOptions.map((modelVersionId) => (
-                <option value={modelVersionId} key={modelVersionId}>{modelVersionId}</option>
+            <select value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionIds.length === 0}>
+              <option value="">{modelVersionIds.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
+              {modelVersionOptions.map((run) => (
+                <option value={run.modelVersionId} key={run.modelVersionId}>
+                  {run.modelVersionId} · {isRecommendedClsRun(run) ? "推荐 CLS" : isLegacyFeatureRun(run) ? "legacy" : "候选"} · {extractorShortLabel(run.backboneId)} · {run.metric}
+                </option>
               ))}
             </select>
-            <span className="field-hint">{modelVersionOptions.length} 个模型匹配当前数据版本。</span>
+            <span className="field-hint">
+              {modelVersionIds.length} 个模型匹配当前数据版本；默认优先使用已完成的 DINOv3 CLS baseline。
+            </span>
+            {selectedModelRun && (
+              <div className="chips">
+                <StatusChip tone={isRecommendedClsRun(selectedModelRun) ? "default" : isLegacyFeatureRun(selectedModelRun) ? "warn" : "info"}>
+                  {isRecommendedClsRun(selectedModelRun) ? "推荐 CLS 基线" : isLegacyFeatureRun(selectedModelRun) ? "legacy 模型" : "候选模型"}
+                </StatusChip>
+                <StatusChip tone={selectedModelRun.thresholdStrategyArtifactId ? "default" : "warn"}>
+                  {selectedModelRun.thresholdStrategyArtifactId ? "已校准阈值" : "阈值待确认"}
+                </StatusChip>
+              </div>
+            )}
           </div>
           <div className="field full-span">
             <label>上传图片</label>
@@ -2679,7 +2802,7 @@ export function FeedbackPage() {
 
 export function ModelsPage() {
   const { trainingRuns: modelRuns, source, loading } = useTrainingRuns();
-  const apiModels = modelRuns.filter((run) => run.modelVersionId).map(modelRecordFromRun);
+  const apiModels = sortTrainingRunsForSelection(modelRuns.filter((run) => run.modelVersionId)).map(modelRecordFromRun);
   const calibratedModels = apiModels.filter((model) => model.calibrationArtifactId && model.thresholdStrategyId);
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API 派生候选模型" : "Training API 暂不可用";
   return (
@@ -2731,7 +2854,7 @@ export function ModelDetailPage({ showToast }) {
     <>
       <PageHero title={model.id} description={`${sourceLabel} · 模型详情页把权重、数据版本、阈值策略、评估报告、发布门禁和回滚配置放在一起。`} actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><button className="primary-button" disabled><Icon name="Rocket" size={16} />发布流程待接入</button></>} />
       <div className="grid two">
-        <Panel title="版本元数据" caption="来自训练运行和 artifact metadata。"><div className="code-panel">model: {model.id}<br />run: {model.runId ?? "n/a"}<br />job: {model.jobId ?? "n/a"}<br />dataset: {model.datasetVersionId ?? "n/a"}<br />features: {model.featureArtifactId ?? "n/a"}<br />model_artifact: {model.modelArtifactId ?? "n/a"}<br />calibration: {model.calibrationArtifactId ?? "n/a"}<br />threshold: {model.thresholdStrategyId ?? "n/a"}<br />report: {model.reportArtifactId ?? "n/a"}<br />source: {model.source}</div></Panel>
+        <Panel title="版本元数据" caption="来自训练运行和 artifact metadata。"><div className="code-panel">model: {model.id}<br />run: {model.runId ?? "n/a"}<br />job: {model.jobId ?? "n/a"}<br />dataset: {model.datasetVersionId ?? "n/a"}<br />backbone: {model.backboneId ?? "n/a"}<br />feature_pool: {model.featurePool ?? "legacy/model"}<br />image_size: {model.imageSize ?? "n/a"}<br />feature_batch_size: {model.featureBatchSize ?? "n/a"}<br />head_type: {model.headType ?? "n/a"}<br />features: {model.featureArtifactId ?? "n/a"}<br />model_artifact: {model.modelArtifactId ?? "n/a"}<br />calibration: {model.calibrationArtifactId ?? "n/a"}<br />threshold: {model.thresholdStrategyId ?? "n/a"}<br />report: {model.reportArtifactId ?? "n/a"}<br />source: {model.source}</div></Panel>
         <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率；缺失时不填假数。"><CurveRow label="top-1 accuracy" value={accuracy} percent={Number(model.accuracy) || 0} fill="#0f766e" /><CurveRow label="coverage" value={coverage} percent={Number(model.coverage) || 0} fill="#315fbd" /><CurveRow label="selective risk" value={selectiveRisk} percent={Number(model.selectiveRisk) || 0} fill="#a15c07" /></Panel>
       </div>
     </>

@@ -61,6 +61,7 @@ Main routes:
 /review
 /feedback
 /models
+/weights
 /pipelines
 /pipelines?job_id=<job_id>
 ```
@@ -184,6 +185,12 @@ POST /api/jobs/{job_id}/cancel
 POST /api/training-runs
 GET  /api/training-runs
 GET  /api/training-runs/{run_id}
+POST /api/training-runs/{run_id}/pause
+POST /api/training-runs/{run_id}/resume
+POST /api/training-runs/{run_id}/cancel
+DELETE /api/training-runs/{run_id}
+GET  /api/model-weights
+DELETE /api/model-weights/{preset}
 POST /api/inference
 POST /api/inference/upload
 GET  /api/review-items
@@ -245,6 +252,8 @@ npm run smoke:training-client
 npm run smoke:inference-client
 npm run smoke:review-client
 npm run smoke:llm-client
+npm run smoke:routes
+npm run build
 ```
 
 More detail:
@@ -256,10 +265,12 @@ docs/DATABASE_DESIGN.md
 
 ## Next Step
 
-Continue the MVP after Iteration 5 by hardening advisory LLM assistance and then moving into feedback curation:
+Current MVP closeout keeps the model lifecycle candidate-only: no LoRA, no production promotion,
+and no automatic feedback-to-training mutation. The next valuable step is to keep the CLS baseline
+stable while turning feedback into curated dataset-version candidates:
 
 ```text
-LLM-assisted review -> feedback pool -> curated dataset version -> retraining gate
+CLS baseline -> review/feedback pool -> curated dataset version -> retraining gate
 ```
 
 Use the OpenSpec task list as the detailed backlog:
