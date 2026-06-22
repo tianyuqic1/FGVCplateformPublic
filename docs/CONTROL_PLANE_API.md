@@ -661,6 +661,12 @@ Update route:
 PUT /api/dataset-versions/{dataset_version_id}/card
 ```
 
+LLM generation route:
+
+```text
+POST /api/dataset-versions/{dataset_version_id}/card/generate
+```
+
 Request:
 
 ```json
@@ -699,6 +705,12 @@ Response:
 as compact `dataset_summary` context into
 `POST /api/llm/assist` when the request context includes `dataset_version_id`, and into
 `POST /api/review-items/{review_item_id}/assist` using the review item's dataset version.
+
+`POST /api/dataset-versions/{dataset_version_id}/card/generate` reads the manifest class labels,
+sample totals, split totals, readiness state, and the current card, then asks the configured LLM to
+return a structured card. The generated card is persisted through the same normalization path as
+`PUT`. This route is intentionally manual: dataset import remains deterministic and does not block
+on LLM network/provider availability.
 
 The card is advisory context only. It must not mutate review status, feedback items, thresholds,
 dataset versions, or model versions.

@@ -78,9 +78,56 @@ def generate_assistance(
     }
 
 
-def _responses_request(*, prompt: str, task: str, settings: LLMSettings, image_data_urls: list[str] | None = None) -> str:
+def generate_dataset_card(
+    *,
+    manifest: Any,
+    existing_card: dict[str, Any] | None = None,
+    settings: LLMSettings | None = None,
+) -> dict[str, Any]:
+    resolved = settings or LLMSettings.from_env()
+    _validate_settings(resolved)
+    prompt = _dataset_card_prompt(manifest=manifest, existing_card=existing_card or {})
+    raw_text = _responses_request(
+        prompt=prompt,
+        task="dataset_card_generation",
+        settings=resolved,
+        response_format=_dataset_card_response_format(),
+    )
+    parsed = _parse_json_object(raw_text)
+    now = datetime.now(UTC).isoformat()
+    return {
+        "task": str(parsed.get("task") or "image_classification").strip(),
+        "domain": str(parsed.get("domain") or "general image classification").strip(),
+        "summary": str(parsed.get("summary") or "").strip(),
+        "known_confusions": _string_list(parsed.get("known_confusions")),
+        "ood_policy": str(parsed.get("ood_policy") or "").strip(),
+        "review_guidance": str(parsed.get("review_guidance") or "").strip(),
+        "generated_from": "llm_class_labels",
+        "llm_metadata": {
+            "provider": resolved.provider,
+            "model": resolved.model,
+            "reasoning_effort": resolved.reasoning_effort,
+            "created_at": now,
+        },
+    }
+
+
+def _responses_request(
+    *,
+    prompt: str,
+    task: str,
+    settings: LLMSettings,
+    image_data_urls: list[str] | None = None,
+    response_format: dict[str, Any] | None = None,
+) -> str:
     model = settings.review_model if task == "review_assistance" else settings.model
-    payload = _responses_payload(prompt=prompt, model=model, settings=settings, image_data_urls=image_data_urls or [])
+    payload = _responses_payload(
+        prompt=prompt,
+        model=model,
+        settings=settings,
+        image_data_urls=image_data_urls or [],
+        response_format=response_format,
+    )
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if settings.requires_openai_auth:
         headers["Authorization"] = f"Bearer {settings.api_key}"
@@ -91,7 +138,13 @@ def _responses_request(*, prompt: str, task: str, settings: LLMSettings, image_d
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         if image_data_urls:
-            fallback_payload = _responses_payload(prompt=prompt, model=model, settings=settings, image_data_urls=[])
+            fallback_payload = _responses_payload(
+                prompt=prompt,
+                model=model,
+                settings=settings,
+                image_data_urls=[],
+                response_format=response_format,
+            )
             try:
                 body = _post_responses(url=url, payload=fallback_payload, headers=headers, timeout_seconds=settings.timeout_seconds)
             except Exception as fallback_exc:
@@ -122,6 +175,7 @@ def _responses_payload(
     model: str,
     settings: LLMSettings,
     image_data_urls: list[str] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     image_inputs = [
         {"type": "input_image", "image_url": image_data_url, "detail": "auto"}
@@ -149,7 +203,7 @@ def _responses_payload(
         "max_output_tokens": 900,
     }
     if settings.structured_outputs:
-        payload["text"] = {"format": _assistance_response_format()}
+        payload["text"] = {"format": response_format or _assistance_response_format()}
     return payload
 
 
@@ -208,6 +262,52 @@ def _assistance_schema() -> dict[str, Any]:
         },
         "required": ["summary", "holistic_analysis", "inspection_notes", "suggested_actions", "risk_flags", "confidence"],
         "additionalProperties": False,
+    }
+
+
+def _dataset_card_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "name": "finevision_dataset_card",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Dataset task, usually image_classification or fine_grained_image_classification.",
+                },
+                "domain": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "Human-readable domain inferred from class labels, such as bird species or plant disease images.",
+                },
+                "summary": {
+                    "type": "string",
+                    "maxLength": 320,
+                    "description": "Concise Chinese description of what the dataset is about and what labels are in scope.",
+                },
+                "known_confusions": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {"type": "string", "maxLength": 120},
+                    "description": "Likely class confusions based only on class labels and domain knowledge.",
+                },
+                "ood_policy": {
+                    "type": "string",
+                    "maxLength": 260,
+                    "description": "Chinese guidance for what should be treated as out of domain for this dataset.",
+                },
+                "review_guidance": {
+                    "type": "string",
+                    "maxLength": 260,
+                    "description": "Chinese guidance for a human reviewer using the dataset scope.",
+                },
+            },
+            "required": ["task", "domain", "summary", "known_confusions", "ood_policy", "review_guidance"],
+            "additionalProperties": False,
+        },
     }
 
 
@@ -275,6 +375,40 @@ def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
         "随后填写 inspection_notes、suggested_actions、risk_flags 时，要把 holistic_analysis 作为上下文，"
         "避免前后矛盾。\n"
         f"任务：{task_instruction}\n"
+        f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
+    )
+
+
+def _dataset_card_prompt(*, manifest: Any, existing_card: dict[str, Any]) -> str:
+    classes = list(getattr(manifest, "classes", []) or [])
+    split_counts = getattr(manifest, "split_counts", {}) or {}
+    split_totals = {
+        split: sum(class_counts.values())
+        for split, class_counts in split_counts.items()
+        if isinstance(class_counts, dict)
+    }
+    context = {
+        "dataset_id": getattr(manifest, "dataset_id", ""),
+        "dataset_version_id": getattr(manifest, "dataset_version_id", ""),
+        "class_labels": classes[:400],
+        "class_labels_truncated": len(classes) > 400,
+        "class_count": len(classes),
+        "sample_count": len(getattr(manifest, "samples", []) or []),
+        "split_totals": split_totals,
+        "readiness": getattr(manifest, "readiness", {}) or {},
+        "current_dataset_card": {
+            key: value
+            for key, value in (existing_card or {}).items()
+            if key in {"task", "domain", "summary", "known_confusions", "ood_policy", "review_guidance"}
+        },
+    }
+    return (
+        "你是 FineVision 的数据集摘要助手。请只根据 dataset_id、class_labels、样本统计和已有摘要，"
+        "为视觉分类数据集生成可编辑的 dataset card。重点是读取类别标签，判断数据集大致关于什么："
+        "例如鸟类物种、植物病害、车辆/交通工具、CIFAR-10 通用物体等。\n"
+        "约束：不要发明 class_labels 之外的正式类别；不要给训练参数建议；不要把摘要写成营销文案；"
+        "不确定领域时明确写成通用图像分类或需要人工补充。输出中文，简洁、可给推理和复核 LLM 作为上下文。"
+        "known_confusions 只能写基于类别名可合理推断的易混点。\n"
         f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
     )
 

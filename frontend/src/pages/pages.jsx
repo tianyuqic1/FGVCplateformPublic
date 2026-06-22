@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { updateDatasetCard, uploadImagefolder } from "../api/datasets.js";
+import { generateDatasetCard, updateDatasetCard, uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload, runInferenceUploadFolder } from "../api/inference.js";
 import { deleteModelWeight } from "../api/modelWeights.js";
 import { listReviewItems } from "../api/reviews.js";
@@ -1154,11 +1154,28 @@ function DatasetCardPanel({ dataset, showToast }) {
     }
   }
 
+  async function handleGenerate() {
+    setStatus("generating");
+    setError(null);
+    try {
+      const generated = await generateDatasetCard(dataset.datasetVersionId);
+      setCard(generated);
+      setStatus("generated");
+      showToast("LLM 已按类别标签生成数据集摘要");
+    } catch (generateError) {
+      setError(generateError);
+      setStatus("failed");
+      showToast("LLM 生成数据集摘要失败");
+    }
+  }
+
+  const busy = status === "saving" || status === "generating";
+
   return (
     <Panel
       title="数据集摘要"
-      caption="导入时自动生成；LLM 推理解释和复核建议会优先使用这里的上下文。"
-      action={<StatusChip tone={status === "failed" ? "risk" : status === "saved" ? "default" : "info"}>{status === "saving" ? "保存中" : status === "saved" ? "已保存" : "可编辑"}</StatusChip>}
+      caption="导入时生成草稿；可让 LLM 读取类别标签后补充领域说明，推理解释和复核建议会优先使用这里的上下文。"
+      action={<StatusChip tone={status === "failed" ? "risk" : status === "saved" || status === "generated" ? "default" : "info"}>{status === "saving" ? "保存中" : status === "generating" ? "生成中" : status === "saved" ? "已保存" : status === "generated" ? "已生成" : "可编辑"}</StatusChip>}
     >
       <div className="field-grid">
         <div className="field">
@@ -1204,7 +1221,11 @@ function DatasetCardPanel({ dataset, showToast }) {
       )}
       {error && <div className="row-meta error-text section-gap-small">{error.message}</div>}
       <div className="toolbar section-gap-small">
-        <button className="primary-button" onClick={handleSave} disabled={status === "saving"}>
+        <button className="secondary-button" onClick={handleGenerate} disabled={busy}>
+          <Icon name={status === "generating" ? "LoaderCircle" : "Wand2"} size={16} />
+          LLM 生成摘要
+        </button>
+        <button className="primary-button" onClick={handleSave} disabled={busy}>
           <Icon name={status === "saving" ? "LoaderCircle" : "Save"} size={16} />
           保存摘要
         </button>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from finevision.api import create_app
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
 
 
-def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> None:
+def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path, monkeypatch) -> None:
     metadata_dir = tmp_path / "metadata"
     dataset_dir = create_toy_imagefolder(tmp_path / "toy-imagefolder", samples_per_class=6)
     client = TestClient(create_app(metadata_dir=metadata_dir))
@@ -89,6 +90,29 @@ def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> N
     updated_card = update_card_response.json()["dataset_card"]
     assert updated_card["summary"] == "Toy geometry shapes for smoke testing."
     assert updated_card["known_confusions"] == ["red_square vs green_circle"]
+
+    app_module = importlib.import_module("finevision.api.app")
+
+    def fake_generate_dataset_card_from_llm(*, manifest, existing_card):
+        assert manifest.classes == ["blue_triangle", "green_circle", "red_square"]
+        assert existing_card["domain"] == "toy geometry"
+        return {
+            "task": "image_classification",
+            "domain": "toy shape recognition",
+            "summary": "这是一个按颜色和几何形状分类的玩具图像数据集。",
+            "known_confusions": ["blue_triangle vs green_circle"],
+            "ood_policy": "非几何形状或无法辨认的图片应进入 OOD/不确定复核。",
+            "review_guidance": "人工复核时优先确认颜色和形状是否与标签一致。",
+        }
+
+    monkeypatch.setattr(app_module, "generate_dataset_card_from_llm", fake_generate_dataset_card_from_llm)
+    generated_card_response = client.post("/api/dataset-versions/dataset@toy-001/card/generate")
+    assert generated_card_response.status_code == 200
+    generated_card = generated_card_response.json()["dataset_card"]
+    assert generated_card["domain"] == "toy shape recognition"
+    assert generated_card["summary"] == "这是一个按颜色和几何形状分类的玩具图像数据集。"
+    assert generated_card["class_count"] == 3
+    assert client.get("/api/dataset-versions/dataset@toy-001/card").json()["dataset_card"]["domain"] == "toy shape recognition"
 
     readiness_response = client.get("/api/dataset-versions/dataset@toy-001/readiness")
     assert readiness_response.status_code == 200

@@ -21,7 +21,12 @@ from sqlalchemy.pool import NullPool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
-from finevision.api.llm import LLMConfigurationError, LLMRequestError, generate_assistance
+from finevision.api.llm import (
+    LLMConfigurationError,
+    LLMRequestError,
+    generate_assistance,
+    generate_dataset_card as generate_dataset_card_from_llm,
+)
 from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
@@ -314,6 +319,27 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         card = store.update_dataset_card(dataset_version_id, request.dataset_card)
         manifest = store.get_dataset_version(dataset_version_id)
         if card is None or manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        return {
+            "dataset_id": manifest.dataset_id,
+            "dataset_version_id": manifest.dataset_version_id,
+            "dataset_card": card,
+        }
+
+    @api.post("/api/dataset-versions/{dataset_version_id}/card/generate")
+    def generate_dataset_version_card(dataset_version_id: str) -> dict[str, object]:
+        manifest = store.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        existing_card = store.get_dataset_card(dataset_version_id) or {}
+        try:
+            generated = generate_dataset_card_from_llm(manifest=manifest, existing_card=existing_card)
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+        except LLMRequestError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        card = store.update_dataset_card(dataset_version_id, generated)
+        if card is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
         return {
             "dataset_id": manifest.dataset_id,

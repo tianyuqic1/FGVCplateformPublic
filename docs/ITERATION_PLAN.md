@@ -552,8 +552,8 @@ Suggested checkpoint pushes:
 ## Iteration 5A: Dataset Card LLM Context MVP
 
 Status: implemented as an artifact-backed MVP as of 2026-06-22. The active API exposes card
-`GET`/`PUT` routes, generates cards during import, returns the latest card from dataset detail, and
-injects cards into LLM assistance context.
+`GET`/`PUT` routes plus manual LLM generation, drafts cards during import, returns the latest card
+from dataset detail, and injects cards into LLM assistance context.
 
 Objective: ground advisory LLM output in explicit dataset-version context before adding richer
 automation.
@@ -562,6 +562,7 @@ Scope:
 
 - Add a compact `dataset_card` for each dataset version.
 - Generate an initial card deterministically from the imported manifest.
+- Let users ask the LLM to read class labels and enrich the card with a domain-aware summary.
 - Let users edit task, domain, summary, known confusions, OOD policy, and review guidance from the
   dataset detail page.
 - Inject the dataset card into generic inference assistance and review-item assistance.
@@ -572,6 +573,7 @@ Deliverables:
 
 - `GET /api/dataset-versions/{dataset_version_id}/card`.
 - `PUT /api/dataset-versions/{dataset_version_id}/card`.
+- `POST /api/dataset-versions/{dataset_version_id}/card/generate`.
 - Dataset detail includes the latest version card.
 - Dataset detail summary panel with editable dataset card fields.
 - LLM prompt/context contract documented in `docs/DATASET_CARD_LLM_CONTEXT_MVP.md`.
@@ -579,6 +581,8 @@ Deliverables:
 Acceptance:
 
 - Imported datasets receive a deterministic dataset card.
+- Manual LLM generation can infer a concise dataset domain from labels, such as CUB birds, plant
+  disease classes, or CIFAR-10 objects, without mutating labels or training data.
 - Review assistance receives a card matching the review item's `dataset_version_id`.
 - Generic assistance receives a card when `dataset_version_id` is present in context.
 - LLM output stays advisory-only and cannot mutate operational state.

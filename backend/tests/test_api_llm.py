@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from finevision.api.llm import LLMSettings, _responses_payload
+from finevision.api.llm import LLMSettings, _dataset_card_response_format, _responses_payload
 
 
 def test_responses_payload_uses_strict_json_schema_format() -> None:
@@ -84,3 +84,21 @@ def test_responses_payload_can_attach_uploaded_image_pixels() -> None:
     assert content[0] == {"type": "input_text", "text": "inspect this image"}
     assert content[1]["type"] == "input_image"
     assert content[1]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_dataset_card_response_format_uses_strict_json_schema() -> None:
+    response_format = _dataset_card_response_format()
+
+    assert response_format["type"] == "json_schema"
+    assert response_format["name"] == "finevision_dataset_card"
+    assert response_format["strict"] is True
+    schema = response_format["schema"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {
+        "task",
+        "domain",
+        "summary",
+        "known_confusions",
+        "ood_policy",
+        "review_guidance",
+    }

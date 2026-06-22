@@ -198,6 +198,7 @@ POST /api/inference/upload
 POST /api/inference/upload-folder
 GET  /api/dataset-versions/{dataset_version_id}/card
 PUT  /api/dataset-versions/{dataset_version_id}/card
+POST /api/dataset-versions/{dataset_version_id}/card/generate
 GET  /api/review-items
 GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/assist
@@ -217,8 +218,10 @@ pool entries and does not mutate the immutable source dataset version.
 
 Dataset cards are active version-level context documents for advisory LLM assistance. Import creates
 a deterministic card from the manifest; `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`
-read and update the editable summary. LLM assistance receives the card when a request references a
-dataset version.
+read and update the editable summary. `POST /api/dataset-versions/{dataset_version_id}/card/generate`
+lets the configured LLM read class labels and write a domain-aware draft, for example bird species,
+plant disease classes, or CIFAR-10 general objects. LLM assistance receives the card when a request
+references a dataset version.
 
 For a fresh local database, start PostgreSQL first and apply migrations before
 starting the API/worker containers:

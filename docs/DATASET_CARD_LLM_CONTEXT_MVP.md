@@ -2,10 +2,12 @@
 
 Status: MVP implemented in the active API as of 2026-06-22.
 
-The current codebase exposes `GET /api/dataset-versions/{dataset_version_id}/card` and
-`PUT /api/dataset-versions/{dataset_version_id}/card`. Dataset cards are generated from imported
-manifests, persisted as `dataset_card` artifacts, returned from dataset detail, and injected into LLM
-assistance as compact `dataset_summary` context.
+The current codebase exposes `GET /api/dataset-versions/{dataset_version_id}/card`,
+`PUT /api/dataset-versions/{dataset_version_id}/card`, and
+`POST /api/dataset-versions/{dataset_version_id}/card/generate`. Dataset cards are drafted from
+imported manifests, can be enriched by an LLM using class labels, persisted as `dataset_card`
+artifacts, returned from dataset detail, and injected into LLM assistance as compact
+`dataset_summary` context.
 
 ## Objective
 
@@ -51,6 +53,11 @@ The initial card should be generated deterministically during dataset import fro
 
 Users should be able to edit the card from the dataset detail page. LLM assistance should receive the
 card from the backend when the request references a dataset version or review item.
+
+The LLM generation route is manual rather than import-time automatic. Import should stay
+deterministic and fast; users can click "LLM 生成摘要" on the dataset detail page to ask the LLM to
+read labels such as CUB bird species, CIFAR-10 objects, or plant disease categories and write a
+domain-aware summary.
 
 ## Non-Goals
 
@@ -111,11 +118,16 @@ Dataset-card endpoints:
 ```text
 GET /api/dataset-versions/{dataset_version_id}/card
 PUT /api/dataset-versions/{dataset_version_id}/card
+POST /api/dataset-versions/{dataset_version_id}/card/generate
 ```
 
 `PUT` should accept a JSON object and return the normalized card. The backend should reject
 non-object or oversized payloads and should preserve required fields such as `schema_version`,
 `dataset_version_id`, and `updated_at`.
+
+`POST /card/generate` should load the version manifest, pass class labels and dataset statistics to
+the LLM under a strict JSON schema, normalize the result, persist it, and return the card. It should
+not change labels, review items, feedback items, thresholds, training runs, or model versions.
 
 LLM endpoints:
 

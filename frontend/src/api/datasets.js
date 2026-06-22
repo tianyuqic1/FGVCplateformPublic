@@ -178,6 +178,16 @@ export async function updateDatasetCard(datasetVersionId, datasetCard) {
   }, 10000);
 }
 
+export async function generateDatasetCard(datasetVersionId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card/generate`, {
+      method: "POST",
+      signal,
+    });
+    return normalizeDatasetCard(payload?.dataset_card);
+  }, 180000);
+}
+
 export async function listDatasetSamplePreviews(datasetVersionId, limit = 6) {
   return withTimeout(async (signal) => {
     const params = new URLSearchParams({ limit: String(limit) });
