@@ -11,18 +11,22 @@ feedback pool, and advisory LLM slices.
 
 - P0: Running training cancellation and weight-management visibility are MVP-complete with known
   external-download limitations. Model registry governance and worker-backed uploaded-image
-  inference remain productization gaps. Dataset-card API docs have been corrected so the docs no
-  longer claim unimplemented card routes are available.
+  inference remain productization gaps. Demo startup now has a Compose migration service so fresh
+  local databases can be migrated reproducibly before API/worker startup.
 - P1: Training-head defaults, CLS feature pooling, and feature progress are MVP-complete. Early
   stopping, scheduler support, production/dev extractor separation, dataset-scoped model guardrails,
-  artifact browsing, and dataset-card LLM context remain open.
+  and artifact browsing remain open. Dataset-card LLM context is active as an artifact-backed MVP.
 - P2: Dashboard, pipeline-template, real-sample placeholder, and feedback-curation polish remain
   deferred platform expansion work.
 
 ## Current Operational State
 
 - The local Compose stack separates the frontend, API, PostgreSQL, and ML worker processes.
+- Fresh local PostgreSQL databases can be migrated with `docker compose run --rm migrate`; the API
+  and worker wait for that one-shot service to complete during normal Compose startup.
 - Training jobs are created through the control-plane API and executed by `ml-worker`.
+- Expired running worker leases are recovered before the next claim: jobs retry until
+  `max_attempts`, then fail with their training run instead of staying stuck forever.
 - DINOv3 ViT-S and ViT-L weights are available in the local Hugging Face cache. ViT-B may still be
   incomplete if the unauthenticated Hugging Face download is interrupted.
 - Running training cancellation is now productized as cooperative worker checks, but a blocking
@@ -122,6 +126,7 @@ Acceptance for completion:
 
 - Done: README endpoint list matches active routes and lists dataset-card `GET`/`PUT`.
 - Done: `docs/CONTROL_PLANE_API.md` marks Dataset Card LLM Context API as active MVP behavior.
+- Done: endpoint lists include dataset-card `POST /api/dataset-versions/{dataset_version_id}/card/generate`.
 - Done: Dataset-card design docs describe artifact-backed persistence and active card routes.
 - Done: docs call out `/api/inference/upload` as a synchronous MVP bridge, not a worker-backed
   production inference path.
@@ -243,6 +248,9 @@ P2 issues are experience polish or later platform expansion.
 Backend and database:
 
 ```bash
+docker compose config
+docker compose run --rm migrate
+scripts/smoke-demo.sh
 python -m compileall -q backend/src/finevision
 uv run --group dev pytest
 FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run --group dev pytest

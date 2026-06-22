@@ -33,6 +33,8 @@ services:
     ports:
       - "8001:8000"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     volumes:
@@ -49,14 +51,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/artifacts
       FINEVISION_IMPORTED_DATASET_DIR: /data/imported-datasets
     depends_on:
-      api:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     volumes:
@@ -67,6 +72,20 @@ services:
       - ./data:/app/data:ro
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.cache/torch:/root/.cache/torch
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
 
   postgres:
     image: postgres:16-alpine

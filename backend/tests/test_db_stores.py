@@ -13,6 +13,15 @@ from finevision.api.db_store import DatabaseJobStore
 from finevision.api.training_store import DatabaseTrainingStore
 from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, model_versions, training_runs
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
+from finevision.schemas.artifacts import (
+    CalibrationReport,
+    EvaluationReport,
+    FeatureArtifact,
+    ModelArtifact,
+    ThresholdStrategy,
+    ThresholdSweep,
+    TrainingRunReport,
+)
 from finevision.worker import run_next_job
 
 
@@ -23,6 +32,102 @@ def database_url() -> str:
         pytest.skip("Set FINEVISION_TEST_DATABASE_URL to run PostgreSQL store integration tests.")
     _reset_database(url)
     return url
+
+
+def _fake_training_completion(
+    *,
+    run_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    artifact_root: Path,
+) -> dict[str, object]:
+    feature_artifact = FeatureArtifact(
+        artifact_id=f"{dataset_version_id}-fake-features",
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        backbone_id="color_stats_v1",
+        extractor_config={"type": "color_stats"},
+        feature_dim=3,
+        features_path=str(artifact_root / "features" / "features.npz"),
+        sample_ids=["sample-1"],
+        labels=["class-a"],
+        splits=["train"],
+    )
+    model_artifact = ModelArtifact(
+        artifact_id=f"{dataset_version_id}-{run_id}-linear-head",
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        feature_artifact_id=feature_artifact.artifact_id,
+        model_path=str(artifact_root / "models" / "linear_head.npz"),
+        classes=["class-a"],
+        head_type="torch_linear_adam",
+        feature_dim=3,
+        training_config={"run_id": run_id},
+    )
+    evaluation = EvaluationReport(
+        accuracy=1.0,
+        macro_f1=1.0,
+        per_class={"class-a": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 1}},
+        confusion_matrix=[[1]],
+        run_config={"head_type": "torch_linear_adam"},
+    )
+    training_report = TrainingRunReport(
+        run_id=run_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        feature_artifact_id=feature_artifact.artifact_id,
+        model_artifact_id=model_artifact.artifact_id,
+        run_config={"head_type": "torch_linear_adam"},
+        evaluation=evaluation,
+    )
+    calibration_report = CalibrationReport(
+        artifact_id=f"{model_artifact.artifact_id}-temperature-scaling",
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        model_artifact_id=model_artifact.artifact_id,
+        method="temperature_scaling",
+        split="validation",
+        temperature=1.0,
+        before={"ece": 0.0},
+        after={"ece": 0.0},
+        bins=[],
+    )
+    threshold_sweep = ThresholdSweep(
+        strategy_id=f"{model_artifact.artifact_id}-confidence-sweep",
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        model_artifact_id=model_artifact.artifact_id,
+        calibration_artifact_id=calibration_report.artifact_id,
+        points=[],
+        split="validation",
+    )
+    threshold_strategy = ThresholdStrategy(
+        strategy_id=f"{model_artifact.artifact_id}-selective-v1",
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        model_artifact_id=model_artifact.artifact_id,
+        calibration_artifact_id=calibration_report.artifact_id,
+        calibration_method="temperature_scaling",
+        temperature=1.0,
+        split="validation",
+        accept_threshold=0.5,
+        margin_threshold=0.0,
+        target_selective_risk=0.01,
+        expected_coverage=1.0,
+        expected_selective_risk=0.0,
+        review_cost_per_item=1.0,
+        selection_rule="confidence",
+    )
+    return {
+        "run_id": run_id,
+        "artifact_root": artifact_root,
+        "feature_artifact": feature_artifact,
+        "model_artifact": model_artifact,
+        "training_report": training_report,
+        "calibration_report": calibration_report,
+        "threshold_sweep": threshold_sweep,
+        "threshold_strategy": threshold_strategy,
+    }
 
 
 def test_database_backed_import_job_lifecycle(database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +185,7 @@ def test_database_backed_import_job_lifecycle(database_url: str, tmp_path: Path,
             "jobs": conn.scalar(sa.select(sa.func.count()).select_from(jobs)),
             "job_events": conn.scalar(sa.select(sa.func.count()).select_from(job_events)),
         }
-    assert counts == {"datasets": 1, "dataset_versions": 1, "artifacts": 1, "jobs": 1, "job_events": 3}
+    assert counts == {"datasets": 1, "dataset_versions": 1, "artifacts": 2, "jobs": 1, "job_events": 3}
 
 
 def test_database_backed_dataset_asset_api_import_list_detail_and_readiness(
@@ -117,7 +222,9 @@ def test_database_backed_dataset_asset_api_import_list_detail_and_readiness(
 
     engine = create_engine(database_url)
     with engine.begin() as conn:
-        manifest = conn.execute(sa.select(artifacts.c.artifact_metadata)).scalar_one()["manifest"]
+        manifest = conn.execute(
+            sa.select(artifacts.c.artifact_metadata).where(artifacts.c.artifact_type == "dataset_manifest")
+        ).scalar_one()["manifest"]
     assert manifest["dataset_id"] == "db-sync-toy"
     assert manifest["dataset_version_id"] == "dataset@db-sync-toy-001"
     assert len(manifest["samples"]) == 9
@@ -224,6 +331,72 @@ def test_database_job_claim_is_transactional(database_url: str) -> None:
     completed = first_worker.mark_succeeded(claimed, {"ok": True})
     assert completed.status == "succeeded"
     assert first_worker.get_job(job.job_id).status == "succeeded"  # type: ignore[union-attr]
+
+
+def test_database_job_claim_requeues_expired_running_lease(database_url: str) -> None:
+    first_worker = DatabaseJobStore(database_url, lease_owner="expired-worker-a")
+    second_worker = DatabaseJobStore(database_url, lease_owner="expired-worker-b")
+    job = first_worker.create_job(
+        "import_imagefolder",
+        {
+            "path": "/tmp/not-needed-for-expired-lease-test",
+            "dataset_id": "expired-lease-test",
+            "dataset_version_id": "dataset@expired-lease-test-001",
+        },
+    )
+
+    claimed = first_worker.claim_next_queued_job(lease_seconds=-1)
+    assert claimed is not None
+    assert claimed.status == "running"
+
+    reclaimed = second_worker.claim_next_queued_job()
+
+    assert reclaimed is not None
+    assert reclaimed.job_id == job.job_id
+    assert reclaimed.status == "running"
+    with create_engine(database_url).begin() as conn:
+        events = conn.execute(
+            sa.select(job_events.c.event_type)
+            .select_from(job_events.join(jobs, jobs.c.id == job_events.c.job_id))
+            .where(jobs.c.job_key == job.job_id)
+            .order_by(job_events.c.created_at)
+        ).scalars().all()
+    assert "lease_expired_requeued" in events
+
+
+def test_database_job_claim_fails_expired_running_lease_after_max_attempts(database_url: str) -> None:
+    worker = DatabaseJobStore(database_url, lease_owner="expired-max-worker")
+    job = worker.create_job(
+        "import_imagefolder",
+        {
+            "path": "/tmp/not-needed-for-expired-max-test",
+            "dataset_id": "expired-max-test",
+            "dataset_version_id": "dataset@expired-max-test-001",
+        },
+    )
+    claimed = worker.claim_next_queued_job(lease_seconds=-1)
+    assert claimed is not None
+
+    with create_engine(database_url).begin() as conn:
+        conn.execute(
+            jobs.update()
+            .where(jobs.c.job_key == job.job_id)
+            .values(attempt_count=jobs.c.max_attempts)
+        )
+
+    assert worker.claim_next_queued_job() is None
+    stored = worker.get_job(job.job_id)
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.error == "Worker lease expired and max attempts were exhausted."
+    with create_engine(database_url).begin() as conn:
+        events = conn.execute(
+            sa.select(job_events.c.event_type)
+            .select_from(job_events.join(jobs, jobs.c.id == job_events.c.job_id))
+            .where(jobs.c.job_key == job.job_id)
+            .order_by(job_events.c.created_at)
+        ).scalars().all()
+    assert "lease_expired_failed" in events
 
 
 def test_database_backed_training_run_executes_toolkit_flow(
@@ -524,6 +697,92 @@ def test_running_training_run_can_be_cancelled_and_releases_worker_lease(
         row = conn.execute(sa.select(jobs.c.lease_owner, jobs.c.lease_expires_at).where(jobs.c.job_key == job_id)).one()
     assert row.lease_owner is None
     assert row.lease_expires_at is None
+
+
+@pytest.mark.parametrize("control_action", ["cancel", "pause"])
+def test_training_run_complete_does_not_write_model_after_cancel_or_pause(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control_action: str,
+) -> None:
+    dataset_dir = create_toy_imagefolder(tmp_path / f"{control_action}-complete-imagefolder", samples_per_class=5)
+    artifact_dir = tmp_path / "artifacts"
+    client = TestClient(create_app(database_url=database_url))
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+
+    assert (
+        client.post(
+            "/api/datasets/import-imagefolder",
+            json={
+                "path": str(dataset_dir),
+                "dataset_id": f"{control_action}-complete-toy",
+                "dataset_version_id": f"dataset@{control_action}-complete-toy-001",
+            },
+        ).status_code
+        == 201
+    )
+    create_response = client.post(
+        "/api/training-runs",
+        json={"dataset_version_id": f"dataset@{control_action}-complete-toy-001"},
+    )
+    assert create_response.status_code == 202
+    run_id = create_response.json()["training_run"]["run_id"]
+    job_id = create_response.json()["job"]["job_id"]
+
+    worker_store = DatabaseJobStore(database_url, lease_owner=f"test-{control_action}-complete-worker")
+    claimed = worker_store.claim_next_queued_job()
+    assert claimed is not None
+    assert claimed.job_id == job_id
+    training_store = DatabaseTrainingStore(database_url)
+    training_store.mark_running(run_id)
+
+    if control_action == "cancel":
+        controlled = training_store.cancel_training_run(run_id, "Cancelled during completion race.")
+    else:
+        controlled = training_store.pause_training_run(run_id)
+    expected_status = "cancelled" if control_action == "cancel" else "paused"
+    assert controlled.status == expected_status
+
+    completion = _fake_training_completion(
+        run_id=run_id,
+        dataset_id=controlled.dataset_id,
+        dataset_version_id=controlled.dataset_version_id,
+        artifact_root=artifact_dir,
+    )
+    with pytest.raises(ValueError, match="Training run cannot be completed"):
+        training_store.complete_training_run(**completion)
+
+    stored = training_store.get_training_run(run_id)
+    assert stored is not None
+    assert stored.status == controlled.status
+    assert stored.model_artifact_id is None
+    assert stored.model_version_id is None
+    assert stored.report_artifact_id is None
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        assert conn.scalar(sa.select(sa.func.count()).select_from(model_versions)) == 0
+        assert (
+            conn.scalar(
+                sa.select(sa.func.count())
+                .select_from(artifacts)
+                .where(
+                    artifacts.c.artifact_type.in_(
+                        [
+                            "feature_matrix",
+                            "model_artifact",
+                            "training_report",
+                            "calibration_report",
+                            "threshold_sweep",
+                            "threshold_strategy",
+                        ]
+                    )
+                )
+            )
+            == 0
+        )
 
 
 def test_training_run_running_controls_request_stop_at_worker_checkpoint(

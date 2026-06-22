@@ -145,6 +145,12 @@ The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
 docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
+For a reproducible local demo with PostgreSQL migration and lightweight smoke checks, see:
+
+```text
+docs/DEMO_RUNBOOK.md
+```
+
 ## Control-plane API
 
 Iteration 1 starts the FastAPI control plane under `backend/src/finevision/api/`.
@@ -223,13 +229,23 @@ lets the configured LLM read class labels and write a domain-aware draft, for ex
 plant disease classes, or CIFAR-10 general objects. LLM assistance receives the card when a request
 references a dataset version.
 
-For a fresh local database, start PostgreSQL first and apply migrations before
-starting the API/worker containers:
+For a fresh local database, Compose can apply Alembic migrations before starting the API and worker:
+
+```text
+docker compose up -d --build
+```
+
+The stack includes a one-shot `migrate` service. To run only the migration step:
 
 ```text
 docker compose up -d postgres
+docker compose run --rm migrate
+```
+
+Host-run migration is still available for local development:
+
+```text
 DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
-docker compose up -d --build
 ```
 
 This starts:
@@ -244,7 +260,13 @@ postgres: localhost:5432
 Re-apply migrations after schema changes:
 
 ```text
-DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+docker compose run --rm migrate
+```
+
+Start the demo stack and run lightweight checks:
+
+```text
+scripts/demo-up.sh
 ```
 
 Run PostgreSQL-backed repository tests:

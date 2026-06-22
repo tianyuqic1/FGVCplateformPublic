@@ -20,7 +20,7 @@ from finevision.api.store import (
     default_dataset_card,
     normalize_dataset_card,
 )
-from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs
+from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs, training_runs
 from finevision.schemas.artifacts import DatasetManifest, SampleRecord, to_jsonable
 
 
@@ -339,7 +339,7 @@ class DatabaseJobStore:
         with self.engine.begin() as conn:
             row = conn.execute(
                 sa.select(jobs)
-                .where(jobs.c.status == "queued")
+                .where(jobs.c.status == "queued", jobs.c.attempt_count < jobs.c.max_attempts)
                 .order_by(jobs.c.priority, jobs.c.queued_at, jobs.c.job_key)
                 .limit(1)
             ).mappings().first()
@@ -349,9 +349,10 @@ class DatabaseJobStore:
         now = _now()
         lease_expires_at = now + timedelta(seconds=lease_seconds)
         with self.engine.begin() as conn:
+            _recover_expired_running_jobs(conn, now=now)
             row = conn.execute(
                 sa.select(jobs)
-                .where(jobs.c.status == "queued")
+                .where(jobs.c.status == "queued", jobs.c.attempt_count < jobs.c.max_attempts)
                 .order_by(jobs.c.priority, jobs.c.queued_at, jobs.c.job_key)
                 .limit(1)
                 .with_for_update(skip_locked=True)
@@ -460,6 +461,68 @@ class DatabaseJobStore:
         if row is None:
             raise ValueError(f"Only queued jobs can be cancelled: {job.job_id}")
         return _job_from_row(row)
+
+
+def _recover_expired_running_jobs(conn: sa.Connection, *, now: datetime) -> None:
+    expired_rows = conn.execute(
+        sa.select(jobs.c.id, jobs.c.job_key, jobs.c.attempt_count, jobs.c.max_attempts)
+        .where(jobs.c.status == "running", jobs.c.lease_expires_at.is_not(None), jobs.c.lease_expires_at <= now)
+        .with_for_update(skip_locked=True)
+    ).mappings().all()
+    for row in expired_rows:
+        if int(row["attempt_count"] or 0) >= int(row["max_attempts"] or 1):
+            message = "Worker lease expired and max attempts were exhausted."
+            conn.execute(
+                jobs.update()
+                .where(jobs.c.id == row["id"], jobs.c.status == "running")
+                .values(
+                    status="failed",
+                    error_message=message,
+                    finished_at=now,
+                    updated_at=now,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
+            )
+            conn.execute(
+                training_runs.update()
+                .where(training_runs.c.job_id == row["id"], training_runs.c.status.in_(["queued", "running"]))
+                .values(status="failed", error_message=message, finished_at=now, updated_at=now)
+            )
+            _insert_job_event(
+                conn,
+                row["id"],
+                "lease_expired_failed",
+                message,
+                {"job_key": row["job_key"], "attempt_count": row["attempt_count"], "max_attempts": row["max_attempts"]},
+            )
+            continue
+
+        message = "Worker lease expired; job requeued for retry."
+        conn.execute(
+            jobs.update()
+            .where(jobs.c.id == row["id"], jobs.c.status == "running")
+            .values(
+                status="queued",
+                queued_at=now,
+                updated_at=now,
+                error_message=message,
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+        )
+        conn.execute(
+            training_runs.update()
+            .where(training_runs.c.job_id == row["id"], training_runs.c.status == "running")
+            .values(status="queued", error_message=message, updated_at=now)
+        )
+        _insert_job_event(
+            conn,
+            row["id"],
+            "lease_expired_requeued",
+            message,
+            {"job_key": row["job_key"], "attempt_count": row["attempt_count"], "max_attempts": row["max_attempts"]},
+        )
 
 
 def _manifest_select() -> sa.Select[Any]:

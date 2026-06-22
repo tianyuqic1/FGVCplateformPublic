@@ -1104,12 +1104,38 @@ a {
 }
 
 .feedback-card .review-image,
-.feedback-card .sample-image {
+.feedback-card .sample-image,
+.feedback-missing-image {
   min-height: 132px;
 }
 
 .feedback-card .review-image img {
   height: 132px;
+}
+
+.feedback-missing-image {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  min-width: 0;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  color: #536170;
+  background: #f8fbfd;
+  text-align: center;
+}
+
+.feedback-missing-image strong,
+.feedback-missing-image span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.feedback-missing-image span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .feedback-card-body {

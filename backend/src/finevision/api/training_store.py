@@ -143,10 +143,11 @@ class DatabaseTrainingStore:
         with self.engine.begin() as conn:
             result = conn.execute(
                 training_runs.update()
-                .where(training_runs.c.run_key == run_id)
+                .where(training_runs.c.run_key == run_id, training_runs.c.status.in_(["queued", "running"]))
                 .values(status="failed", error_message=error, finished_at=now, updated_at=now)
             )
-        if result.rowcount == 0:
+            exists = conn.scalar(sa.select(training_runs.c.id).where(training_runs.c.run_key == run_id))
+        if result.rowcount == 0 and exists is None:
             raise ValueError(f"Training run not found: {run_id}")
 
     def mark_cancelled_by_job(self, job_id: str, reason: str) -> None:
@@ -344,10 +345,19 @@ class DatabaseTrainingStore:
                     training_runs.c.dataset_id,
                     training_runs.c.dataset_version_id,
                     training_runs.c.job_id,
-                ).where(training_runs.c.run_key == run_id)
+                    training_runs.c.status,
+                    jobs.c.status.label("job_status"),
+                )
+                .select_from(training_runs.join(jobs, jobs.c.id == training_runs.c.job_id))
+                .where(training_runs.c.run_key == run_id)
+                .with_for_update()
             ).mappings().first()
             if run_row is None:
                 raise ValueError(f"Training run not found: {run_id}")
+            if run_row["status"] != "running" or run_row["job_status"] != "running":
+                raise ValueError(
+                    f"Training run cannot be completed from run={run_row['status']} job={run_row['job_status']}: {run_id}"
+                )
 
             feature_db_id = _upsert_artifact(
                 conn,

@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDataset, listDatasetSamplePreviews, listDatasets } from "../api/datasets.js";
 
 function mergeDataset(apiDataset) {
   return apiDataset;
-}
-
-function fallbackDataset(datasetId) {
-  return datasetId ? { id: datasetId, name: datasetId, description: "正在连接 Control-plane API" } : null;
 }
 
 export function useDatasets() {
@@ -46,9 +42,8 @@ export function useDatasets() {
 }
 
 export function useDataset(datasetId) {
-  const initialDataset = useMemo(() => fallbackDataset(datasetId), [datasetId]);
   const [state, setState] = useState({
-    dataset: initialDataset,
+    dataset: null,
     source: "loading",
     loading: true,
     error: null,
@@ -56,8 +51,11 @@ export function useDataset(datasetId) {
 
   useEffect(() => {
     let active = true;
-    const nextFallback = fallbackDataset(datasetId);
-    setState({ dataset: nextFallback, source: "loading", loading: true, error: null });
+    if (!datasetId) {
+      setState({ dataset: null, source: "api", loading: false, error: null });
+      return undefined;
+    }
+    setState({ dataset: null, source: "loading", loading: true, error: null });
 
     getDataset(datasetId)
       .then((item) => {

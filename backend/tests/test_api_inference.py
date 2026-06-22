@@ -84,61 +84,30 @@ def test_scoped_inference_returns_accept_decision_and_nearest_neighbors(
     assert review_count == 0
 
 
-def test_scoped_inference_can_abstain_for_low_confidence_and_low_margin(
+def test_scoped_inference_can_route_forced_ood_to_review(
     database_url: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
 
-    confidence_response = client.post(
-        "/api/inference",
-        json={
-            "dataset_version_id": "dataset@infer-toy-001",
-            "model_version_id": model_version_id,
-            "sample_id": sample_id,
-            "accept_threshold": 1.0,
-            "margin_threshold": 0.0,
-        },
-    )
-    assert confidence_response.status_code == 200
-    confidence_decision = confidence_response.json()["inference_result"]["result"]["decision"]
-    assert confidence_decision["decision"] == "abstain"
-    assert "confidence_below_threshold" in confidence_decision["reasons"]
+    response = _run_forced_ood_inference(client, model_version_id, tmp_path)
 
-    margin_response = client.post(
-        "/api/inference",
-        json={
-            "dataset_version_id": "dataset@infer-toy-001",
-            "model_version_id": model_version_id,
-            "sample_id": sample_id,
-            "accept_threshold": 0.0,
-            "margin_threshold": 1.0,
-        },
-    )
-    assert margin_response.status_code == 200
-    margin_decision = margin_response.json()["inference_result"]["result"]["decision"]
-    assert margin_decision["decision"] == "abstain"
-    assert "top1_top2_margin_below_threshold" in margin_decision["reasons"]
+    assert response.status_code == 200
+    decision = response.json()["inference_result"]["result"]["decision"]
+    assert decision["decision"] == "reject_ood"
+    assert "embedding_distance_above_threshold" in decision["reasons"]
+    assert response.json()["inference_result"]["review_item_id"]
 
 
-def test_abstain_inference_creates_review_item_and_feedback(
+def test_routed_inference_creates_review_item_and_feedback(
     database_url: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
 
-    response = client.post(
-        "/api/inference",
-        json={
-            "dataset_version_id": "dataset@infer-toy-001",
-            "model_version_id": model_version_id,
-            "sample_id": sample_id,
-            "accept_threshold": 1.0,
-            "margin_threshold": 1.0,
-        },
-    )
+    response = _run_forced_ood_inference(client, model_version_id, tmp_path)
     assert response.status_code == 200
     body = response.json()["inference_result"]
     review_item_id = body["review_item_id"]
@@ -150,28 +119,22 @@ def test_abstain_inference_creates_review_item_and_feedback(
     items = list_response.json()["review_items"]
     assert [item["review_item_id"] for item in items] == [review_item_id]
     assert items[0]["status"] == "pending"
-    assert items[0]["context"]["decision"]["decision"] == "abstain"
+    assert items[0]["context"]["decision"]["decision"] == "reject_ood"
     assert items[0]["context"]["nearest_neighbors"]
-    assert items[0]["image_url"] == f"/api/dataset-versions/dataset@infer-toy-001/samples/{sample_id}/image"
-    assert items[0]["context"]["input"]["image_url"] == items[0]["image_url"]
+    assert items[0]["image_url"] is None
 
     detail_response = client.get(f"/api/review-items/{review_item_id}")
     assert detail_response.status_code == 200
     detail = detail_response.json()["review_item"]
-    assert detail["risk_type"] in {"mixed", "low_confidence", "low_margin"}
-    assert detail["image_url"] == f"/api/dataset-versions/dataset@infer-toy-001/samples/{sample_id}/image"
-
-    image_response = client.get(detail["image_url"])
-    assert image_response.status_code == 200
-    assert image_response.content
+    assert detail["risk_type"] == "ood_candidate"
+    assert detail["image_url"] is None
 
     submit_response = client.post(
         f"/api/review-items/{review_item_id}/submit",
         json={
-            "final_outcome": "corrected_label",
-            "destination": "training_candidate",
-            "final_label": "red_square",
-            "reviewer_note": "human correction for test",
+            "final_outcome": "ood",
+            "destination": "ood_stress",
+            "reviewer_note": "human confirmed OOD for test",
             "reviewer": "qa",
         },
     )
@@ -179,7 +142,7 @@ def test_abstain_inference_creates_review_item_and_feedback(
     submit_body = submit_response.json()
     completed = submit_body["review_item"]
     assert completed["status"] == "feedbacked"
-    assert completed["feedback"]["destination"] == "training_candidate"
+    assert completed["feedback"]["destination"] == "ood_stress"
     assert completed["feedback"]["review_item_id"] == review_item_id
     assert submit_body["feedback_item"]["review_item_id"] == review_item_id
 
@@ -191,7 +154,7 @@ def test_abstain_inference_creates_review_item_and_feedback(
     assert completed_response.status_code == 200
     assert [item["review_item_id"] for item in completed_response.json()["review_items"]] == [review_item_id]
 
-    feedback_response = client.get("/api/feedback-items?destination=training_candidate&dataset_id=infer-toy")
+    feedback_response = client.get("/api/feedback-items?destination=ood_stress&dataset_id=infer-toy")
     assert feedback_response.status_code == 200
     feedback_items_payload = feedback_response.json()["feedback_items"]
     assert [item["review_item_id"] for item in feedback_items_payload] == [review_item_id]
@@ -200,8 +163,8 @@ def test_abstain_inference_creates_review_item_and_feedback(
     assert feedback_items_payload[0]["dataset_id"] == "infer-toy"
     assert feedback_items_payload[0]["dataset_version_id"] == "dataset@infer-toy-001"
     assert feedback_items_payload[0]["model_version_id"] == model_version_id
-    assert feedback_items_payload[0]["destination"] == "training_candidate"
-    assert feedback_items_payload[0]["final_label"] == "red_square"
+    assert feedback_items_payload[0]["destination"] == "ood_stress"
+    assert feedback_items_payload[0]["final_label"] is None
 
     all_response = client.get("/api/review-items?status=all")
     assert all_response.status_code == 200
@@ -276,16 +239,7 @@ def test_review_assistance_is_advisory_and_does_not_complete_review(
 ) -> None:
     client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
 
-    response = client.post(
-        "/api/inference",
-        json={
-            "dataset_version_id": "dataset@infer-toy-001",
-            "model_version_id": model_version_id,
-            "sample_id": sample_id,
-            "accept_threshold": 1.0,
-            "margin_threshold": 1.0,
-        },
-    )
+    response = _run_forced_ood_inference(client, model_version_id, tmp_path)
     assert response.status_code == 200
     review_item_id = response.json()["inference_result"]["review_item_id"]
     assert review_item_id
@@ -576,6 +530,22 @@ def _trained_toy_context(
         ).scalar_one()
     sample_id = str(feature_metadata["feature_artifact"]["sample_ids"][-1])
     return client, model_version_id, sample_id
+
+
+def _run_forced_ood_inference(client: TestClient, model_version_id: str, tmp_path: Path):
+    query_path = tmp_path / "forced-ood.png"
+    Image.new("RGB", (96, 96), (0, 0, 0)).save(query_path)
+    return client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "image_path": str(query_path),
+            "accept_threshold": 0.0,
+            "margin_threshold": 0.0,
+            "ood_distance_threshold": 0.0,
+        },
+    )
 
 
 def _reset_database(database_url: str) -> None:

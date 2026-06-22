@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getTrainingRun, listTrainingRuns } from "../api/trainingRuns.js";
 
 function mergeTrainingRun(apiRun) {
   return apiRun;
-}
-
-function fallbackTrainingRun(runId) {
-  return runId ? { id: runId, name: runId, status: "loading", progress: 0, metrics: {} } : null;
 }
 
 export function useTrainingRuns() {
@@ -47,9 +43,8 @@ export function useTrainingRuns() {
 }
 
 export function useTrainingRun(runId) {
-  const initialRun = useMemo(() => fallbackTrainingRun(runId), [runId]);
   const [state, setState] = useState({
-    trainingRun: initialRun,
+    trainingRun: null,
     source: "loading",
     loading: true,
     error: null,
@@ -58,8 +53,11 @@ export function useTrainingRun(runId) {
   useEffect(() => {
     let active = true;
     let pollTimer = null;
-    const nextFallback = fallbackTrainingRun(runId);
-    setState({ trainingRun: nextFallback, source: "loading", loading: true, error: null });
+    if (!runId) {
+      setState({ trainingRun: null, source: "api", loading: false, error: null });
+      return undefined;
+    }
+    setState({ trainingRun: null, source: "loading", loading: true, error: null });
 
     function loadRun({ keepCurrent = false } = {}) {
       if (!runId) return;

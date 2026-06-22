@@ -102,6 +102,7 @@ POST /api/inference/upload
 POST /api/inference/upload-folder
 GET  /api/dataset-versions/{dataset_version_id}/card
 PUT  /api/dataset-versions/{dataset_version_id}/card
+POST /api/dataset-versions/{dataset_version_id}/card/generate
 GET  /api/review-items
 GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/assist
@@ -493,6 +494,16 @@ Run migrations before starting API and worker against a fresh database:
 ```bash
 DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
 ```
+
+The Docker Compose stack also includes a one-shot migration service:
+
+```bash
+docker compose up -d postgres
+docker compose run --rm migrate
+```
+
+`api` and `ml-worker` depend on that migration service completing successfully, so a normal
+`docker compose up --build` applies Alembic migrations before starting the application processes.
 
 The old JSON store remains as a compatibility adapter. It is used when tests or local tools pass
 `metadata_dir` explicitly, or when no `DATABASE_URL` is configured. In that mode:

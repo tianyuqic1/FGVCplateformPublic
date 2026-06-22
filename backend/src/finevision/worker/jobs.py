@@ -233,6 +233,9 @@ def _run_train_classifier(
     except TrainingRunStopped:
         raise
     except Exception as exc:
+        status = training_store.get_status(run_id)
+        if status in {"cancelled", "paused"}:
+            raise TrainingRunStopped(f"Training run {run_id} is {status}.") from exc
         training_store.mark_failed(run_id, str(exc))
         raise
 

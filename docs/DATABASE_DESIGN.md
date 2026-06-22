@@ -574,6 +574,8 @@ DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevisio
 - Implemented: dataset import metadata moves into PostgreSQL when `DATABASE_URL` is configured.
 - Implemented: job lifecycle moves into PostgreSQL when `DATABASE_URL` is configured.
 - Implemented: worker job claiming uses transactional row locking with `FOR UPDATE SKIP LOCKED`, `lease_owner`, and `lease_expires_at`.
+- Implemented: expired running leases are recovered before the next claim; jobs under `max_attempts`
+  are requeued, while exhausted jobs fail and release their lease.
 - Implemented: manifest JSON is stored as a `dataset_manifest` artifact in `artifacts.artifact_metadata`.
 - Kept intentionally: the JSON store remains as an explicit compatibility adapter for no-database local runs and focused tests.
 
@@ -583,7 +585,6 @@ Deferred to Iteration 2:
 
 - dedicated artifact APIs
 - feature/model/training-specific tables
-- expired lease retry and requeue policy
 - sample-level query tables beyond the manifest artifact JSON
 
 ### Iteration 2: Training Metadata

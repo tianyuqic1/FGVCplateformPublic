@@ -44,6 +44,56 @@ function datasetStatus(dataset) {
   return { label: "训练中", tone: "info" };
 }
 
+function datasetStatusLabel(status) {
+  return datasetStatus({ status }).label;
+}
+
+function datasetFilterMatch(dataset, filter) {
+  if (filter === "production") return dataset.status === "production";
+  if (filter === "ready") return dataset.status === "ready";
+  return true;
+}
+
+function decisionValueLabel(value) {
+  const labels = {
+    accept: "自动通过",
+    abstain: "模型弃权",
+    reject_ood: "OOD 拦截",
+  };
+  return labels[value] ?? value;
+}
+
+function compactStatusLabel(value) {
+  const labels = {
+    loading: "加载中",
+    clear: "已清空",
+    empty: "空",
+    error: "错误",
+    failed: "失败",
+    event: "事件",
+    guarded: "已隔离",
+    deferred: "待策展",
+    gate: "门禁",
+    "not found": "未找到",
+    missing: "缺失",
+  };
+  return labels[value] ?? value;
+}
+
+function modelStateLabel(value) {
+  const labels = {
+    candidate: "候选",
+    staging: "预发布",
+    production: "生产",
+    experiment: "实验",
+    succeeded: "完成",
+    running: "运行中",
+    failed: "失败",
+    queued: "排队中",
+  };
+  return labels[value] ?? value;
+}
+
 function riskTone(route) {
   if (route === "ood") return "risk";
   if (route === "bad-image") return "neutral";
@@ -417,7 +467,7 @@ function ApiReviewCard({ item, queryString = "" }) {
         <div className="chips">
           <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
           <StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>
-          <StatusChip tone="info">P{item.priority}</StatusChip>
+          <StatusChip tone="info">优先级 {item.priority}</StatusChip>
           <StatusChip tone={hasLLMAssistance ? "default" : "neutral"}>{hasLLMAssistance ? "LLM 已生成" : "LLM 未生成"}</StatusChip>
         </div>
         <h3>{item.sampleId || item.id}</h3>
@@ -541,7 +591,7 @@ function RecentJobsPanel({ limit = 5, selectedJobId = "" }) {
         <div className="timeline-item">
           <div className="timeline-icon"><Icon name="Search" size={18} /></div>
           <div><strong>当前列表没有这个 job</strong><div className="row-meta">{selectedJobId} · 请刷新或扩大任务查询范围。</div></div>
-          <StatusChip tone="warn">missing</StatusChip>
+          <StatusChip tone="warn">{compactStatusLabel("missing")}</StatusChip>
         </div>
       )}
       {jobs.length > 0 ? (
@@ -578,7 +628,7 @@ function ModelCard({ model }) {
   return (
     <Link className="card clickable" to={`/models/${model.id}`}>
       <div className="chips">
-        <StatusChip tone={tone}>{model.state === "candidate" ? "候选" : model.state}</StatusChip>
+        <StatusChip tone={tone}>{modelStateLabel(model.state)}</StatusChip>
         {isRecommended && <StatusChip tone="default">CLS 基线</StatusChip>}
         {isLegacy && <StatusChip tone="warn">旧特征</StatusChip>}
       </div>
@@ -730,6 +780,7 @@ export function DatasetsPage({ showToast }) {
   const { datasets: datasetItems, source, loading, refresh } = useDatasets();
   const folderInputRef = useRef(null);
   const [showImport, setShowImport] = useState(false);
+  const [datasetFilter, setDatasetFilter] = useState("all");
   const [importForm, setImportForm] = useState({
     datasetId: "cifar10-mini",
     datasetVersionId: "dataset@cifar10-mini-001",
@@ -742,6 +793,7 @@ export function DatasetsPage({ showToast }) {
   });
   const [importState, setImportState] = useState({ status: "idle", result: null, error: null });
   const sourceLabel = source === "api" ? "Control-plane API" : "Control-plane API 暂不可用";
+  const visibleDatasets = datasetItems.filter((dataset) => datasetFilterMatch(dataset, datasetFilter));
   const canImport =
     importState.status !== "running" &&
     folderSelection.valid &&
@@ -870,10 +922,10 @@ export function DatasetsPage({ showToast }) {
               <div>
                 <div className="chips">
                   <StatusChip tone={importState.result.version.readiness?.ready ? "default" : "warn"}>
-                    {importState.result.version.readiness?.ready ? "ready" : "not ready"}
+                    {importState.result.version.readiness?.ready ? "可训练" : "未就绪"}
                   </StatusChip>
-                  <StatusChip tone="info">{importState.result.version.sample_count ?? 0} samples</StatusChip>
-                  <StatusChip tone="info">{importState.result.version.class_count ?? 0} classes</StatusChip>
+                  <StatusChip tone="info">{importState.result.version.sample_count ?? 0} 张样本</StatusChip>
+                  <StatusChip tone="info">{importState.result.version.class_count ?? 0} 类</StatusChip>
                   <StatusChip tone="info">{importedVersionId}</StatusChip>
                 </div>
                 <strong>导入成功，下一步选择数据资产或训练任务</strong>
@@ -907,16 +959,22 @@ export function DatasetsPage({ showToast }) {
       )}
       <Panel
         title="数据集列表"
-        caption={`${loading ? "正在连接 Control-plane API" : sourceLabel} · 点击行进入数据集详情。`}
+        caption={`${loading ? "正在连接 Control-plane API" : sourceLabel} · ${visibleDatasets.length}/${datasetItems.length} 个显示 · 点击行进入数据集详情。`}
         action={
           <div className="tabs">
-            <button className="tab-button active">全部</button>
-            <button className="tab-button">可推理</button>
-            <button className="tab-button">待训练</button>
+            {[
+              ["all", "全部"],
+              ["production", "可推理"],
+              ["ready", "可训练"],
+            ].map(([value, label]) => (
+              <button className={`tab-button ${datasetFilter === value ? "active" : ""}`} key={value} onClick={() => setDatasetFilter(value)}>
+                {label}
+              </button>
+            ))}
           </div>
         }
       >
-        <DatasetTable items={datasetItems} />
+        <DatasetTable items={visibleDatasets} />
       </Panel>
     </>
   );
@@ -1208,8 +1266,8 @@ function DatasetCardPanel({ dataset, showToast }) {
         </div>
       </div>
       <div className="chips section-gap-small">
-        <StatusChip tone="info">{card.classCount ?? dataset.classes} classes</StatusChip>
-        <StatusChip tone="info">{card.sampleCount ?? dataset.images} samples</StatusChip>
+        <StatusChip tone="info">{card.classCount ?? dataset.classes} 类</StatusChip>
+        <StatusChip tone="info">{card.sampleCount ?? dataset.images} 张样本</StatusChip>
         {Object.entries(card.splitTotals ?? {}).map(([split, count]) => (
           <StatusChip tone="neutral" key={split}>{split}: {count}</StatusChip>
         ))}
@@ -1678,7 +1736,9 @@ export function TrainingPage({ showToast }) {
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const [queueActionState, setQueueActionState] = useState({ status: "idle", runId: null, error: null });
   const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
-  const trainingDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId);
+  const readyDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId && dataset.status === "ready");
+  const blockedDatasetCount = datasetOptions.filter((dataset) => dataset.datasetVersionId && dataset.status !== "ready").length;
+  const trainingDatasetOptions = readyDatasetOptions;
   const datasetVersionOptions = trainingDatasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const filteredRuns = filterTrainingRuns(runItems, queueStatusFilter, queueSortMode);
   const recommendedBaseline = selectRecommendedClsRun(runItems);
@@ -1700,7 +1760,9 @@ export function TrainingPage({ showToast }) {
   const createBlockReason = canUseDatasetForTraining
     ? ""
     : datasetSource === "api"
-      ? "当前没有真实 dataset version 可用于训练。"
+      ? blockedDatasetCount > 0
+        ? "当前没有 ready dataset version 可用于训练；列表中的非 ready 数据集不会出现在训练表单。"
+        : "当前没有真实 dataset version 可用于训练。"
       : "Control-plane API 暂不可用，不能提交真实训练任务。";
 
   useEffect(() => {
@@ -1781,7 +1843,7 @@ export function TrainingPage({ showToast }) {
         <Panel
           title="创建训练运行"
           caption="只允许 ready 的 dataset version 进入训练，训练任务会由 ml-worker 执行。"
-          action={<StatusChip tone={createState.status === "failed" ? "risk" : createState.status === "succeeded" ? "default" : "info"}>{createState.status}</StatusChip>}
+          action={<StatusChip tone={createState.status === "failed" ? "risk" : createState.status === "succeeded" ? "default" : "info"}>{uiStateLabel(createState.status)}</StatusChip>}
         >
           <div className="field-grid">
             <div className="field">
@@ -1789,7 +1851,7 @@ export function TrainingPage({ showToast }) {
               <select value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} disabled={!canUseDatasetForTraining}>
                 {trainingDatasetOptions.map((dataset) => (
                   <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
-                    {dataset.name} · {dataset.datasetVersionId} · {dataset.images} samples · {dataset.status}
+                    {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
                   </option>
                 ))}
               </select>
@@ -1904,7 +1966,7 @@ export function TrainingPage({ showToast }) {
               刷新权重状态
             </button>
             <StatusChip tone={datasetSource === "api" ? "default" : "warn"}>
-              {datasetSource === "api" ? `${trainingDatasetOptions.length} 个可选数据集版本` : "数据集 API 不可用"}
+              {datasetSource === "api" ? `${trainingDatasetOptions.length} 个 ready 版本可选` : "数据集 API 不可用"}
             </StatusChip>
             <StatusChip tone={weightSource === "api" ? "default" : "warn"}>
               {weightSource === "api" ? "权重缓存可见" : "权重缓存不可用"}
@@ -2078,7 +2140,7 @@ export function TrainingDetailPage({ showToast }) {
           <div className="timeline-item">
             <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
             <div><strong>{runId}</strong><div className="row-meta">Training API 返回 404。</div></div>
-            <StatusChip tone="risk">not found</StatusChip>
+            <StatusChip tone="risk">{compactStatusLabel("not found")}</StatusChip>
           </div>
         </Panel>
       </>
@@ -2116,7 +2178,7 @@ export function TrainingDetailPage({ showToast }) {
           <div className="next-step-card">
             <div>
               <div className="chips">
-                <StatusChip tone="default">candidate model</StatusChip>
+                <StatusChip tone="default">候选模型</StatusChip>
                 <StatusChip tone="info">{run.modelVersionId}</StatusChip>
                 <StatusChip tone="info">{run.datasetVersionId}</StatusChip>
               </div>
@@ -2300,9 +2362,10 @@ export function InferencePage({ showToast }) {
 
   const result = state.result;
   const isBatchResult = Boolean(result?.batch);
+  const isBatchFolderMode = form.imageFiles.length > 0;
   const decisionState = inferenceDecisionStatus(isBatchResult ? null : result?.decision);
   const decisionCopy = inferenceDecisionCopy(isBatchResult ? null : result?.decision);
-  const queryLabel = form.imageFiles.length > 0 ? `${form.imageFolderName || "folder"} · ${form.imageFiles.length} images` : form.imageFile?.name || form.sampleId || form.imagePath || "query image";
+  const queryLabel = isBatchFolderMode ? `${form.imageFolderName || "文件夹"} · ${form.imageFiles.length} 张图片` : form.imageFile?.name || form.sampleId || form.imagePath || "query image";
 
   async function handleGenerateInferenceExplanation() {
     if (!result) return;
@@ -2334,7 +2397,7 @@ export function InferencePage({ showToast }) {
       <CandidateOnlyGuard description="推理实验室只验证训练产出的候选模型和阈值策略；accept 也只是记录 inference event，不代表模型已经上线。" />
       <div className="grid detail section-gap-small">
       <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
-        {form.imageFiles.length > 0 ? (
+        {isBatchFolderMode ? (
           <div className="empty-query-preview">
             <Icon name="FolderInput" size={22} />
             <strong>{form.imageFolderName || "批量图片文件夹"}</strong>
@@ -2413,7 +2476,7 @@ export function InferencePage({ showToast }) {
                 onChange={(event) => updateImageFolder(event.target.files)}
               />
               <Icon name="FolderInput" size={18} />
-              <span>{form.imageFiles.length > 0 ? `${form.imageFolderName || "folder"} · ${form.imageFiles.length} images` : "选择图片文件夹批量推理"}</span>
+              <span>{isBatchFolderMode ? `${form.imageFolderName || "文件夹"} · ${form.imageFiles.length} 张图片` : "选择图片文件夹批量推理"}</span>
               <button
                 className="ghost-button"
                 type="button"
@@ -2425,11 +2488,17 @@ export function InferencePage({ showToast }) {
                 选择
               </button>
             </div>
-            <span className="field-hint">批量模式会逐张运行推理，并把每张图作为人工复核队列项供你连续处理。</span>
+            <span className="field-hint">批量模式会逐张运行推理，并忽略单样本 ID 和容器内图片路径输入。</span>
           </div>
           <div className="field">
             <label>样本 ID</label>
-            <input value={form.sampleId} onChange={(event) => updateField("sampleId", event.target.value)} disabled={Boolean(form.imageFile)} placeholder="feature artifact sample_id" />
+            <input
+              value={form.sampleId}
+              onChange={(event) => updateField("sampleId", event.target.value)}
+              disabled={Boolean(form.imageFile) || isBatchFolderMode}
+              placeholder={isBatchFolderMode ? "批量文件夹模式下忽略" : "feature artifact sample_id"}
+            />
+            {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 sample_id。</span>}
           </div>
           <div className="field">
             <label>Top-k</label>
@@ -2444,7 +2513,13 @@ export function InferencePage({ showToast }) {
           <summary>高级：使用容器内图片路径</summary>
           <div className="field section-gap-small">
             <label>图片路径</label>
-            <input value={form.imagePath} onChange={(event) => updateField("imagePath", event.target.value)} disabled={Boolean(form.imageFile)} placeholder="/absolute/path/to/image.png" />
+            <input
+              value={form.imagePath}
+              onChange={(event) => updateField("imagePath", event.target.value)}
+              disabled={Boolean(form.imageFile) || isBatchFolderMode}
+              placeholder={isBatchFolderMode ? "批量文件夹模式下忽略" : "/absolute/path/to/image.png"}
+            />
+            {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 image_path。</span>}
           </div>
         </details>
         <div className="toolbar section-gap-small">
@@ -2520,7 +2595,7 @@ export function InferencePage({ showToast }) {
                       {item.decision.value} · {item.topK[0]?.label ?? "unknown"} {item.topK[0] ? item.topK[0].score.toFixed(3) : ""}
                     </div>
                   </div>
-                  {item.reviewItemId ? <StatusChip tone="info">{item.reviewItemId}</StatusChip> : <StatusChip tone="default">event</StatusChip>}
+                  {item.reviewItemId ? <StatusChip tone="info">{item.reviewItemId}</StatusChip> : <StatusChip tone="default">{compactStatusLabel("event")}</StatusChip>}
                 </div>
               ))}
               {result.results.length > 8 && (
@@ -2529,7 +2604,7 @@ export function InferencePage({ showToast }) {
               {result.failures.length > 0 && (
                 <div className="route-box risk">
                   <div><strong>{result.failures.length} 张图片失败</strong><div className="row-meta">{result.failures.slice(0, 3).map((failure) => `${failure.filename}: ${failure.error}`).join("；")}</div></div>
-                  <StatusChip tone="risk">failed</StatusChip>
+                  <StatusChip tone="risk">{compactStatusLabel("failed")}</StatusChip>
                 </div>
               )}
             </div>
@@ -2544,7 +2619,7 @@ export function InferencePage({ showToast }) {
                   <strong>{decisionCopy.title}</strong>
                   <div className="row-meta">{decisionCopy.body}</div>
                 </div>
-                <StatusChip tone={decisionState.tone}>{result.decision.value}</StatusChip>
+                <StatusChip tone={decisionState.tone}>{decisionValueLabel(result.decision.value)}</StatusChip>
               </div>
               <div className="evidence-metrics">
                 <div><span>confidence</span><strong>{result.decision.confidence.toFixed(4)}</strong></div>
@@ -2696,14 +2771,14 @@ export function ReviewPage() {
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
               <div><strong>Review API 请求失败</strong><div className="row-meta">{error.message}</div></div>
-              <StatusChip tone="risk">error</StatusChip>
+              <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>
             </div>
           )}
           {!error && apiReviewItems.length === 0 && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
               <div><strong>{loading ? "正在加载队列" : "当前筛选下没有样本"}</strong><div className="row-meta">{loading ? "Review API 正在返回结果。" : statusFilter === "pending" ? "abstain / reject_ood 推理会自动进入这里。" : "可以切回待复核或全部查看其他记录。"}</div></div>
-              <StatusChip tone={loading ? "info" : "default"}>{loading ? "loading" : "clear"}</StatusChip>
+              <StatusChip tone={loading ? "info" : "default"}>{compactStatusLabel(loading ? "loading" : "clear")}</StatusChip>
             </div>
           )}
           <div className="grid">
@@ -2715,8 +2790,8 @@ export function ReviewPage() {
         <Panel title="队列摘要" caption="统计当前筛选结果；历史入口在左侧状态切换中。">
           <div className="timeline">
             <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">conf</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="GitCompare" size={18} /></div><div><strong>{lowMarginCount} 条低间隔</strong><div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div></div><StatusChip tone="info">margin</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">低置信</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="GitCompare" size={18} /></div><div><strong>{lowMarginCount} 条低间隔</strong><div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div></div><StatusChip tone="info">低间隔</StatusChip></div>
           </div>
         </Panel>
       </div>
@@ -2803,7 +2878,7 @@ export function ReviewDetailPage({ showToast }) {
     return (
       <>
         <PageHero title="复核项不存在" description={error?.message ?? "Review API 没有返回这个复核项。"} actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
-        <Panel title="无法打开复核详情" caption="请从真实队列中选择一个待复核样本。"><StatusChip tone="risk">not found</StatusChip></Panel>
+        <Panel title="无法打开复核详情" caption="请从真实队列中选择一个待复核样本。"><StatusChip tone="risk">{compactStatusLabel("not found")}</StatusChip></Panel>
       </>
     );
   }
@@ -2842,8 +2917,8 @@ export function ReviewDetailPage({ showToast }) {
           <ReviewImage item={item} risk={risk} detail />
           <div className="chips section-gap-small">
             <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
-            <StatusChip tone="info">priority {item.priority}</StatusChip>
-            <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{item.decision.value}</StatusChip>
+            <StatusChip tone="info">优先级 {item.priority}</StatusChip>
+            <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{decisionValueLabel(item.decision.value)}</StatusChip>
           </div>
           <div className="evidence-metrics section-gap-small">
             <div><span>confidence</span><strong>{item.decision.confidence.toFixed(4)}</strong></div>
@@ -2991,8 +3066,6 @@ export function ReviewDetailPage({ showToast }) {
 }
 
 function FeedbackCard({ item }) {
-  const visualKey =
-    item.destination === "ood_stress" ? "ood" : item.destination === "bad_image" ? "defect" : item.finalLabel || item.sampleId || "bird";
   return (
     <div className="feedback-card">
       {item.imageUrl ? (
@@ -3001,7 +3074,11 @@ function FeedbackCard({ item }) {
           <span>{item.sampleId || item.id}</span>
         </div>
       ) : (
-        <SampleImage src={sampleImageFor(visualKey)} label={item.sampleId || item.id} compact low={item.destination !== "ood_stress"} />
+        <div className="feedback-missing-image">
+          <Icon name="ImageOff" size={22} />
+          <strong>无真实图片</strong>
+          <span>{item.sampleId || item.id}</span>
+        </div>
       )}
       <div className="feedback-card-body">
         <div className="chips">
@@ -3061,7 +3138,7 @@ function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = 
       {error && (
         <div className="route-box risk section-gap-small">
           <div><strong>LLM 辅助暂不可用</strong><div className="row-meta">{error.message}</div></div>
-          <StatusChip tone="risk">error</StatusChip>
+          <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>
         </div>
       )}
       {!error && !hasAssistance && (
@@ -3205,14 +3282,14 @@ export function FeedbackPage() {
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
               <div><strong>Feedback API 请求失败</strong><div className="row-meta">{error.message}</div></div>
-              <StatusChip tone="risk">error</StatusChip>
+              <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>
             </div>
           )}
           {!error && feedbackItems.length === 0 && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="DatabaseZap" size={18} /></div>
               <div><strong>{loading ? "正在加载反馈池" : "当前筛选下没有反馈"}</strong><div className="row-meta">完成人工复核后，反馈会按目的地进入这里。</div></div>
-              <StatusChip tone={loading ? "info" : "default"}>{loading ? "loading" : "empty"}</StatusChip>
+              <StatusChip tone={loading ? "info" : "default"}>{compactStatusLabel(loading ? "loading" : "empty")}</StatusChip>
             </div>
           )}
           <div className="feedback-list">
@@ -3226,9 +3303,9 @@ export function FeedbackPage() {
             ))}
           </div>
           <div className="timeline section-gap">
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldCheck" size={18} /></div><div><strong>不会直接污染训练集</strong><div className="row-meta">训练仍只能选择不可变 dataset_version。</div></div><StatusChip tone="default">guarded</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="Database" size={18} /></div><div><strong>下一步：数据策展</strong><div className="row-meta">后续会把已采纳反馈冻结成新的 dataset version。</div></div><StatusChip tone="warn">deferred</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="Route" size={18} /></div><div><strong>发布前再消费</strong><div className="row-meta">模型发布门禁应检查 OOD 压力池、坏图池和争议池处理状态。</div></div><StatusChip tone="info">gate</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldCheck" size={18} /></div><div><strong>不会直接污染训练集</strong><div className="row-meta">训练仍只能选择不可变 dataset_version。</div></div><StatusChip tone="default">{compactStatusLabel("guarded")}</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Database" size={18} /></div><div><strong>下一步：数据策展</strong><div className="row-meta">后续会把已采纳反馈冻结成新的 dataset version。</div></div><StatusChip tone="warn">{compactStatusLabel("deferred")}</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="Route" size={18} /></div><div><strong>发布前再消费</strong><div className="row-meta">模型发布门禁应检查 OOD 压力池、坏图池和争议池处理状态。</div></div><StatusChip tone="info">{compactStatusLabel("gate")}</StatusChip></div>
           </div>
           <LLMAssistanceBox
             title="LLM 策展建议"
