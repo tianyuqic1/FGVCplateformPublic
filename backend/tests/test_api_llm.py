@@ -29,11 +29,13 @@ def test_responses_payload_uses_strict_json_schema_format() -> None:
     assert response_format["schema"]["additionalProperties"] is False
     assert set(response_format["schema"]["required"]) == {
         "summary",
+        "holistic_analysis",
         "inspection_notes",
         "suggested_actions",
         "risk_flags",
         "confidence",
     }
+    assert "holistic_analysis" in response_format["schema"]["properties"]
 
 
 def test_responses_payload_can_disable_structured_outputs_for_compatibility() -> None:
@@ -54,3 +56,31 @@ def test_responses_payload_can_disable_structured_outputs_for_compatibility() ->
     payload = _responses_payload(prompt="test", model=settings.model, settings=settings)
 
     assert "text" not in payload
+
+
+def test_responses_payload_can_attach_uploaded_image_pixels() -> None:
+    settings = LLMSettings(
+        provider="OpenAI",
+        model="gpt-5.5",
+        review_model="gpt-5.5",
+        reasoning_effort="high",
+        base_url="https://mikuapi.org/v1",
+        wire_api="responses",
+        disable_response_storage=True,
+        requires_openai_auth=True,
+        structured_outputs=True,
+        api_key="test-key",
+        timeout_seconds=60,
+    )
+
+    payload = _responses_payload(
+        prompt="inspect this image",
+        model=settings.model,
+        settings=settings,
+        image_data_urls=["data:image/png;base64,AAAA"],
+    )
+
+    content = payload["input"][0]["content"]
+    assert content[0] == {"type": "input_text", "text": "inspect this image"}
+    assert content[1]["type"] == "input_image"
+    assert content[1]["image_url"].startswith("data:image/png;base64,")

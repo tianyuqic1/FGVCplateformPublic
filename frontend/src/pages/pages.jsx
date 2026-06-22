@@ -2162,6 +2162,7 @@ export function InferencePage({ showToast }) {
 
   async function handleGenerateInferenceExplanation() {
     if (!result) return;
+    const imageDataUrl = form.imageFile ? await readFileAsDataUrl(form.imageFile) : null;
     await llm.generate({
       task: "inference_explanation",
       context: {
@@ -2170,6 +2171,13 @@ export function InferencePage({ showToast }) {
         dataset_id: result.datasetId,
         dataset_version_id: result.datasetVersionId,
         model_version_id: result.modelVersionId,
+        image_input: {
+          ...result.input,
+          local_preview_name: queryLabel,
+          has_browser_upload_preview: Boolean(previewUrl),
+          image_pixels_attached: Boolean(imageDataUrl),
+          ...(imageDataUrl ? { image_data_url: imageDataUrl } : {}),
+        },
         decision: result.decision,
         top_k: result.topK,
         nearest_neighbors: result.nearestNeighbors.slice(0, 5),
@@ -2382,6 +2390,15 @@ export function InferencePage({ showToast }) {
       </div>
     </>
   );
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(typeof reader.result === "string" ? reader.result : null));
+    reader.addEventListener("error", () => resolve(null));
+    reader.readAsDataURL(file);
+  });
 }
 
 export function ReviewPage() {
@@ -2785,6 +2802,7 @@ function assistanceFromMetadata(metadata) {
   return {
     advisoryOnly: raw.advisoryOnly ?? raw.advisory_only ?? true,
     summary: raw.summary ?? "",
+    holisticAnalysis: raw.holisticAnalysis ?? raw.holistic_analysis ?? "",
     inspectionNotes: raw.inspectionNotes ?? raw.inspection_notes ?? [],
     suggestedActions: raw.suggestedActions ?? raw.suggested_actions ?? [],
     riskFlags: raw.riskFlags ?? raw.risk_flags ?? [],
@@ -2827,6 +2845,12 @@ function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = 
             <strong>建议摘要</strong>
             <span>{assistance.summary}</span>
           </div>
+          {assistance.holisticAnalysis && (
+            <div className="reason-box section-gap-small">
+              <strong>LLM 综合分析</strong>
+              <span>{assistance.holisticAnalysis}</span>
+            </div>
+          )}
           <div className="timeline section-gap-small">
             <LLMListItem icon="ScanSearch" title="检查点" items={assistance.inspectionNotes} empty="没有返回检查点。" />
             <LLMListItem icon="CheckCircle2" title="建议动作" items={assistance.suggestedActions} empty="没有返回建议动作。" />

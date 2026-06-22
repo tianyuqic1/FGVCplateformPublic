@@ -619,6 +619,7 @@ Response:
   "assistance": {
     "advisory_only": true,
     "summary": "...",
+    "holistic_analysis": "...",
     "inspection_notes": [],
     "suggested_actions": [],
     "risk_flags": [],
@@ -629,8 +630,13 @@ Response:
 
 LLM output is not a final label, does not update thresholds, and does not mutate dataset versions.
 The default request uses Responses `text.format` with `type=json_schema`, `strict=true`, and a
-schema requiring `summary`, `inspection_notes`, `suggested_actions`, `risk_flags`, and
-`confidence`.
+schema requiring `summary`, `holistic_analysis`, `inspection_notes`, `suggested_actions`,
+`risk_flags`, and `confidence`. When `context.dataset_version_id` is present, the backend injects a
+compact manifest-derived `dataset_summary` so the assistant can ground its first-pass
+`holistic_analysis` before producing checklist items. When the frontend sends
+`context.image_input.image_data_url` for an uploaded query image, the backend attaches that image as
+a Responses `input_image` and removes the base64 payload from the text JSON context. If a provider
+rejects image inputs, the backend falls back to text-only evidence.
 
 ## Planned Dataset Card LLM Context API
 

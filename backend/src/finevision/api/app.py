@@ -530,7 +530,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
         if review_item.status != "pending":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="LLM assistance is only generated for pending review items")
-        context = _review_assistance_context(review_item, question=request.question if request else None)
+        context = _with_dataset_summary(store, _review_assistance_context(review_item, question=request.question if request else None))
         assistance = _call_llm_assistant(task="review_assistance", context=context)
         try:
             updated = review_store.update_review_assistance(review_id=review_item_id, assistance=assistance)
@@ -543,7 +543,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
 
     @api.post("/api/llm/assist")
     def generate_llm_assistance(request: LLMAssistanceRequest) -> dict[str, object]:
-        return {"assistance": _call_llm_assistant(task=request.task, context=_sanitize_llm_context(request.context))}
+        context = _with_dataset_summary(store, _sanitize_llm_context(request.context))
+        return {"assistance": _call_llm_assistant(task=request.task, context=context)}
 
     @api.get("/api/feedback-items")
     def list_feedback_items(
@@ -579,6 +580,54 @@ def _call_llm_assistant(*, task: str, context: dict[str, Any]) -> dict[str, Any]
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except LLMRequestError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+def _with_dataset_summary(store: Any, context: dict[str, Any]) -> dict[str, Any]:
+    if context.get("dataset_summary"):
+        return context
+    dataset_version_id = context.get("dataset_version_id")
+    if not dataset_version_id:
+        return context
+    manifest = store.get_dataset_version(str(dataset_version_id))
+    if manifest is None:
+        return context
+    return {
+        **context,
+        "dataset_summary": _dataset_summary_for_llm(manifest),
+    }
+
+
+def _dataset_summary_for_llm(manifest: Any) -> dict[str, Any]:
+    class_preview_limit = 30
+    split_totals = {
+        split: sum(class_counts.values())
+        for split, class_counts in (manifest.split_counts or {}).items()
+        if isinstance(class_counts, dict)
+    }
+    readiness = dict(manifest.readiness or {})
+    issue_fields = ["low_sample_classes", "missing_train_classes", "missing_eval_classes", "missing_split_classes"]
+    issues = {
+        key: value[:12] if isinstance(value, list) else value
+        for key, value in readiness.items()
+        if key in issue_fields and value
+    }
+    classes = list(manifest.classes or [])
+    return {
+        "dataset_id": manifest.dataset_id,
+        "dataset_version_id": manifest.dataset_version_id,
+        "task": "image_classification",
+        "class_count": len(classes),
+        "sample_count": len(manifest.samples or []),
+        "class_preview": classes[:class_preview_limit],
+        "class_preview_truncated": len(classes) > class_preview_limit,
+        "split_totals": split_totals,
+        "readiness_status": "ready" if readiness.get("ready") is True else "needs_attention",
+        "readiness_issues": issues,
+        "guidance": (
+            "Use only these dataset classes as candidate in-domain labels. "
+            "If model evidence conflicts with visible content or the image seems outside this domain, route to human review/OOD rather than inventing a new label."
+        ),
+    }
 
 
 def _default_imported_dataset_dir() -> Path:
@@ -941,6 +990,9 @@ def _sanitize_llm_context(value: Any, *, max_list: int = 12, max_string: int = 1
     if isinstance(value, dict):
         sanitized: dict[str, Any] = {}
         for key, item in value.items():
+            if key == "image_data_url" and isinstance(item, str) and item.startswith("data:image/"):
+                sanitized[key] = item
+                continue
             if key in {"image_path", "uploaded_image_path", "input_ref", "root_uri", "uri"}:
                 sanitized[key] = _redact_path(item)
                 continue

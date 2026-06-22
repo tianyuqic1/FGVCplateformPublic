@@ -56,8 +56,9 @@ def generate_assistance(
 ) -> dict[str, Any]:
     resolved = settings or LLMSettings.from_env()
     _validate_settings(resolved)
-    prompt = _prompt_for(task=task, context=context)
-    raw_text = _responses_request(prompt=prompt, task=task, settings=resolved)
+    prompt_context, image_data_urls = _prepare_context_for_prompt(context)
+    prompt = _prompt_for(task=task, context=prompt_context)
+    raw_text = _responses_request(prompt=prompt, task=task, settings=resolved, image_data_urls=image_data_urls)
     parsed = _parse_json_object(raw_text)
     now = datetime.now(UTC).isoformat()
     return {
@@ -68,6 +69,7 @@ def generate_assistance(
         "reasoning_effort": resolved.reasoning_effort,
         "created_at": now,
         "summary": str(parsed.get("summary") or raw_text).strip(),
+        "holistic_analysis": str(parsed.get("holistic_analysis") or parsed.get("summary") or "").strip(),
         "inspection_notes": _string_list(parsed.get("inspection_notes")),
         "suggested_actions": _string_list(parsed.get("suggested_actions")),
         "risk_flags": _string_list(parsed.get("risk_flags")),
@@ -76,35 +78,72 @@ def generate_assistance(
     }
 
 
-def _responses_request(*, prompt: str, task: str, settings: LLMSettings) -> str:
+def _responses_request(*, prompt: str, task: str, settings: LLMSettings, image_data_urls: list[str] | None = None) -> str:
     model = settings.review_model if task == "review_assistance" else settings.model
-    payload = _responses_payload(prompt=prompt, model=model, settings=settings)
+    payload = _responses_payload(prompt=prompt, model=model, settings=settings, image_data_urls=image_data_urls or [])
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if settings.requires_openai_auth:
         headers["Authorization"] = f"Bearer {settings.api_key}"
 
     url = f"{settings.base_url}/responses"
+    try:
+        body = _post_responses(url=url, payload=payload, headers=headers, timeout_seconds=settings.timeout_seconds)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        if image_data_urls:
+            fallback_payload = _responses_payload(prompt=prompt, model=model, settings=settings, image_data_urls=[])
+            try:
+                body = _post_responses(url=url, payload=fallback_payload, headers=headers, timeout_seconds=settings.timeout_seconds)
+            except Exception as fallback_exc:
+                raise LLMRequestError(
+                    f"LLM provider rejected image input with {exc.code}: {detail}; text fallback failed: {fallback_exc}"
+                ) from fallback_exc
+        else:
+            raise LLMRequestError(f"LLM provider returned {exc.code}: {detail}") from exc
+    except Exception as exc:
+        raise LLMRequestError(f"LLM provider request failed: {exc}") from exc
+    return _extract_response_text(body)
+
+
+def _post_responses(*, url: str, payload: dict[str, Any], headers: dict[str, str], timeout_seconds: float) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise LLMRequestError(f"LLM provider returned {exc.code}: {detail}") from exc
-    except Exception as exc:
-        raise LLMRequestError(f"LLM provider request failed: {exc}") from exc
-    return _extract_response_text(body)
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
-def _responses_payload(*, prompt: str, model: str, settings: LLMSettings) -> dict[str, Any]:
+def _responses_payload(
+    *,
+    prompt: str,
+    model: str,
+    settings: LLMSettings,
+    image_data_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    image_inputs = [
+        {"type": "input_image", "image_url": image_data_url, "detail": "auto"}
+        for image_data_url in (image_data_urls or [])
+        if _is_image_data_url(image_data_url)
+    ]
+    response_input: str | list[dict[str, Any]]
+    if image_inputs:
+        response_input = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    *image_inputs,
+                ],
+            }
+        ]
+    else:
+        response_input = prompt
     payload: dict[str, Any] = {
         "model": model,
-        "input": prompt,
+        "input": response_input,
         "store": not settings.disable_response_storage,
         "reasoning": {"effort": settings.reasoning_effort},
         "max_output_tokens": 900,
@@ -132,6 +171,15 @@ def _assistance_schema() -> dict[str, Any]:
                 "maxLength": 180,
                 "description": "One concise Chinese sentence for an operator. Do not dump raw logs or many decimals.",
             },
+            "holistic_analysis": {
+                "type": "string",
+                "maxLength": 360,
+                "description": (
+                    "A first-pass holistic judgment before checklist items. Combine the image reference, "
+                    "dataset summary, top-k evidence, thresholds, and any prior preliminary judgment. "
+                    "If no image pixels are available, say the judgment is based on metadata and model evidence."
+                ),
+            },
             "inspection_notes": {
                 "type": "array",
                 "minItems": 1,
@@ -158,7 +206,7 @@ def _assistance_schema() -> dict[str, Any]:
                 "description": "Assistant confidence in this advisory explanation.",
             },
         },
-        "required": ["summary", "inspection_notes", "suggested_actions", "risk_flags", "confidence"],
+        "required": ["summary", "holistic_analysis", "inspection_notes", "suggested_actions", "risk_flags", "confidence"],
         "additionalProperties": False,
     }
 
@@ -181,6 +229,31 @@ def _extract_response_text(body: dict[str, Any]) -> str:
     raise LLMRequestError("LLM provider response did not include output text")
 
 
+def _prepare_context_for_prompt(context: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    image_data_urls: list[str] = []
+
+    def scrub(value: Any) -> Any:
+        if isinstance(value, dict):
+            cleaned: dict[str, Any] = {}
+            for key, item in value.items():
+                if key == "image_data_url" and isinstance(item, str) and _is_image_data_url(item):
+                    image_data_urls.append(item)
+                    cleaned[key] = "[attached image pixels omitted from JSON context]"
+                    cleaned["image_pixels_attached"] = True
+                    continue
+                cleaned[str(key)] = scrub(item)
+            return cleaned
+        if isinstance(value, list):
+            return [scrub(item) for item in value]
+        return value
+
+    return scrub(context), image_data_urls[:1]
+
+
+def _is_image_data_url(value: str) -> bool:
+    return value.startswith("data:image/") and ";base64," in value
+
+
 def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
     task_instruction = {
         "inference_explanation": "解释这次视觉分类推理为什么 accept / abstain / reject_ood，帮助用户理解阈值、top-k、margin、OOD score。",
@@ -195,7 +268,12 @@ def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
         "你是 FineVision 的 LLM Assistant，只能提供 advisory-only 建议，不能替代人工标签、不能调整生产阈值、"
         "不能把反馈直接写回训练集。请用中文填写结构化字段；这些字段会被 JSON Schema 严格约束。\n"
         "写作要求：面向视觉复核员，不要复述大段原始指标；分数最多保留两位小数；不要臆测图像内容；"
-        "如果数据集类别已知，只围绕候选类别、阈值原因和人工检查动作给出短建议。\n"
+        "如果数据集类别已知，只围绕候选类别、阈值原因和人工检查动作给出短建议。"
+        "先填写 holistic_analysis：结合 image_input、dataset_summary、top-k、阈值原因做综合初判；"
+        "如果 image_input.image_pixels_attached=true，可以参考图像像素但仍保持保守；"
+        "如果没有收到真实图像像素，只能说明这是基于图片引用/文件名和模型证据的初判。"
+        "随后填写 inspection_notes、suggested_actions、risk_flags 时，要把 holistic_analysis 作为上下文，"
+        "避免前后矛盾。\n"
         f"任务：{task_instruction}\n"
         f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
     )

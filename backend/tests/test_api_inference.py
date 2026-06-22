@@ -294,12 +294,15 @@ def test_review_assistance_is_advisory_and_does_not_complete_review(
         assert task == "review_assistance"
         assert context["review_item_id"] == review_item_id
         assert context["dataset_version_id"] == "dataset@infer-toy-001"
+        assert context["dataset_summary"]["dataset_version_id"] == "dataset@infer-toy-001"
+        assert context["dataset_summary"]["task"] == "image_classification"
         assert context["top_k"]
         return {
             "task": task,
             "advisory_only": True,
             "model": "test-llm",
             "summary": "Check top-k and confirm the final label manually.",
+            "holistic_analysis": "Dataset and model evidence point to a manual visual check first.",
             "inspection_notes": ["Compare the top two candidates."],
             "suggested_actions": ["Human reviewer must choose the final outcome."],
             "risk_flags": ["Do not auto-submit this advice."],
@@ -341,6 +344,7 @@ def test_generic_llm_assistance_returns_advisory_payload(monkeypatch: pytest.Mon
             "advisory_only": True,
             "model": "test-llm",
             "summary": "Model artifact is missing.",
+            "holistic_analysis": "Training evidence is incomplete, so inspect logs before changing config.",
             "inspection_notes": ["Check worker logs."],
             "suggested_actions": ["Re-run training after feature extraction succeeds."],
             "risk_flags": [],

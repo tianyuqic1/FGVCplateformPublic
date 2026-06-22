@@ -6,6 +6,7 @@ const normalized = normalizeAssistance({
   model: "gpt-5.5",
   created_at: "2026-06-20T00:00:00+00:00",
   summary: "Check the visual evidence before submitting.",
+  holistic_analysis: "The image reference and dataset summary suggest a manual first-pass judgment is required.",
   inspection_notes: ["Compare top-k"],
   suggested_actions: ["Human reviewer chooses final label"],
   risk_flags: ["Advisory only"],
@@ -13,6 +14,7 @@ const normalized = normalizeAssistance({
 
 if (normalized.task !== "review_assistance") throw new Error("LLM task not normalized");
 if (normalized.advisoryOnly !== true) throw new Error("Advisory flag not normalized");
+if (!normalized.holisticAnalysis.includes("manual first-pass")) throw new Error("Holistic analysis missing");
 if (normalized.inspectionNotes[0] !== "Compare top-k") throw new Error("Inspection notes missing");
 if (normalized.suggestedActions[0] !== "Human reviewer chooses final label") throw new Error("Suggested actions missing");
 if (normalized.riskFlags[0] !== "Advisory only") throw new Error("Risk flags missing");
