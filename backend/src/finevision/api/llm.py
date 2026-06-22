@@ -291,7 +291,7 @@ def _dataset_card_response_format() -> dict[str, Any]:
                 "known_confusions": {
                     "type": "array",
                     "maxItems": 6,
-                    "items": {"type": "string", "maxLength": 120},
+                    "items": {"type": "string", "maxLength": 220},
                     "description": "Likely class confusions based only on class labels and domain knowledge.",
                 },
                 "ood_policy": {
@@ -408,7 +408,8 @@ def _dataset_card_prompt(*, manifest: Any, existing_card: dict[str, Any]) -> str
         "例如鸟类物种、植物病害、车辆/交通工具、CIFAR-10 通用物体等。\n"
         "约束：不要发明 class_labels 之外的正式类别；不要给训练参数建议；不要把摘要写成营销文案；"
         "不确定领域时明确写成通用图像分类或需要人工补充。输出中文，简洁、可给推理和复核 LLM 作为上下文。"
-        "known_confusions 只能写基于类别名可合理推断的易混点。\n"
+        "known_confusions 只能写基于类别名可合理推断的易混点；不要堆长串英文类别名，"
+        "不要输出被截断的半个类别名，优先写完整、短句、类别族级别的易混原因。\n"
         f"上下文 JSON：{json.dumps(context, ensure_ascii=False, default=str)}"
     )
 
