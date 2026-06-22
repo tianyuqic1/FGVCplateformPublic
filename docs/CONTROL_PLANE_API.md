@@ -86,6 +86,8 @@ POST /api/training-runs/{run_id}/pause
 POST /api/training-runs/{run_id}/resume
 POST /api/training-runs/{run_id}/cancel
 DELETE /api/training-runs/{run_id}
+GET  /api/model-weights
+DELETE /api/model-weights/{preset}
 POST /api/inference
 ```
 
@@ -237,11 +239,16 @@ DINOv3 pretrained weights are resolved by `timm` through Hugging Face Hub.
 
 ```text
 GET /api/model-weights
+DELETE /api/model-weights/{preset}
 ```
 
-returns ViT-S/B/L cache status (`cached`, `partial`, or `missing`), complete/incomplete cache sizes,
-the Hugging Face cache root, and whether an `HF_TOKEN`/`HUGGING_FACE_HUB_TOKEN` is configured. A run
-can still appear to sit in the `weights` stage while Hugging Face downloads or resumes a model cache.
+`GET /api/model-weights` returns ViT-S/B/L cache status (`cached`, `partial`, or `missing`),
+complete/incomplete cache sizes, Hugging Face cache paths, model descriptions, the Hugging Face cache
+root, and whether an `HF_TOKEN`/`HUGGING_FACE_HUB_TOKEN` is configured. `DELETE
+/api/model-weights/{preset}` removes only the local Hugging Face repo cache for a known preset
+(`dinov3_vits`, `dinov3_vitb`, or `dinov3_vitl`). It does not delete dataset manifests,
+`features.npz`, trained linear heads, calibration reports, or threshold strategies. A run can still
+appear to sit in the `weights` stage while Hugging Face downloads or resumes a model cache.
 
 Scoped inference request:
 

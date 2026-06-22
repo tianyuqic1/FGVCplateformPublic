@@ -5,6 +5,7 @@ import hashlib
 import os
 import json
 from pathlib import Path
+import shutil
 from typing import Any, Callable, Protocol
 
 import numpy as np
@@ -30,57 +31,89 @@ DINOV3_MODEL_PRESETS: dict[str, dict[str, str]] = {
 }
 
 
+def _dinov3_weight_info(preset: str, config: dict[str, str], hub_root: Path) -> dict[str, Any]:
+    model_name = config["model_name"]
+    repo_id = f"timm/{model_name}.lvd1689m"
+    repo_dir = hub_root / f"models--timm--{model_name}.lvd1689m"
+    complete_files = [
+        path
+        for path in (repo_dir / "blobs").glob("*")
+        if path.is_file() and not path.name.endswith(".incomplete")
+    ]
+    incomplete_files = [
+        path
+        for path in (repo_dir / "blobs").glob("*.incomplete")
+        if path.is_file()
+    ]
+    complete_size = sum(path.stat().st_size for path in complete_files)
+    incomplete_size = sum(path.stat().st_size for path in incomplete_files)
+    if complete_files:
+        cache_status = "cached"
+    elif incomplete_files:
+        cache_status = "partial"
+    else:
+        cache_status = "missing"
+
+    return {
+        "preset": preset,
+        "extractor": preset,
+        "backbone_id": config["backbone_id"],
+        "model_name": model_name,
+        "repo_id": repo_id,
+        "cache_status": cache_status,
+        "state": cache_status,
+        "cached": cache_status == "cached",
+        "cache_dir": str(repo_dir),
+        "complete_file_count": len(complete_files),
+        "complete_size_bytes": complete_size,
+        "cache_bytes": complete_size,
+        "incomplete_file_count": len(incomplete_files),
+        "incomplete_size_bytes": incomplete_size,
+        "partial_bytes": incomplete_size,
+        "description": _dinov3_weight_description(preset),
+        "download_hint": "cached locally" if complete_files else "download with timm/Hugging Face Hub",
+    }
+
+
+def _dinov3_weight_description(preset: str) -> str:
+    descriptions = {
+        "dinov3_vits": "ViT-S/16 is the recommended MVP default: fast feature extraction and strong CUB baseline after CLS pooling.",
+        "dinov3_vitb": "ViT-B/16 is the middle option for later comparison; it is larger and may need a fresh Hugging Face download.",
+        "dinov3_vitl": "ViT-L/16 is the heavier accuracy-oriented option; use when GPU memory and extraction time are acceptable.",
+    }
+    return descriptions[preset]
+
+
 def inspect_dinov3_weight_cache(cache_root: str | Path | None = None) -> dict[str, Any]:
     hub_root = _resolve_huggingface_hub_cache(cache_root)
-    weights = []
-    for preset, config in DINOV3_MODEL_PRESETS.items():
-        model_name = config["model_name"]
-        repo_id = f"timm/{model_name}.lvd1689m"
-        repo_dir = hub_root / f"models--timm--{model_name}.lvd1689m"
-        complete_files = [
-            path
-            for path in (repo_dir / "blobs").glob("*")
-            if path.is_file() and not path.name.endswith(".incomplete")
-        ]
-        incomplete_files = [
-            path
-            for path in (repo_dir / "blobs").glob("*.incomplete")
-            if path.is_file()
-        ]
-        complete_size = sum(path.stat().st_size for path in complete_files)
-        incomplete_size = sum(path.stat().st_size for path in incomplete_files)
-        if complete_files:
-            cache_status = "cached"
-        elif incomplete_files:
-            cache_status = "partial"
-        else:
-            cache_status = "missing"
-
-        weights.append(
-            {
-                "preset": preset,
-                "extractor": preset,
-                "backbone_id": config["backbone_id"],
-                "model_name": model_name,
-                "repo_id": repo_id,
-                "cache_status": cache_status,
-                "state": cache_status,
-                "cached": cache_status == "cached",
-                "cache_dir": str(repo_dir),
-                "complete_file_count": len(complete_files),
-                "complete_size_bytes": complete_size,
-                "cache_bytes": complete_size,
-                "incomplete_file_count": len(incomplete_files),
-                "incomplete_size_bytes": incomplete_size,
-                "partial_bytes": incomplete_size,
-                "download_hint": "cached locally" if complete_files else "download with timm/Hugging Face Hub",
-            }
-        )
+    weights = [_dinov3_weight_info(preset, config, hub_root) for preset, config in DINOV3_MODEL_PRESETS.items()]
 
     return {
         "cache_root": str(hub_root),
         "hf_token_configured": bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")),
         "weights": weights,
+    }
+
+
+def delete_dinov3_weight_cache(preset: str, cache_root: str | Path | None = None) -> dict[str, Any]:
+    if preset not in DINOV3_MODEL_PRESETS:
+        raise ValueError(f"Unsupported DINOv3 weight preset: {preset}")
+
+    hub_root = _resolve_huggingface_hub_cache(cache_root)
+    config = DINOV3_MODEL_PRESETS[preset]
+    before = _dinov3_weight_info(preset, config, hub_root)
+    repo_dir = Path(before["cache_dir"])
+    deleted = repo_dir.exists()
+    if deleted:
+        shutil.rmtree(repo_dir)
+
+    after = _dinov3_weight_info(preset, config, hub_root)
+    return {
+        "deleted": deleted,
+        "preset": preset,
+        "cache_dir": str(repo_dir),
+        "before": before,
+        "after": after,
     }
 
 

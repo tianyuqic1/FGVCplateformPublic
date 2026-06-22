@@ -402,6 +402,8 @@ Acceptance:
   supports callbacks.
 - Done: `/api/model-weights` and the training UI expose DINOv3 ViT-S/B/L cache status, complete
   cache size, partial download size, and HF token configuration.
+- Done: `/weights` provides a dedicated DINOv3 pretrained-weight browser with usage notes and
+  deletion for known local Hugging Face cache entries.
 - Done: DINOv3 training exposes `image_size`; new DINOv3 runs default to 448px and include the
   resolution in the feature cache identity.
 - Partial: Hugging Face/timm weight download calls are still not preempted mid-request; cancellation

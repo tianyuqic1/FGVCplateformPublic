@@ -51,13 +51,16 @@ Current status: MVP visible.
 `timm` provides the model definition and triggers pretrained weight resolution through Hugging Face
 Hub. `/api/model-weights` reports supported DINOv3 ViT-S/B/L cache state, complete/incomplete cache
 bytes, cache root, and HF token configuration. The training UI shows those states before the user
-starts a run.
+starts a run. `/weights` is the dedicated browser for these pretrained caches and supports deleting
+known local DINOv3 cache directories.
 
 Acceptance for productized completion:
 
 - Done: a weight status API lists each supported backbone, cache state, local cache key/path, and
   whether the cache is complete.
 - Done: the UI distinguishes `cached`, `partial`, and `missing`.
+- Done: a dedicated weight page explains ViT-S/B/L usage and deletes known Hugging Face cache entries
+  without touching dataset, feature, classifier-head, calibration, or threshold artifacts.
 - Remaining: a pre-download action and explicit failed/download-in-progress states are not yet added.
 - Done: documentation explains that `HF_TOKEN` improves Hugging Face rate limits and is separate from the
   OpenAI-compatible LLM API key.

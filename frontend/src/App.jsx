@@ -16,6 +16,7 @@ import {
   ReviewPage,
   TrainingDetailPage,
   TrainingPage,
+  WeightManagementPage,
 } from "./pages/pages.jsx";
 
 const legacyPageMap = {
@@ -25,6 +26,7 @@ const legacyPageMap = {
   training: "/training",
   "training-detail": ({ id = "run-042" }) => `/training/${id}`,
   inference: "/inference",
+  weights: "/weights",
   review: "/review",
   "review-detail": ({ id }) => (id ? `/review/${id}` : "/review"),
   feedback: "/feedback",
@@ -47,6 +49,7 @@ function titleForPath(pathname) {
   if (pathname.startsWith("/training/")) return "训练详情";
   if (pathname === "/training") return "训练任务";
   if (pathname === "/inference") return "推理实验室";
+  if (pathname === "/weights") return "权重管理";
   if (pathname.startsWith("/review/")) return "复核详情";
   if (pathname === "/review") return "人工复核";
   if (pathname === "/feedback") return "反馈池";
@@ -63,6 +66,7 @@ function crumbForPath(pathname) {
   if (pathname.startsWith("/training/")) return "训练 / 运行详情";
   if (pathname === "/training") return "训练";
   if (pathname === "/inference") return "推理";
+  if (pathname === "/weights") return "模型权重";
   if (pathname.startsWith("/review/")) return "复核 / 样本详情";
   if (pathname === "/review") return "复核队列";
   if (pathname === "/feedback") return "复核 / 反馈池";
@@ -128,6 +132,7 @@ export default function App() {
           <Route path="/training" element={<TrainingPage showToast={showToast} />} />
           <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
           <Route path="/inference" element={<InferencePage showToast={showToast} />} />
+          <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
           <Route path="/feedback" element={<FeedbackPage />} />

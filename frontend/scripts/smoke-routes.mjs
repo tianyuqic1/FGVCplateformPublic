@@ -11,6 +11,7 @@ const routes = [
   "/training",
   "/training/run-042",
   "/inference",
+  "/weights",
   "/review",
   "/feedback",
   "/models",

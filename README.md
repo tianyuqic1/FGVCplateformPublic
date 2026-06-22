@@ -107,6 +107,12 @@ Hub. A slow or incomplete ViT-B download is therefore a weight-cache/Hugging Fac
 missing `timm` model. Configure `HF_TOKEN` for better Hugging Face rate limits when large weights
 need to be downloaded reliably.
 
+The workbench includes a weight-management page at `/weights`. It lists the supported DINOv3
+pretrained backbones, explains when to use ViT-S/B/L, shows the local Hugging Face cache path and
+size, and can delete a known preset cache. Deleting a pretrained weight cache only affects future
+weight loading/downloads; it does not delete dataset versions, CLS feature artifacts, trained
+classifier heads, calibration reports, or threshold strategies.
+
 For local iteration, Compose bind-mounts `./backend/src` into the API and worker containers and the
 frontend source into the Vite container. Python source changes therefore take effect after a service
 restart, and frontend source changes flow through Vite, without rebuilding the images. Dependency,

@@ -29,6 +29,7 @@ from finevision.ml_toolkit.datasets import EXPLICIT_SPLITS, IMAGE_EXTENSIONS, sc
 from finevision.ml_toolkit.features import (
     DINOV3_MODEL_PRESETS,
     build_extractor_from_config,
+    delete_dinov3_weight_cache,
     dinov3_extractor_config,
     inspect_dinov3_weight_cache,
 )
@@ -400,6 +401,13 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     @api.get("/api/model-weights")
     def list_model_weights() -> dict[str, object]:
         return inspect_dinov3_weight_cache()
+
+    @api.delete("/api/model-weights/{preset}")
+    def delete_model_weight(preset: str) -> dict[str, object]:
+        try:
+            return delete_dinov3_weight_cache(preset)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     @api.delete("/api/training-runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_training_run(run_id: str) -> None:

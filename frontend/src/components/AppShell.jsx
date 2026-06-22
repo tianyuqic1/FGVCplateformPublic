@@ -7,6 +7,7 @@ const navItems = [
   { id: "datasets", label: "数据集", icon: "Database", to: "/datasets" },
   { id: "training", label: "训练", icon: "FlaskConical", to: "/training" },
   { id: "inference", label: "推理实验室", icon: "ImageUp", to: "/inference" },
+  { id: "weights", label: "权重", icon: "HardDrive", to: "/weights" },
   { id: "review", label: "人工复核", icon: "UserCheck", to: "/review" },
   { id: "feedback", label: "反馈池", icon: "DatabaseZap", to: "/feedback" },
   { id: "models", label: "模型版本", icon: "Boxes", to: "/models" },
@@ -19,6 +20,7 @@ const searchItems = [
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
+  { label: "权重管理", hint: "DINOv3 ViT-S/B/L 缓存状态和删除", to: "/weights" },
   { label: "人工复核", hint: "待复核、历史、人工提交", to: "/review?status=pending" },
   { label: "复核历史", hint: "feedbacked review items", to: "/review?status=feedbacked" },
   { label: "反馈池", hint: "training_candidate、OOD、坏图、争议", to: "/feedback" },
@@ -30,6 +32,7 @@ function navKey(pathname) {
   if (pathname.startsWith("/datasets")) return "datasets";
   if (pathname.startsWith("/training")) return "training";
   if (pathname.startsWith("/inference")) return "inference";
+  if (pathname.startsWith("/weights")) return "weights";
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/feedback")) return "feedback";
   if (pathname.startsWith("/models")) return "models";
@@ -89,11 +92,11 @@ export function AppShell({ title, crumb, children, onToast }) {
         <div className="sidebar-card">
           <Icon name="ShieldCheck" size={18} />
           <h3>MVP 边界</h3>
-          <p className="small">训练、推理、复核已连通；发布注册表待接入</p>
+          <p className="small">聚焦 CLS 训练、推理、复核和权重管理；暂不做 LoRA/发布</p>
           <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
             <i />
           </div>
-          <div className="row-meta">Production registry 尚未启用</div>
+          <div className="row-meta">MVP baseline hardening</div>
         </div>
       </aside>
       <main className="main">

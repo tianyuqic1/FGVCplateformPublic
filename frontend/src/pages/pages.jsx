@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload } from "../api/inference.js";
+import { deleteModelWeight } from "../api/modelWeights.js";
 import { listReviewItems } from "../api/reviews.js";
 import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingRun, resumeTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
@@ -1064,6 +1065,13 @@ function featurePoolLabel(featurePool) {
   return "legacy/unknown";
 }
 
+function weightUsageLabel(extractor) {
+  if (extractor === "dinov3_vits") return "当前 MVP 推荐默认，用于快速 CLS 特征训练和日常验证。";
+  if (extractor === "dinov3_vitb") return "中等规模对照模型，适合后续做速度/精度折中评估。";
+  if (extractor === "dinov3_vitl") return "重型精度优先模型，适合 GPU 资源充足时跑更强基线。";
+  return "仅支持 FineVision 已登记的 DINOv3 权重。";
+}
+
 function filterTrainingRuns(runs, statusFilter, sortMode) {
   const filtered = runs.filter((run) => {
     if (statusFilter === "all") return true;
@@ -1128,6 +1136,102 @@ function trainingRunNextActions(run, missingOutputs) {
   }
 
   return ["产物链路齐全，可进入候选模型评审或后续推理验证。"];
+}
+
+export function WeightManagementPage({ showToast }) {
+  const { weights, source, loading, error, refresh } = useModelWeights();
+  const [deleteState, setDeleteState] = useState({ status: "idle", preset: null, error: null });
+  const totalCachedBytes = weights.reduce((sum, weight) => sum + (weight.state === "cached" ? weight.cacheBytes : 0), 0);
+  const cachedCount = weights.filter((weight) => weight.state === "cached").length;
+  const partialCount = weights.filter((weight) => weight.state === "partial").length;
+  const sourceLabel = loading ? "正在读取权重缓存" : source === "api" ? "Model weight API" : "权重 API 暂不可用";
+
+  async function handleDelete(weight) {
+    if (!weight?.extractor || deleteState.status === "running") return;
+    const confirmed = window.confirm(`删除 ${extractorShortLabel(weight.extractor)} 的本地权重缓存？下一次训练会重新下载。`);
+    if (!confirmed) return;
+    setDeleteState({ status: "running", preset: weight.extractor, error: null });
+    try {
+      const result = await deleteModelWeight(weight.extractor);
+      setDeleteState({ status: "succeeded", preset: null, error: null });
+      await refresh();
+      showToast(result.deleted ? `已删除权重：${extractorShortLabel(weight.extractor)}` : `没有可删除的权重：${extractorShortLabel(weight.extractor)}`);
+    } catch (deleteError) {
+      setDeleteState({ status: "failed", preset: weight.extractor, error: deleteError });
+      showToast("权重删除失败");
+    }
+  }
+
+  return (
+    <>
+      <PageHero
+        title="权重管理"
+        description="查看 DINOv3 ViT-S/B/L 的本地 Hugging Face 权重缓存；删除后不会影响已生成的 feature/model artifact，但下一次训练会重新下载。"
+        actions={<button className="ghost-button" onClick={refresh} disabled={loading}><Icon name="RefreshCw" size={16} />刷新</button>}
+      />
+      <div className="grid metrics">
+        <MetricCard title="已缓存" value={`${cachedCount}/3`} caption={sourceLabel} fill="#0f766e" percent={(cachedCount / 3) * 100} icon="HardDrive" />
+        <MetricCard title="缓存体积" value={formatBytes(totalCachedBytes)} caption="complete blobs" fill="#315fbd" percent={cachedCount ? 100 : 0} icon="DatabaseZap" />
+        <MetricCard title="未完成" value={`${partialCount}`} caption="partial downloads" fill="#a15c07" percent={(partialCount / 3) * 100} icon="LoaderCircle" />
+        <MetricCard title="训练特征" value="CLS" caption="feature_pool 默认 cls" fill="#0f766e" percent={100} icon="Target" />
+      </div>
+      <div className="grid two section-gap">
+        <Panel title="DINOv3 权重缓存" caption="只管理预训练 backbone 权重；分类头和训练报告仍在 artifact store。">
+          {error && <div className="route-box"><strong>权重 API 不可用</strong><div className="row-meta">{error.message}</div></div>}
+          <div className="timeline">
+            {weights.map((weight) => {
+              const state = weight.state ?? "missing";
+              const busy = deleteState.status === "running" && deleteState.preset === weight.extractor;
+              const sizeLabel = state === "cached" ? formatBytes(weight.cacheBytes) : state === "partial" ? `${formatBytes(weight.partialBytes)} partial` : "未下载";
+              return (
+                <div className="timeline-item" key={weight.extractor}>
+                  <div className="timeline-icon"><Icon name="HardDrive" size={18} /></div>
+                  <div>
+                    <strong>{extractorShortLabel(weight.extractor)} · {weight.backboneId}</strong>
+                    <div className="row-meta">{weight.modelName} · {sizeLabel} · {weight.completeFileCount} files</div>
+                    <div className="row-meta">{weight.description || weightUsageLabel(weight.extractor)}</div>
+                  </div>
+                  <div className="queue-row-actions">
+                    <StatusChip tone={modelWeightTone(state)}>{modelWeightLabel(state)}</StatusChip>
+                    <button className="icon-button danger" title="删除本地权重缓存" onClick={() => handleDelete(weight)} disabled={busy || state === "missing"}>
+                      <Icon name={busy ? "LoaderCircle" : "Trash2"} size={16} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {!loading && weights.length === 0 && (
+              <div className="timeline-item">
+                <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+                <div><strong>没有权重记录</strong><div className="row-meta">请确认 API 服务已启动。</div></div>
+                <StatusChip tone="warn">empty</StatusChip>
+              </div>
+            )}
+          </div>
+          {deleteState.error && <div className="row-meta section-gap-small">{deleteState.error.message}</div>}
+        </Panel>
+        <Panel title="权重说明" caption="权重文件、特征缓存、分类头产物不要混淆。">
+          <div className="timeline">
+            <GateRow title="预训练权重" description="Hugging Face/timm 下载的 DINOv3 backbone 参数；这个页面管理的是它。" result="pass" />
+            <GateRow title="特征缓存" description="某个 dataset version 经过 DINOv3 CLS 提取后的 features.npz；删除权重不会删除它。" result="pending" />
+            <GateRow title="分类头产物" description="FineVision 训练出的 linear head、校准报告和阈值策略；不在本页删除。" result="pending" />
+          </div>
+          <div className="code-panel section-gap-small">
+            feature_pool: cls<br />
+            image_size_default: 448<br />
+            managed_presets: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
+            delete_scope: local Hugging Face repo cache only<br />
+            cache_recovery: next training downloads again
+          </div>
+          {weights[0]?.cacheDir && (
+            <div className="code-panel section-gap-small">
+              cache_root_hint: {weights[0].cacheDir.replace(/\/models--timm--.*/, "")}
+            </div>
+          )}
+        </Panel>
+      </div>
+    </>
+  );
 }
 
 function TrainingRunDiagnostics({ run }) {
