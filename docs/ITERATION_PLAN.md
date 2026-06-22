@@ -551,6 +551,9 @@ Suggested checkpoint pushes:
 
 ## Iteration 5A: Dataset Card LLM Context MVP
 
+Status: planned, not implemented in the active API as of 2026-06-22. The current codebase has no
+dataset-card persistence field, no card request/response schema, and no `GET`/`PUT` card routes.
+
 Objective: ground advisory LLM output in explicit dataset-version context before adding richer
 automation.
 

@@ -1,10 +1,23 @@
 # MVP Residuals And Acceptance Checklist
 
 Date: 2026-06-20
+Last updated: 2026-06-22
 
 This document records the current product/QA view of the remaining MVP hardening work after the
 dataset import, DINOv3 feature extraction, classifier training, scoped inference, review workflow,
 feedback pool, and advisory LLM slices.
+
+## Status Rollup
+
+- P0: Running training cancellation and weight-management visibility are MVP-complete with known
+  external-download limitations. Model registry governance and worker-backed uploaded-image
+  inference remain productization gaps. Dataset-card API docs have been corrected so the docs no
+  longer claim unimplemented card routes are available.
+- P1: Training-head defaults, CLS feature pooling, and feature progress are MVP-complete. Early
+  stopping, scheduler support, production/dev extractor separation, dataset-scoped model guardrails,
+  artifact browsing, and dataset-card LLM context remain open.
+- P2: Dashboard, pipeline-template, real-sample placeholder, and feedback-curation polish remain
+  deferred platform expansion work.
 
 ## Current Operational State
 
@@ -14,6 +27,10 @@ feedback pool, and advisory LLM slices.
   incomplete if the unauthenticated Hugging Face download is interrupted.
 - Running training cancellation is now productized as cooperative worker checks, but a blocking
   Hugging Face/timm weight-download request is only observed after that request returns.
+- `POST /api/inference/upload` is a synchronous MVP bridge for manual single-image inference. It is
+  not yet a worker-backed inference job API.
+- Dataset Card LLM Context is planned, but the active API does not yet have `GET`/`PUT` card routes,
+  dataset-card request/response schemas, or active dataset-card persistence.
 
 ## P0 Residuals
 
@@ -84,13 +101,30 @@ Acceptance for productized completion:
 
 Current status: acceptable MVP bridge.
 
-`POST /api/inference/upload` runs scoped inference synchronously. This is fine for manual single-image
-experiments but not for high-throughput or long-running inference.
+`POST /api/inference/upload` stores the multipart upload, then runs scoped inference synchronously
+inside the API request. This is fine for manual single-image experiments but not for high-throughput
+or long-running inference.
 
 Acceptance for productized completion:
 
 - Batch or high-latency inference moves behind worker jobs.
 - Inference jobs expose status, cancellation, result artifacts, and review routing.
+
+### Documentation And API Contract Consistency
+
+Current status: corrected for current MVP scope.
+
+Dataset-card documentation previously risked implying that card `GET`/`PUT` routes were already
+available. The active API does not expose those routes or schemas yet, so the current docs must list
+them only as planned design work.
+
+Acceptance for completion:
+
+- Done: README endpoint list matches active routes and does not list dataset-card `GET`/`PUT`.
+- Done: `docs/CONTROL_PLANE_API.md` marks Dataset Card LLM Context API as planned, not implemented.
+- Done: Dataset-card design docs explicitly say the current API has no card routes or schemas.
+- Done: docs call out `/api/inference/upload` as a synchronous MVP bridge, not a worker-backed
+  production inference path.
 
 ## P1 Residuals
 
@@ -175,6 +209,24 @@ Acceptance for completion:
 - Training details link to training report, calibration report, threshold sweep, and threshold
   strategy.
 - Binary or large artifacts remain filesystem/object-store backed, not embedded in PostgreSQL.
+
+### Dataset Card LLM Context
+
+Current status: planned, not implemented.
+
+Dataset cards remain design intent for grounding advisory LLM output in version-level dataset
+context. The active backend does not yet expose card routes, card schemas, dataset-card persistence,
+or automatic card injection into LLM assistance.
+
+Acceptance for completion:
+
+- Add `dataset_versions.dataset_card` or equivalent version-level persistence.
+- Generate an initial compact card during dataset import.
+- Add read/update store methods for DB-backed and file-backed modes.
+- Add `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card` only when schemas and persistence
+  are implemented.
+- Inject card context into generic and review-specific LLM assistance without letting the LLM mutate
+  labels, review status, feedback, thresholds, dataset versions, or model versions.
 
 ## P2 Residuals
 

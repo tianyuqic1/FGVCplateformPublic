@@ -72,7 +72,6 @@ class_count integer not null
 split_summary jsonb not null
 readiness_status text not null
 readiness_report jsonb not null
-dataset_card jsonb not null default '{}'
 manifest_artifact_id uuid references artifacts(id)
 created_by_job_id uuid references jobs(id)
 created_at timestamptz not null
@@ -80,11 +79,12 @@ created_at timestamptz not null
 
 Important rule: model versions, feature artifacts, inference events, and review items should reference a dataset version.
 
-`dataset_card` is a compact, editable, version-level context document for advisory LLM workflows. It
-describes task, domain, class scope, known confusions, OOD policy, and review guidance. It is not
-training data and should not be used as a final-label source. Keeping it on `dataset_versions`
-prevents historical review and inference explanations from drifting when dataset-level descriptions
-change.
+Planned Dataset Card extension: a future migration may add `dataset_card jsonb not null default '{}'`
+to store a compact, editable, version-level context document for advisory LLM workflows. The active
+schema does not include this column yet. When implemented, the card should describe task, domain,
+class scope, known confusions, OOD policy, and review guidance. It is not training data and should
+not be used as a final-label source. Keeping it on `dataset_versions` would prevent historical
+review and inference explanations from drifting when dataset-level descriptions change.
 
 ### dataset_classes
 

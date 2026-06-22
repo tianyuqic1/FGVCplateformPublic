@@ -848,6 +848,15 @@ def _run_scoped_inference_payload(
         "sample_id": request.sample_id,
         **(input_overrides or {}),
     }
+    image_url = _review_image_url(
+        dataset_version_id=context.dataset_version_id,
+        sample_id=request.sample_id,
+        input_ref=str(input_payload.get("uploaded_image_path") or input_payload.get("image_path") or ""),
+    )
+    if image_url:
+        input_payload["image_url"] = image_url
+        if input_payload.get("uploaded_image_path"):
+            input_payload["uploaded_image_url"] = image_url
     return {
         "dataset_id": context.dataset_id,
         "dataset_version_id": context.dataset_version_id,
@@ -876,6 +885,11 @@ def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: di
 
 
 def _review_item_payload(item: Any) -> dict[str, Any]:
+    image_url = _review_image_url(
+        dataset_version_id=item.dataset_version_id,
+        sample_id=item.sample_id,
+        input_ref=item.input_ref,
+    )
     return {
         "review_item_id": item.review_item_id,
         "inference_event_id": item.inference_event_id,
@@ -884,13 +898,13 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
         "model_version_id": item.model_version_id,
         "sample_id": item.sample_id,
         "input_ref": item.input_ref,
-        "image_url": _uploaded_image_url(item.input_ref),
+        "image_url": image_url,
         "status": item.status,
         "risk_type": item.risk_type,
         "priority": item.priority,
         "reason": item.reason,
         "reason_codes": item.reason_codes,
-        "context": item.context,
+        "context": _review_context_with_image_url(item.context, image_url),
         "assistance_metadata": item.assistance_metadata,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
@@ -958,7 +972,11 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
         "model_version_id": item.model_version_id,
         "sample_id": item.sample_id,
         "input_ref": item.input_ref,
-        "image_url": _uploaded_image_url(item.input_ref),
+        "image_url": _review_image_url(
+            dataset_version_id=item.dataset_version_id,
+            sample_id=item.sample_id,
+            input_ref=item.input_ref,
+        ),
         "final_outcome": item.final_outcome,
         "destination": item.destination,
         "final_label": item.final_label,
@@ -966,6 +984,29 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
         "created_by": item.created_by,
         "created_at": item.created_at,
     }
+
+
+def _review_context_with_image_url(context: dict[str, Any] | None, image_url: str | None) -> dict[str, Any]:
+    payload = dict(context or {})
+    if not image_url:
+        return payload
+    input_payload = dict(payload.get("input") or {})
+    input_payload.setdefault("image_url", image_url)
+    if input_payload.get("uploaded_image_path"):
+        input_payload.setdefault("uploaded_image_url", image_url)
+    payload["input"] = input_payload
+    return payload
+
+
+def _review_image_url(
+    *,
+    dataset_version_id: str | None,
+    sample_id: str | None,
+    input_ref: str | None,
+) -> str | None:
+    if sample_id and dataset_version_id:
+        return f"/api/dataset-versions/{dataset_version_id}/samples/{sample_id}/image"
+    return _uploaded_image_url(input_ref)
 
 
 def _uploaded_image_url(input_ref: str | None) -> str | None:

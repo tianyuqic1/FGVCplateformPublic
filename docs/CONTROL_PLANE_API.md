@@ -4,7 +4,11 @@ This document records the Iteration 1 through Iteration 2 control-plane API slic
 
 ## Boundary
 
-The control-plane API owns lightweight product and metadata operations. It does not run DINOv3 extraction, model training, calibration, threshold sweeps, or batch inference inside request handlers.
+The control-plane API owns lightweight product and metadata operations. It does not run DINOv3
+feature extraction, model training, calibration, threshold sweeps, or batch inference inside request
+handlers. `POST /api/inference/upload` is the current MVP exception: it runs one uploaded-image
+inference synchronously for manual laboratory use and should move behind worker jobs before
+high-throughput or production use.
 
 Current scope:
 
@@ -16,11 +20,13 @@ Current scope:
 - Worker execution for queued ImageFolder import jobs
 - Worker execution for queued training jobs
 - PostgreSQL metadata persistence when `DATABASE_URL` is configured
-- Frontend dataset pages connected to the API with mock fallback
-- Frontend pipeline page connected to job status with mock fallback
-- Frontend training pages connected to training-run status with mock fallback
+- Frontend dataset pages connected to the API; missing API data is shown as explicit empty/error states
+- Frontend pipeline page connected to real job status plus a read-only template explainer
+- Frontend training pages connected to training-run status without static training-result fallback
 
-The ML/data toolkit remains the compute kernel. API request handlers create metadata and queued jobs; the worker executes feature extraction, classifier-head training, calibration, threshold sweeps, and artifact writes outside the request path.
+The ML/data toolkit remains the compute kernel. API request handlers create metadata and queued jobs;
+the worker executes feature extraction, classifier-head training, calibration, threshold sweeps, and
+artifact writes outside the request path.
 
 ## Run
 
@@ -74,7 +80,10 @@ GET  /api/health
 GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
+POST /api/datasets/upload-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
+GET  /api/dataset-versions/{dataset_version_id}/sample-previews
+GET  /api/dataset-versions/{dataset_version_id}/samples/{sample_id}/image
 POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
@@ -89,7 +98,18 @@ DELETE /api/training-runs/{run_id}
 GET  /api/model-weights
 DELETE /api/model-weights/{preset}
 POST /api/inference
+POST /api/inference/upload
+GET  /api/review-items
+GET  /api/review-items/{review_item_id}
+POST /api/review-items/{review_item_id}/assist
+POST /api/review-items/{review_item_id}/submit
+GET  /api/feedback-items
+POST /api/llm/assist
 ```
+
+Dataset-card endpoints are intentionally not listed here as active API routes. The current codebase
+does not yet define `GET /api/dataset-versions/{dataset_version_id}/card` or
+`PUT /api/dataset-versions/{dataset_version_id}/card`, or a dataset-card request/response schema.
 
 Import request:
 
@@ -305,7 +325,9 @@ row produced by Iteration 2. Input can be either `image_path` or `sample_id`. `s
 reuses the stored feature matrix; `image_path` restores the extractor from the feature artifact
 metadata and extracts a single query feature. `POST /api/inference/upload` accepts a multipart
 `image` file and stores it under the configured upload directory before running the same scoped
-inference path. Batch inference is deferred.
+inference path synchronously inside the API request. That upload route is an MVP bridge for manual
+single-image checks, not the production shape for high-throughput or long-running inference. Batch
+inference and worker-backed uploaded-image inference are deferred.
 
 Scoped inference response shape:
 
@@ -610,18 +632,20 @@ The default request uses Responses `text.format` with `type=json_schema`, `stric
 schema requiring `summary`, `inspection_notes`, `suggested_actions`, `risk_flags`, and
 `confidence`.
 
-## Dataset Card LLM Context API
+## Planned Dataset Card LLM Context API
 
-Iteration 5A adds a version-level dataset card so LLM assistance can reason from explicit dataset
-scope instead of guessing from class names and model scores.
+Iteration 5A is planned to add a version-level dataset card so LLM assistance can reason from
+explicit dataset scope instead of guessing from class names and model scores. As of 2026-06-22, this
+is not implemented in the active FastAPI app: there are no `GET`/`PUT` card routes, no card
+request/response schema, and no dataset-card field in the active API responses.
 
-Read the card for a dataset version:
+Planned read route:
 
 ```text
 GET /api/dataset-versions/{dataset_version_id}/card
 ```
 
-Update the card:
+Planned update route:
 
 ```text
 PUT /api/dataset-versions/{dataset_version_id}/card
@@ -659,10 +683,10 @@ Response:
 }
 ```
 
-`GET /api/datasets/{dataset_id}` should include the latest version card and may include per-version
-card summaries. The backend injects `dataset_card` into `POST /api/llm/assist` when the request
-context includes `dataset_version_id`, and into `POST /api/review-items/{review_item_id}/assist`
-using the review item's dataset version.
+When this slice is implemented, `GET /api/datasets/{dataset_id}` should include the latest version
+card and may include per-version card summaries. The backend should inject `dataset_card` into
+`POST /api/llm/assist` when the request context includes `dataset_version_id`, and into
+`POST /api/review-items/{review_item_id}/assist` using the review item's dataset version.
 
 The card is advisory context only. It must not mutate review status, feedback items, thresholds,
 dataset versions, or model versions.

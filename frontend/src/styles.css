@@ -1161,6 +1161,55 @@ a {
   background: var(--panel-soft);
 }
 
+.candidate-guard,
+.next-step-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 66px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(161, 92, 7, 0.24);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf0;
+  box-shadow: var(--soft-shadow);
+}
+
+.next-step-card {
+  margin-bottom: 0;
+  border-color: rgba(15, 118, 110, 0.22);
+  background: #f3fbf8;
+}
+
+.candidate-guard > div:nth-child(2),
+.next-step-card > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.candidate-guard strong,
+.next-step-card strong {
+  display: block;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.candidate-guard .timeline-icon {
+  color: var(--amber);
+  background: #fff0d4;
+}
+
+.next-step-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+}
+
 .decision-callout strong,
 .diagnostic-callout strong,
 .route-box strong {
@@ -1390,6 +1439,11 @@ a {
   background: var(--amber);
   box-shadow: 0 0 0 7px rgba(161, 92, 7, 0.12);
   animation: pulse 1.6s infinite;
+}
+
+.pipeline-node.template::before {
+  background: #94a3b8;
+  box-shadow: 0 0 0 7px rgba(148, 163, 184, 0.14);
 }
 
 @keyframes pulse {

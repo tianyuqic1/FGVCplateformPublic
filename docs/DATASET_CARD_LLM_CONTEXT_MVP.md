@@ -1,13 +1,20 @@
 # Dataset Card LLM Context MVP
 
+Status: planned, not implemented in the active API as of 2026-06-22.
+
+The current codebase does not yet expose `GET /api/dataset-versions/{dataset_version_id}/card` or
+`PUT /api/dataset-versions/{dataset_version_id}/card`, does not define dataset-card API schemas, and
+does not persist or return dataset cards on the active dataset API path. This document is the target
+design for a future slice, not a description of currently available endpoints.
+
 ## Objective
 
 Improve LLM assistance quality by giving it a controlled, versioned dataset context instead of
 letting it infer domain meaning from class names and raw model evidence alone.
 
-This MVP adds a dataset card for each `dataset_version_id` and injects that card into inference and
-review assistance prompts. The card is advisory context only. It does not change labels, thresholds,
-dataset versions, model versions, feedback items, or review outcomes.
+The planned MVP adds a dataset card for each `dataset_version_id` and injects that card into
+inference and review assistance prompts. The card is advisory context only. It does not change
+labels, thresholds, dataset versions, model versions, feedback items, or review outcomes.
 
 ## Problem
 
@@ -21,13 +28,13 @@ what should be considered OOD, and how a human reviewer should reason about unce
 
 ## MVP Scope
 
-Add a version-level dataset card:
+Add a planned version-level dataset card:
 
 ```text
 dataset_version_id -> dataset_card
 ```
 
-The initial card is generated deterministically during dataset import from the manifest:
+The initial card should be generated deterministically during dataset import from the manifest:
 
 - dataset id and version id
 - task
@@ -42,8 +49,8 @@ The initial card is generated deterministically during dataset import from the m
 - review guidance
 - source and updated timestamp
 
-Users can edit the card from the dataset detail page. LLM assistance receives the card from the
-backend when the request references a dataset version or review item.
+Users should be able to edit the card from the dataset detail page. LLM assistance should receive the
+card from the backend when the request references a dataset version or review item.
 
 ## Non-Goals
 
@@ -56,7 +63,7 @@ backend when the request references a dataset version or review item.
 
 ## Data Model
 
-Store `dataset_card` on `dataset_versions` as JSONB.
+Planned storage: `dataset_card` on `dataset_versions` as JSONB.
 
 Why version-level:
 
@@ -91,21 +98,21 @@ MVP schema shape:
 
 ## API
 
-Dataset detail should include the latest version card:
+Planned dataset detail behavior:
 
 ```text
 GET /api/datasets/{dataset_id}
 ```
 
-Dataset-card endpoints:
+Planned dataset-card endpoints:
 
 ```text
 GET /api/dataset-versions/{dataset_version_id}/card
 PUT /api/dataset-versions/{dataset_version_id}/card
 ```
 
-`PUT` accepts a JSON object and returns the normalized card. The backend should reject non-object or
-oversized payloads and should preserve required fields such as `schema_version`,
+`PUT` should accept a JSON object and return the normalized card. The backend should reject
+non-object or oversized payloads and should preserve required fields such as `schema_version`,
 `dataset_version_id`, and `updated_at`.
 
 LLM endpoints:
@@ -115,7 +122,7 @@ POST /api/llm/assist
 POST /api/review-items/{review_item_id}/assist
 ```
 
-The backend injects `dataset_card` into the LLM context when it can resolve a
+The backend should inject `dataset_card` into the LLM context when it can resolve a
 `dataset_version_id`. The frontend may show a context preview, but card resolution should not depend
 on the frontend manually passing the card.
 

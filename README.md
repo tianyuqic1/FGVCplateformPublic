@@ -150,8 +150,9 @@ docs/MVP_RESIDUALS_ACCEPTANCE.md
 Iteration 1 starts the FastAPI control plane under `backend/src/finevision/api/`.
 Iteration 1.7 uses PostgreSQL for control-plane metadata when `DATABASE_URL` is configured.
 The JSON metadata store remains available for explicit no-database local runs and focused tests.
-The API exposes dataset asset and job endpoints without running DINOv3, training, or inference work
-inside request handlers.
+The API exposes dataset asset and job endpoints without running DINOv3 extraction, training, or
+batch inference work inside request handlers. `POST /api/inference/upload` remains a synchronous
+single-image MVP bridge for manual inference checks.
 
 Run the API locally:
 
@@ -175,9 +176,10 @@ GET  /api/health
 GET  /api/datasets
 GET  /api/datasets/{dataset_id}
 POST /api/datasets/import-imagefolder
+POST /api/datasets/upload-imagefolder
 GET  /api/dataset-versions/{dataset_version_id}/readiness
-GET  /api/dataset-versions/{dataset_version_id}/card
-PUT  /api/dataset-versions/{dataset_version_id}/card
+GET  /api/dataset-versions/{dataset_version_id}/sample-previews
+GET  /api/dataset-versions/{dataset_version_id}/samples/{sample_id}/image
 POST /api/jobs
 GET  /api/jobs
 GET  /api/jobs/{job_id}
@@ -203,13 +205,16 @@ POST /api/llm/assist
 
 Inference requests are persisted as review-auditable events when routing is enabled. `abstain` and
 `reject_ood` decisions create pending review items; `accept` decisions are recorded but do not enter
-the human queue by default. Review submission writes typed feedback pool entries and does not mutate
-the immutable source dataset version.
+the human queue by default. `POST /api/inference/upload` is an MVP synchronous bridge for manual
+single-image inference: it stores the uploaded image, then runs the same scoped inference path inside
+the API request. High-throughput or long-running uploaded-image inference should move behind worker
+jobs. Review submission writes typed feedback pool entries and does not mutate the immutable source
+dataset version.
 
-Dataset cards are version-level context documents used by advisory LLM assistance. They describe
-task, domain, class scope, OOD policy, and human review guidance so inference and review suggestions
-stay grounded in the dataset being evaluated. They are advisory context only and never replace human
-labels or feedback routing.
+Dataset cards are planned version-level context documents for advisory LLM assistance, but the
+current codebase does not yet expose `GET`/`PUT` card routes, a card request/response schema, or
+dataset-card persistence on the active API path. Until that slice lands, callers should treat dataset
+card behavior as documented design intent rather than an implemented endpoint.
 
 For a fresh local database, start PostgreSQL first and apply migrations before
 starting the API/worker containers:

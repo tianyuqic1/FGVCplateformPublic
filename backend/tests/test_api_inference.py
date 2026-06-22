@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import sqlalchemy as sa
@@ -151,10 +152,18 @@ def test_abstain_inference_creates_review_item_and_feedback(
     assert items[0]["status"] == "pending"
     assert items[0]["context"]["decision"]["decision"] == "abstain"
     assert items[0]["context"]["nearest_neighbors"]
+    assert items[0]["image_url"] == f"/api/dataset-versions/dataset@infer-toy-001/samples/{sample_id}/image"
+    assert items[0]["context"]["input"]["image_url"] == items[0]["image_url"]
 
     detail_response = client.get(f"/api/review-items/{review_item_id}")
     assert detail_response.status_code == 200
-    assert detail_response.json()["review_item"]["risk_type"] in {"mixed", "low_confidence", "low_margin"}
+    detail = detail_response.json()["review_item"]
+    assert detail["risk_type"] in {"mixed", "low_confidence", "low_margin"}
+    assert detail["image_url"] == f"/api/dataset-versions/dataset@infer-toy-001/samples/{sample_id}/image"
+
+    image_response = client.get(detail["image_url"])
+    assert image_response.status_code == 200
+    assert image_response.content
 
     submit_response = client.post(
         f"/api/review-items/{review_item_id}/submit",
@@ -225,6 +234,39 @@ def test_abstain_inference_creates_review_item_and_feedback(
         dataset_count = conn.execute(sa.select(sa.func.count()).select_from(dataset_versions)).scalar_one()
     assert feedback_count == 1
     assert dataset_count == 1
+
+
+def test_review_item_payload_exposes_sample_image_url_in_context() -> None:
+    app_module = importlib.import_module("finevision.api.app")
+    item = SimpleNamespace(
+        review_item_id="review-123",
+        inference_event_id="inference-123",
+        dataset_id="infer-toy",
+        dataset_version_id="dataset@infer-toy-001",
+        model_version_id="model-123",
+        sample_id="sample-abc123",
+        input_ref="sample-abc123",
+        status="pending",
+        risk_type="low_confidence",
+        priority=50,
+        reason="Needs review",
+        reason_codes=["confidence_below_threshold"],
+        context={"input": {"sample_id": "sample-abc123"}, "decision": {"decision": "abstain"}},
+        assistance_metadata={},
+        created_at="2026-06-20T00:00:00+00:00",
+        updated_at="2026-06-20T00:00:00+00:00",
+        submitted_at=None,
+        feedbacked_at=None,
+        completed_by=None,
+        feedback=None,
+    )
+
+    payload = app_module._review_item_payload(item)
+
+    expected_image_url = "/api/dataset-versions/dataset@infer-toy-001/samples/sample-abc123/image"
+    assert payload["image_url"] == expected_image_url
+    assert payload["context"]["input"]["image_url"] == expected_image_url
+    assert item.context["input"] == {"sample_id": "sample-abc123"}
 
 
 def test_review_assistance_is_advisory_and_does_not_complete_review(
