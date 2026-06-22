@@ -94,6 +94,7 @@ class DatabaseReviewStore:
         decision = str(decision_payload.get("decision") or decision_payload.get("value") or "abstain")
         reasons = list(decision_payload.get("reasons") or [])
         input_type, input_ref, sample_id = _input_identity(input_payload)
+        force_review = bool(request_payload.get("force_review"))
 
         with self.engine.begin() as conn:
             context_row = conn.execute(
@@ -132,8 +133,8 @@ class DatabaseReviewStore:
                 )
             )
             review_key: str | None = None
-            if decision in {"abstain", "reject_ood"}:
-                risk_type, priority, reason = _review_routing(decision, reasons)
+            if decision in {"abstain", "reject_ood"} or force_review:
+                risk_type, priority, reason = _review_routing(decision, reasons, force_review=force_review)
                 review_key = f"review-{uuid4().hex[:12]}"
                 conn.execute(
                     review_items.insert().values(
@@ -445,7 +446,7 @@ def _review_context_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _review_routing(decision: str, reasons: list[str]) -> tuple[str, int, str]:
+def _review_routing(decision: str, reasons: list[str], *, force_review: bool = False) -> tuple[str, int, str]:
     if decision == "reject_ood":
         return "ood_candidate", 10, "Model rejected the sample as an OOD candidate."
     if "confidence_below_threshold" in reasons and "top1_top2_margin_below_threshold" in reasons:
@@ -454,6 +455,8 @@ def _review_routing(decision: str, reasons: list[str]) -> tuple[str, int, str]:
         return "low_confidence", 50, "Model confidence is below the acceptance threshold."
     if "top1_top2_margin_below_threshold" in reasons:
         return "low_margin", 60, "Top-1 and top-2 scores are too close."
+    if force_review:
+        return "mixed", 90, "Batch inference requested human review for this sample."
     return "mixed", 70, "Model abstained and requires human review."
 
 

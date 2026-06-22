@@ -137,3 +137,29 @@ export async function runInferenceUpload(input) {
     return normalizeInferenceResult(extractInferenceResult(payload));
   });
 }
+
+export async function runInferenceUploadFolder(input) {
+  const formData = new FormData();
+  formData.append("dataset_version_id", input.dataset_version_id);
+  formData.append("model_version_id", input.model_version_id);
+  input.images.forEach((image) => {
+    formData.append("images", image, image.webkitRelativePath || image.name);
+  });
+  formData.append("top_k", String(input.top_k ?? 3));
+  formData.append("evidence_k", String(input.evidence_k ?? 3));
+  formData.append("route_all_to_review", String(input.route_all_to_review ?? true));
+  if (input.accept_threshold != null) formData.append("accept_threshold", String(input.accept_threshold));
+  if (input.margin_threshold != null) formData.append("margin_threshold", String(input.margin_threshold));
+  if (input.ood_distance_threshold != null) {
+    formData.append("ood_distance_threshold", String(input.ood_distance_threshold));
+  }
+
+  return withTimeout(async (signal) => {
+    const payload = await fetchForm("/api/inference/upload-folder", formData, { signal });
+    return {
+      batch: payload?.batch ?? { total: 0, succeeded: 0, failed: 0, review_item_count: 0, review_item_ids: [] },
+      results: (payload?.results ?? []).map((item) => normalizeInferenceResult(extractInferenceResult(item))),
+      failures: payload?.failures ?? [],
+    };
+  }, 600000);
+}

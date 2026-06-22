@@ -27,10 +27,10 @@ feedback pool, and advisory LLM slices.
   incomplete if the unauthenticated Hugging Face download is interrupted.
 - Running training cancellation is now productized as cooperative worker checks, but a blocking
   Hugging Face/timm weight-download request is only observed after that request returns.
-- `POST /api/inference/upload` is a synchronous MVP bridge for manual single-image inference. It is
-  not yet a worker-backed inference job API.
-- Dataset Card LLM Context is planned, but the active API does not yet have `GET`/`PUT` card routes,
-  dataset-card request/response schemas, or active dataset-card persistence.
+- `POST /api/inference/upload` and `POST /api/inference/upload-folder` are synchronous MVP bridges
+  for manual single-image and folder inference. They are not yet worker-backed inference job APIs.
+- Dataset Card LLM Context is implemented as an artifact-backed MVP with `GET`/`PUT` card routes,
+  deterministic import generation, editable dataset detail UI, and LLM context injection.
 
 ## P0 Residuals
 
@@ -114,15 +114,15 @@ Acceptance for productized completion:
 
 Current status: corrected for current MVP scope.
 
-Dataset-card documentation previously risked implying that card `GET`/`PUT` routes were already
-available. The active API does not expose those routes or schemas yet, so the current docs must list
-them only as planned design work.
+Dataset-card documentation previously risked implying that card `GET`/`PUT` routes were unavailable.
+The active API now exposes those routes and persists cards as artifacts, so docs must describe them
+as active MVP behavior.
 
 Acceptance for completion:
 
-- Done: README endpoint list matches active routes and does not list dataset-card `GET`/`PUT`.
-- Done: `docs/CONTROL_PLANE_API.md` marks Dataset Card LLM Context API as planned, not implemented.
-- Done: Dataset-card design docs explicitly say the current API has no card routes or schemas.
+- Done: README endpoint list matches active routes and lists dataset-card `GET`/`PUT`.
+- Done: `docs/CONTROL_PLANE_API.md` marks Dataset Card LLM Context API as active MVP behavior.
+- Done: Dataset-card design docs describe artifact-backed persistence and active card routes.
 - Done: docs call out `/api/inference/upload` as a synchronous MVP bridge, not a worker-backed
   production inference path.
 
@@ -212,20 +212,19 @@ Acceptance for completion:
 
 ### Dataset Card LLM Context
 
-Current status: planned, not implemented.
+Current status: implemented as artifact-backed MVP.
 
-Dataset cards remain design intent for grounding advisory LLM output in version-level dataset
-context. The active backend does not yet expose card routes, card schemas, dataset-card persistence,
-or automatic card injection into LLM assistance.
+Dataset cards ground advisory LLM output in version-level dataset context. The active backend exposes
+card routes, persists card artifacts, returns cards from dataset detail, and injects compact card
+context into LLM assistance.
 
 Acceptance for completion:
 
-- Add `dataset_versions.dataset_card` or equivalent version-level persistence.
-- Generate an initial compact card during dataset import.
-- Add read/update store methods for DB-backed and file-backed modes.
-- Add `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card` only when schemas and persistence
-  are implemented.
-- Inject card context into generic and review-specific LLM assistance without letting the LLM mutate
+- Done: Add artifact-backed version-level persistence.
+- Done: Generate an initial compact card during dataset import.
+- Done: Add read/update store methods for DB-backed and file-backed modes.
+- Done: Add `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`.
+- Done: Inject card context into generic and review-specific LLM assistance without letting the LLM mutate
   labels, review status, feedback, thresholds, dataset versions, or model versions.
 
 ## P2 Residuals

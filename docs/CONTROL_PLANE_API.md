@@ -99,6 +99,9 @@ GET  /api/model-weights
 DELETE /api/model-weights/{preset}
 POST /api/inference
 POST /api/inference/upload
+POST /api/inference/upload-folder
+GET  /api/dataset-versions/{dataset_version_id}/card
+PUT  /api/dataset-versions/{dataset_version_id}/card
 GET  /api/review-items
 GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/assist
@@ -107,9 +110,8 @@ GET  /api/feedback-items
 POST /api/llm/assist
 ```
 
-Dataset-card endpoints are intentionally not listed here as active API routes. The current codebase
-does not yet define `GET /api/dataset-versions/{dataset_version_id}/card` or
-`PUT /api/dataset-versions/{dataset_version_id}/card`, or a dataset-card request/response schema.
+Dataset-card endpoints are active MVP routes. Import creates a manifest-derived default card and the
+card is persisted as a `dataset_card` artifact, avoiding a dedicated migration for now.
 
 Import request:
 
@@ -326,8 +328,11 @@ reuses the stored feature matrix; `image_path` restores the extractor from the f
 metadata and extracts a single query feature. `POST /api/inference/upload` accepts a multipart
 `image` file and stores it under the configured upload directory before running the same scoped
 inference path synchronously inside the API request. That upload route is an MVP bridge for manual
-single-image checks, not the production shape for high-throughput or long-running inference. Batch
-inference and worker-backed uploaded-image inference are deferred.
+single-image checks. `POST /api/inference/upload-folder` accepts multipart `images` from a browser
+folder picker, runs them sequentially through the same scoped inference path, and defaults to
+`route_all_to_review=true` so every image becomes a pending review item for human batch review.
+These upload routes are still synchronous MVP bridges, not the production shape for high-throughput
+or long-running inference.
 
 Scoped inference response shape:
 
@@ -638,20 +643,19 @@ compact manifest-derived `dataset_summary` so the assistant can ground its first
 a Responses `input_image` and removes the base64 payload from the text JSON context. If a provider
 rejects image inputs, the backend falls back to text-only evidence.
 
-## Planned Dataset Card LLM Context API
+## Dataset Card LLM Context API
 
-Iteration 5A is planned to add a version-level dataset card so LLM assistance can reason from
-explicit dataset scope instead of guessing from class names and model scores. As of 2026-06-22, this
-is not implemented in the active FastAPI app: there are no `GET`/`PUT` card routes, no card
-request/response schema, and no dataset-card field in the active API responses.
+Iteration 5A adds a version-level dataset card so LLM assistance can reason from explicit dataset
+scope instead of guessing from class names and model scores. The active MVP stores cards as
+`dataset_card` artifacts and also returns the latest card from `GET /api/datasets/{dataset_id}`.
 
-Planned read route:
+Read route:
 
 ```text
 GET /api/dataset-versions/{dataset_version_id}/card
 ```
 
-Planned update route:
+Update route:
 
 ```text
 PUT /api/dataset-versions/{dataset_version_id}/card
@@ -678,19 +682,21 @@ Response:
 {
   "dataset_version_id": "dataset@cifar10-mini-001",
   "dataset_card": {
-    "schema_version": 1,
-    "dataset_version_id": "dataset@cifar10-mini-001",
     "task": "image classification",
     "domain": "CIFAR-10 benchmark images",
-    "classes": ["airplane", "automobile", "bird"],
-    "source": "manual_update",
-    "updated_at": "2026-06-20T00:00:00Z"
+    "summary": "Small 10-class image classification dataset.",
+    "class_count": 10,
+    "sample_count": 460,
+    "class_preview": ["airplane", "automobile", "bird"],
+    "known_confusions": ["cat <> dog", "automobile <> truck"],
+    "ood_policy": "Inputs outside the configured class list should be reviewed as OOD/uncertain.",
+    "review_guidance": "Use the image content as the source of truth."
   }
 }
 ```
 
-When this slice is implemented, `GET /api/datasets/{dataset_id}` should include the latest version
-card and may include per-version card summaries. The backend should inject `dataset_card` into
+`GET /api/datasets/{dataset_id}` includes the latest version card. The backend injects `dataset_card`
+as compact `dataset_summary` context into
 `POST /api/llm/assist` when the request context includes `dataset_version_id`, and into
 `POST /api/review-items/{review_item_id}/assist` using the review item's dataset version.
 

@@ -100,6 +100,10 @@ class ReviewAssistanceRequest(BaseModel):
     question: str | None = Field(default=None, max_length=1200)
 
 
+class DatasetCardRequest(BaseModel):
+    dataset_card: dict[str, Any] = Field(default_factory=dict)
+
+
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
     resolved_database_url: str | None = None
     database_engine: Engine | None = None
@@ -293,6 +297,30 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample image file not found")
         return FileResponse(image_path)
 
+    @api.get("/api/dataset-versions/{dataset_version_id}/card")
+    def get_dataset_version_card(dataset_version_id: str) -> dict[str, object]:
+        card = store.get_dataset_card(dataset_version_id)
+        manifest = store.get_dataset_version(dataset_version_id)
+        if card is None or manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        return {
+            "dataset_id": manifest.dataset_id,
+            "dataset_version_id": manifest.dataset_version_id,
+            "dataset_card": card,
+        }
+
+    @api.put("/api/dataset-versions/{dataset_version_id}/card")
+    def update_dataset_version_card(dataset_version_id: str, request: DatasetCardRequest) -> dict[str, object]:
+        card = store.update_dataset_card(dataset_version_id, request.dataset_card)
+        manifest = store.get_dataset_version(dataset_version_id)
+        if card is None or manifest is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        return {
+            "dataset_id": manifest.dataset_id,
+            "dataset_version_id": manifest.dataset_version_id,
+            "dataset_card": card,
+        }
+
     @api.post("/api/training-runs", status_code=status.HTTP_202_ACCEPTED)
     def create_training_run(request: CreateTrainingRunRequest) -> dict[str, object]:
         if training_store is None:
@@ -457,6 +485,67 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         _record_review_route(api, request, payload)
         return {"inference_result": payload}
 
+    @api.post("/api/inference/upload-folder")
+    def run_uploaded_folder_inference(
+        dataset_version_id: str = Form(..., min_length=1),
+        model_version_id: str = Form(..., min_length=1),
+        images: list[UploadFile] = File(...),
+        top_k: int = Form(default=3, ge=1, le=10),
+        evidence_k: int = Form(default=3, ge=0, le=10),
+        accept_threshold: float | None = Form(default=None, ge=0.0, le=1.0),
+        margin_threshold: float | None = Form(default=None, ge=0.0, le=1.0),
+        ood_distance_threshold: float | None = Form(default=None, ge=0.0),
+        route_all_to_review: bool = Form(default=True),
+    ) -> dict[str, object]:
+        if not images:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="At least one image is required")
+        results: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        review_item_ids: list[str] = []
+        for image in images:
+            try:
+                uploaded_path = _save_uploaded_image(api.state.upload_dir, image)
+                request = RunInferenceRequest(
+                    dataset_version_id=dataset_version_id,
+                    model_version_id=model_version_id,
+                    image_path=str(uploaded_path),
+                    sample_id=None,
+                    top_k=top_k,
+                    evidence_k=evidence_k,
+                    accept_threshold=accept_threshold,
+                    margin_threshold=margin_threshold,
+                    ood_distance_threshold=ood_distance_threshold,
+                )
+                payload = _run_scoped_inference_payload(
+                    api,
+                    request,
+                    input_overrides={
+                        "upload_filename": image.filename,
+                        "uploaded_image_path": str(uploaded_path),
+                        "batch_upload": True,
+                    },
+                )
+                _record_review_route(api, request, payload, force_review=route_all_to_review)
+                if payload.get("review_item_id"):
+                    review_item_ids.append(str(payload["review_item_id"]))
+                results.append(payload)
+            except HTTPException as exc:
+                failures.append({"filename": image.filename or "unknown", "error": str(exc.detail)})
+            except Exception as exc:
+                failures.append({"filename": image.filename or "unknown", "error": str(exc)})
+        return {
+            "batch": {
+                "total": len(images),
+                "succeeded": len(results),
+                "failed": len(failures),
+                "review_item_count": len(review_item_ids),
+                "review_item_ids": review_item_ids,
+                "route_all_to_review": route_all_to_review,
+            },
+            "results": results,
+            "failures": failures,
+        }
+
     @api.get("/api/review-items")
     def list_review_items(
         status_filter: str | None = Query(default="pending", alias="status"),
@@ -591,13 +680,14 @@ def _with_dataset_summary(store: Any, context: dict[str, Any]) -> dict[str, Any]
     manifest = store.get_dataset_version(str(dataset_version_id))
     if manifest is None:
         return context
+    dataset_card = store.get_dataset_card(str(dataset_version_id))
     return {
         **context,
-        "dataset_summary": _dataset_summary_for_llm(manifest),
+        "dataset_summary": _dataset_summary_for_llm(manifest, dataset_card=dataset_card),
     }
 
 
-def _dataset_summary_for_llm(manifest: Any) -> dict[str, Any]:
+def _dataset_summary_for_llm(manifest: Any, *, dataset_card: dict[str, Any] | None = None) -> dict[str, Any]:
     class_preview_limit = 30
     split_totals = {
         split: sum(class_counts.values())
@@ -612,7 +702,7 @@ def _dataset_summary_for_llm(manifest: Any) -> dict[str, Any]:
         if key in issue_fields and value
     }
     classes = list(manifest.classes or [])
-    return {
+    summary = {
         "dataset_id": manifest.dataset_id,
         "dataset_version_id": manifest.dataset_version_id,
         "task": "image_classification",
@@ -628,6 +718,18 @@ def _dataset_summary_for_llm(manifest: Any) -> dict[str, Any]:
             "If model evidence conflicts with visible content or the image seems outside this domain, route to human review/OOD rather than inventing a new label."
         ),
     }
+    if dataset_card:
+        summary.update(
+            {
+                "task": dataset_card.get("task") or summary["task"],
+                "domain": dataset_card.get("domain"),
+                "summary": dataset_card.get("summary"),
+                "known_confusions": dataset_card.get("known_confusions") or [],
+                "ood_policy": dataset_card.get("ood_policy"),
+                "review_guidance": dataset_card.get("review_guidance"),
+            }
+        )
+    return summary
 
 
 def _default_imported_dataset_dir() -> Path:
@@ -919,14 +1021,14 @@ def _run_scoped_inference_payload(
     }
 
 
-def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: dict[str, Any]) -> None:
+def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: dict[str, Any], *, force_review: bool = False) -> None:
     if not request.route_to_review:
         return
     review_store: DatabaseReviewStore | None = api.state.review_store
     if review_store is None:
         return
     event, review_item = review_store.record_inference_result(
-        request_payload=request.model_dump(),
+        request_payload={**request.model_dump(), "force_review": force_review},
         response_payload=payload,
     )
     payload["inference_event_id"] = event.inference_event_id

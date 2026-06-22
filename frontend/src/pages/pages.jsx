@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { uploadImagefolder } from "../api/datasets.js";
-import { runInference, runInferenceUpload } from "../api/inference.js";
+import { updateDatasetCard, uploadImagefolder } from "../api/datasets.js";
+import { runInference, runInferenceUpload, runInferenceUploadFolder } from "../api/inference.js";
 import { deleteModelWeight } from "../api/modelWeights.js";
 import { listReviewItems } from "../api/reviews.js";
 import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingRun, resumeTrainingRun } from "../api/trainingRuns.js";
@@ -1093,6 +1093,7 @@ function DatasetTab({ dataset, tab, showToast }) {
 
   return (
     <>
+      <DatasetCardPanel dataset={dataset} showToast={showToast} />
       <div className="grid metrics section-gap">
         <MetricCard title="样本质量" value={`${dataset.quality}%`} caption="坏图、错标、重复图综合" fill="#0f766e" percent={dataset.quality} icon="BadgeCheck" />
         <MetricCard title="自动覆盖率" value={hasThresholdStrategy ? `${dataset.coverage}%` : "--"} caption={hasThresholdStrategy ? "来自阈值策略产物" : "未绑定阈值策略"} fill="#315fbd" percent={hasThresholdStrategy ? dataset.coverage || 0 : 0} icon="Gauge" />
@@ -1112,6 +1113,103 @@ function DatasetTab({ dataset, tab, showToast }) {
         </Panel>
       </div>
     </>
+  );
+}
+
+function DatasetCardPanel({ dataset, showToast }) {
+  const emptyCard = {
+    task: "image_classification",
+    domain: "general",
+    summary: "",
+    knownConfusions: [],
+    oodPolicy: "",
+    reviewGuidance: "",
+  };
+  const [card, setCard] = useState(dataset.datasetCard ?? emptyCard);
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setCard(dataset.datasetCard ?? emptyCard);
+    setStatus("idle");
+    setError(null);
+  }, [dataset.datasetVersionId]);
+
+  function updateField(field, value) {
+    setCard((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSave() {
+    setStatus("saving");
+    setError(null);
+    try {
+      const saved = await updateDatasetCard(dataset.datasetVersionId, card);
+      setCard(saved);
+      setStatus("saved");
+      showToast("数据集摘要已保存");
+    } catch (saveError) {
+      setError(saveError);
+      setStatus("failed");
+      showToast("数据集摘要保存失败");
+    }
+  }
+
+  return (
+    <Panel
+      title="数据集摘要"
+      caption="导入时自动生成；LLM 推理解释和复核建议会优先使用这里的上下文。"
+      action={<StatusChip tone={status === "failed" ? "risk" : status === "saved" ? "default" : "info"}>{status === "saving" ? "保存中" : status === "saved" ? "已保存" : "可编辑"}</StatusChip>}
+    >
+      <div className="field-grid">
+        <div className="field">
+          <label>任务</label>
+          <input value={card.task ?? ""} onChange={(event) => updateField("task", event.target.value)} />
+        </div>
+        <div className="field">
+          <label>领域</label>
+          <input value={card.domain ?? ""} onChange={(event) => updateField("domain", event.target.value)} />
+        </div>
+        <div className="field full-span">
+          <label>摘要</label>
+          <textarea value={card.summary ?? ""} onChange={(event) => updateField("summary", event.target.value)} rows={3} />
+        </div>
+        <div className="field full-span">
+          <label>易混点</label>
+          <input
+            value={(card.knownConfusions ?? []).join("; ")}
+            onChange={(event) => updateField("knownConfusions", event.target.value.split(";").map((item) => item.trim()).filter(Boolean))}
+            placeholder="ship vs boat; deer vs horse"
+          />
+        </div>
+        <div className="field full-span">
+          <label>OOD 策略</label>
+          <textarea value={card.oodPolicy ?? ""} onChange={(event) => updateField("oodPolicy", event.target.value)} rows={2} />
+        </div>
+        <div className="field full-span">
+          <label>复核指引</label>
+          <textarea value={card.reviewGuidance ?? ""} onChange={(event) => updateField("reviewGuidance", event.target.value)} rows={2} />
+        </div>
+      </div>
+      <div className="chips section-gap-small">
+        <StatusChip tone="info">{card.classCount ?? dataset.classes} classes</StatusChip>
+        <StatusChip tone="info">{card.sampleCount ?? dataset.images} samples</StatusChip>
+        {Object.entries(card.splitTotals ?? {}).map(([split, count]) => (
+          <StatusChip tone="neutral" key={split}>{split}: {count}</StatusChip>
+        ))}
+      </div>
+      {Array.isArray(card.classPreview) && card.classPreview.length > 0 && (
+        <div className="row-meta section-gap-small">
+          class preview: {card.classPreview.slice(0, 12).join(", ")}{card.classPreviewTruncated ? " ..." : ""}
+        </div>
+      )}
+      {error && <div className="row-meta error-text section-gap-small">{error.message}</div>}
+      <div className="toolbar section-gap-small">
+        <button className="primary-button" onClick={handleSave} disabled={status === "saving"}>
+          <Icon name={status === "saving" ? "LoaderCircle" : "Save"} size={16} />
+          保存摘要
+        </button>
+      </div>
+    </Panel>
   );
 }
 
@@ -2038,6 +2136,7 @@ export function InferencePage({ showToast }) {
   const [inferenceSearchParams] = useSearchParams();
   const requestedInferenceDatasetVersionId = inferenceSearchParams.get("dataset_version_id") || "";
   const requestedInferenceModelVersionId = inferenceSearchParams.get("model_version_id") || "";
+  const batchFolderInputRef = useRef(null);
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
   const { trainingRuns: inferenceTrainingRuns, source: trainingSource } = useTrainingRuns();
   const llm = useLLMAssistance();
@@ -2046,6 +2145,8 @@ export function InferencePage({ showToast }) {
     datasetVersionId: requestedInferenceDatasetVersionId || datasetOptions[0]?.datasetVersionId || "",
     modelVersionId: requestedInferenceModelVersionId,
     imageFile: null,
+    imageFiles: [],
+    imageFolderName: "",
     imagePath: "",
     sampleId: inferenceSearchParams.get("sample_id") || "",
     topK: 3,
@@ -2070,7 +2171,7 @@ export function InferencePage({ showToast }) {
     state.status !== "running" &&
     form.datasetVersionId.trim() &&
     form.modelVersionId.trim() &&
-    (form.imageFile || form.imagePath.trim() || form.sampleId.trim());
+    (form.imageFiles.length > 0 || form.imageFile || form.imagePath.trim() || form.sampleId.trim());
   const inferenceBlockReason = canUseInferenceInputs
     ? ""
     : datasetSource !== "api"
@@ -2122,8 +2223,23 @@ export function InferencePage({ showToast }) {
     setForm((current) => ({
       ...current,
       imageFile: file,
+      imageFiles: [],
+      imageFolderName: "",
       imagePath: file ? "" : current.imagePath,
       sampleId: file ? "" : current.sampleId,
+    }));
+  }
+
+  function updateImageFolder(files) {
+    const imageFiles = Array.from(files ?? []).filter((file) => IMAGE_FOLDER_EXTENSIONS.has(`.${file.name.split(".").pop()?.toLowerCase()}`));
+    const folderName = imageFiles[0]?.webkitRelativePath?.split("/")?.[0] ?? "";
+    setForm((current) => ({
+      ...current,
+      imageFile: null,
+      imageFiles,
+      imageFolderName: folderName,
+      imagePath: "",
+      sampleId: "",
     }));
   }
 
@@ -2137,7 +2253,13 @@ export function InferencePage({ showToast }) {
         top_k: Number(form.topK),
         evidence_k: Number(form.evidenceK),
       };
-      const result = form.imageFile
+      const result = form.imageFiles.length > 0
+        ? await runInferenceUploadFolder({
+            ...commonInput,
+            images: form.imageFiles,
+            route_all_to_review: true,
+          })
+        : form.imageFile
         ? await runInferenceUpload({
             ...commonInput,
             image: form.imageFile,
@@ -2156,9 +2278,10 @@ export function InferencePage({ showToast }) {
   }
 
   const result = state.result;
-  const decisionState = inferenceDecisionStatus(result?.decision);
-  const decisionCopy = inferenceDecisionCopy(result?.decision);
-  const queryLabel = form.imageFile?.name || form.sampleId || form.imagePath || "query image";
+  const isBatchResult = Boolean(result?.batch);
+  const decisionState = inferenceDecisionStatus(isBatchResult ? null : result?.decision);
+  const decisionCopy = inferenceDecisionCopy(isBatchResult ? null : result?.decision);
+  const queryLabel = form.imageFiles.length > 0 ? `${form.imageFolderName || "folder"} · ${form.imageFiles.length} images` : form.imageFile?.name || form.sampleId || form.imagePath || "query image";
 
   async function handleGenerateInferenceExplanation() {
     if (!result) return;
@@ -2190,7 +2313,13 @@ export function InferencePage({ showToast }) {
       <CandidateOnlyGuard description="推理实验室只验证训练产出的候选模型和阈值策略；accept 也只是记录 inference event，不代表模型已经上线。" />
       <div className="grid detail section-gap-small">
       <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
-        {previewUrl ? (
+        {form.imageFiles.length > 0 ? (
+          <div className="empty-query-preview">
+            <Icon name="FolderInput" size={22} />
+            <strong>{form.imageFolderName || "批量图片文件夹"}</strong>
+            <span>{form.imageFiles.length} 张图片将批量推理，并默认进入人工复核队列。</span>
+          </div>
+        ) : previewUrl ? (
           <div className="uploaded-preview">
             <img src={previewUrl} alt={queryLabel} />
             <span>{queryLabel}</span>
@@ -2251,6 +2380,32 @@ export function InferencePage({ showToast }) {
               <span>{form.imageFile?.name || "选择一张图片作为 query"}</span>
             </label>
           </div>
+          <div className="field full-span">
+            <label>批量上传文件夹</label>
+            <div className="file-picker folder-picker">
+              <input
+                ref={batchFolderInputRef}
+                type="file"
+                multiple
+                webkitdirectory=""
+                directory=""
+                onChange={(event) => updateImageFolder(event.target.files)}
+              />
+              <Icon name="FolderInput" size={18} />
+              <span>{form.imageFiles.length > 0 ? `${form.imageFolderName || "folder"} · ${form.imageFiles.length} images` : "选择图片文件夹批量推理"}</span>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  batchFolderInputRef.current?.click();
+                }}
+              >
+                选择
+              </button>
+            </div>
+            <span className="field-hint">批量模式会逐张运行推理，并把每张图作为人工复核队列项供你连续处理。</span>
+          </div>
           <div className="field">
             <label>样本 ID</label>
             <input value={form.sampleId} onChange={(event) => updateField("sampleId", event.target.value)} disabled={Boolean(form.imageFile)} placeholder="feature artifact sample_id" />
@@ -2274,6 +2429,7 @@ export function InferencePage({ showToast }) {
         <div className="toolbar section-gap-small">
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
           <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
+          <button className="ghost-button" onClick={() => updateImageFolder([])} disabled={form.imageFiles.length === 0 || state.status === "running"}><Icon name="RefreshCw" size={16} />清除文件夹</button>
         </div>
         {inferenceBlockReason && (
           <div className="route-box section-gap-small">
@@ -2304,7 +2460,61 @@ export function InferencePage({ showToast }) {
             <StatusChip tone="risk">失败</StatusChip>
           </div>
         )}
-        {state.status === "succeeded" && result && (
+        {state.status === "succeeded" && isBatchResult && (
+          <>
+            <div className="decision-summary">
+              <div className="decision-callout">
+                <div className="timeline-icon"><Icon name="FolderInput" size={18} /></div>
+                <div>
+                  <strong>批量推理完成</strong>
+                  <div className="row-meta">
+                    {result.batch.succeeded}/{result.batch.total} 张完成，{result.batch.review_item_count} 条进入人工复核队列。
+                  </div>
+                </div>
+                <StatusChip tone={result.batch.failed > 0 ? "warn" : "default"}>{result.batch.failed > 0 ? "部分失败" : "完成"}</StatusChip>
+              </div>
+              <div className="evidence-metrics">
+                <div><span>total</span><strong>{result.batch.total}</strong></div>
+                <div><span>succeeded</span><strong>{result.batch.succeeded}</strong></div>
+                <div><span>review items</span><strong>{result.batch.review_item_count}</strong></div>
+              </div>
+              <div className="route-box">
+                <div>
+                  <strong>进入人工复核队列</strong>
+                  <div className="row-meta">批量上传默认创建复核项；你可以打开队列后按当前数据集连续处理。</div>
+                </div>
+                <Link className="primary-button" to={`/review?status=pending&dataset_id=${encodeURIComponent(selectedDataset?.id ?? "")}`}>
+                  <Icon name="UserCheck" size={16} />
+                  打开复核队列
+                </Link>
+              </div>
+            </div>
+            <div className="timeline section-gap-small">
+              {result.results.slice(0, 8).map((item, index) => (
+                <div className="timeline-item" key={item.inferenceEventId || index}>
+                  <div className="timeline-icon"><Icon name={item.reviewItemId ? "UserCheck" : "CheckCircle2"} size={18} /></div>
+                  <div>
+                    <strong>{item.input?.upload_filename ?? `image-${index + 1}`}</strong>
+                    <div className="row-meta">
+                      {item.decision.value} · {item.topK[0]?.label ?? "unknown"} {item.topK[0] ? item.topK[0].score.toFixed(3) : ""}
+                    </div>
+                  </div>
+                  {item.reviewItemId ? <StatusChip tone="info">{item.reviewItemId}</StatusChip> : <StatusChip tone="default">event</StatusChip>}
+                </div>
+              ))}
+              {result.results.length > 8 && (
+                <div className="row-meta">还有 {result.results.length - 8} 条结果未展开；请到复核队列继续处理。</div>
+              )}
+              {result.failures.length > 0 && (
+                <div className="route-box risk">
+                  <div><strong>{result.failures.length} 张图片失败</strong><div className="row-meta">{result.failures.slice(0, 3).map((failure) => `${failure.filename}: ${failure.error}`).join("；")}</div></div>
+                  <StatusChip tone="risk">failed</StatusChip>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {state.status === "succeeded" && result && !isBatchResult && (
           <>
             <div className="decision-summary">
               <div className="decision-callout">

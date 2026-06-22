@@ -551,8 +551,9 @@ Suggested checkpoint pushes:
 
 ## Iteration 5A: Dataset Card LLM Context MVP
 
-Status: planned, not implemented in the active API as of 2026-06-22. The current codebase has no
-dataset-card persistence field, no card request/response schema, and no `GET`/`PUT` card routes.
+Status: implemented as an artifact-backed MVP as of 2026-06-22. The active API exposes card
+`GET`/`PUT` routes, generates cards during import, returns the latest card from dataset detail, and
+injects cards into LLM assistance context.
 
 Objective: ground advisory LLM output in explicit dataset-version context before adding richer
 automation.
@@ -572,7 +573,7 @@ Deliverables:
 - `GET /api/dataset-versions/{dataset_version_id}/card`.
 - `PUT /api/dataset-versions/{dataset_version_id}/card`.
 - Dataset detail includes the latest version card.
-- Dataset detail `Dataset Card` tab.
+- Dataset detail summary panel with editable dataset card fields.
 - LLM prompt/context contract documented in `docs/DATASET_CARD_LLM_CONTEXT_MVP.md`.
 
 Acceptance:

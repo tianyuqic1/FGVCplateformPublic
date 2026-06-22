@@ -11,7 +11,15 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine, create_engine
 from sqlalchemy.pool import NullPool
 
-from finevision.api.store import DatasetSummary, JobRecord, JobStatus, JobType, MetadataStore
+from finevision.api.store import (
+    DatasetSummary,
+    JobRecord,
+    JobStatus,
+    JobType,
+    MetadataStore,
+    default_dataset_card,
+    normalize_dataset_card,
+)
 from finevision.db.schema import artifacts, dataset_versions, datasets, job_events, jobs
 from finevision.schemas.artifacts import DatasetManifest, SampleRecord, to_jsonable
 
@@ -26,6 +34,8 @@ class DatabaseMetadataStore:
         dataset_status = "ready" if self.readiness_status(manifest) == "ready" else "draft"
         artifact_key = f"{manifest.dataset_version_id}:manifest"
         artifact_uri = f"finevision://datasets/{manifest.dataset_id}/versions/{manifest.dataset_version_id}/manifest.json"
+        card_key = f"{manifest.dataset_version_id}:dataset_card"
+        card_uri = f"finevision://datasets/{manifest.dataset_id}/versions/{manifest.dataset_version_id}/dataset_card.json"
 
         with self.engine.begin() as conn:
             dataset_row = conn.execute(
@@ -123,6 +133,23 @@ class DatabaseMetadataStore:
                 .where(dataset_versions.c.id == version_db_id)
                 .values(manifest_artifact_id=artifact_db_id)
             )
+            card_row = conn.execute(
+                sa.select(artifacts.c.id).where(artifacts.c.artifact_key == card_key)
+            ).mappings().first()
+            if card_row is None:
+                conn.execute(
+                    artifacts.insert().values(
+                        id=uuid4(),
+                        artifact_key=card_key,
+                        artifact_type="dataset_card",
+                        dataset_id=dataset_db_id,
+                        dataset_version_id=version_db_id,
+                        uri=card_uri,
+                        content_type="application/json",
+                        artifact_metadata={"dataset_card": default_dataset_card(manifest)},
+                        created_at=now,
+                    )
+                )
 
         return Path(artifact_uri)
 
@@ -191,7 +218,57 @@ class DatabaseMetadataStore:
             "split_counts": latest.split_counts,
             "status": self.readiness_status(latest),
             "readiness": latest.readiness,
+            "dataset_card": self.get_dataset_card(latest.dataset_version_id),
         }
+
+    def get_dataset_card(self, dataset_version_id: str) -> dict[str, Any] | None:
+        manifest = self.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            return None
+        card_key = f"{dataset_version_id}:dataset_card"
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.select(artifacts.c.artifact_metadata)
+                .where(artifacts.c.artifact_key == card_key, artifacts.c.artifact_type == "dataset_card")
+            ).mappings().first()
+        if row is None:
+            return default_dataset_card(manifest)
+        return normalize_dataset_card(dict(row["artifact_metadata"] or {}).get("dataset_card") or {}, manifest=manifest)
+
+    def update_dataset_card(self, dataset_version_id: str, card: dict[str, Any]) -> dict[str, Any] | None:
+        manifest = self.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            return None
+        normalized = normalize_dataset_card(card, manifest=manifest)
+        card_key = f"{dataset_version_id}:dataset_card"
+        card_uri = f"finevision://datasets/{manifest.dataset_id}/versions/{dataset_version_id}/dataset_card.json"
+        now = _now()
+        with self.engine.begin() as conn:
+            version_row = conn.execute(
+                sa.select(
+                    datasets.c.id.label("dataset_db_id"),
+                    dataset_versions.c.id.label("dataset_version_db_id"),
+                )
+                .select_from(dataset_versions.join(datasets, datasets.c.id == dataset_versions.c.dataset_id))
+                .where(dataset_versions.c.version_key == dataset_version_id)
+            ).mappings().first()
+            if version_row is None:
+                return None
+            row = conn.execute(sa.select(artifacts.c.id).where(artifacts.c.artifact_key == card_key)).mappings().first()
+            values = {
+                "artifact_key": card_key,
+                "artifact_type": "dataset_card",
+                "dataset_id": version_row["dataset_db_id"],
+                "dataset_version_id": version_row["dataset_version_db_id"],
+                "uri": card_uri,
+                "content_type": "application/json",
+                "artifact_metadata": {"dataset_card": normalized},
+            }
+            if row is None:
+                conn.execute(artifacts.insert().values(id=uuid4(), created_at=now, **values))
+            else:
+                conn.execute(artifacts.update().where(artifacts.c.id == row["id"]).values(**values))
+        return normalized
 
     readiness_status = staticmethod(MetadataStore.readiness_status)
     version_summary = staticmethod(MetadataStore.version_summary)

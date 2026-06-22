@@ -64,6 +64,31 @@ def test_dataset_asset_api_import_list_detail_and_readiness(tmp_path: Path) -> N
     assert detail["versions"][0]["class_count"] == 3
     assert detail["versions"][0]["split_totals"] == {"test": 3, "train": 12, "val": 3}
     assert set(detail["split_counts"]) == {"train", "val", "test"}
+    assert detail["dataset_card"]["task"] == "image_classification"
+    assert detail["dataset_card"]["sample_count"] == 18
+    assert "toy-shapes" in detail["dataset_card"]["summary"]
+
+    card_response = client.get("/api/dataset-versions/dataset@toy-001/card")
+    assert card_response.status_code == 200
+    assert card_response.json()["dataset_card"]["class_count"] == 3
+
+    update_card_response = client.put(
+        "/api/dataset-versions/dataset@toy-001/card",
+        json={
+            "dataset_card": {
+                "task": "fine_grained_classification",
+                "domain": "toy geometry",
+                "summary": "Toy geometry shapes for smoke testing.",
+                "known_confusions": ["red_square vs green_circle"],
+                "ood_policy": "Reject non-shape images.",
+                "review_guidance": "Check color and shape first.",
+            }
+        },
+    )
+    assert update_card_response.status_code == 200
+    updated_card = update_card_response.json()["dataset_card"]
+    assert updated_card["summary"] == "Toy geometry shapes for smoke testing."
+    assert updated_card["known_confusions"] == ["red_square vs green_circle"]
 
     readiness_response = client.get("/api/dataset-versions/dataset@toy-001/readiness")
     assert readiness_response.status_code == 200

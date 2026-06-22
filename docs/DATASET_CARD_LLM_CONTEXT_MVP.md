@@ -1,18 +1,18 @@
 # Dataset Card LLM Context MVP
 
-Status: planned, not implemented in the active API as of 2026-06-22.
+Status: MVP implemented in the active API as of 2026-06-22.
 
-The current codebase does not yet expose `GET /api/dataset-versions/{dataset_version_id}/card` or
-`PUT /api/dataset-versions/{dataset_version_id}/card`, does not define dataset-card API schemas, and
-does not persist or return dataset cards on the active dataset API path. This document is the target
-design for a future slice, not a description of currently available endpoints.
+The current codebase exposes `GET /api/dataset-versions/{dataset_version_id}/card` and
+`PUT /api/dataset-versions/{dataset_version_id}/card`. Dataset cards are generated from imported
+manifests, persisted as `dataset_card` artifacts, returned from dataset detail, and injected into LLM
+assistance as compact `dataset_summary` context.
 
 ## Objective
 
 Improve LLM assistance quality by giving it a controlled, versioned dataset context instead of
 letting it infer domain meaning from class names and raw model evidence alone.
 
-The planned MVP adds a dataset card for each `dataset_version_id` and injects that card into
+The MVP adds a dataset card for each `dataset_version_id` and injects that card into
 inference and review assistance prompts. The card is advisory context only. It does not change
 labels, thresholds, dataset versions, model versions, feedback items, or review outcomes.
 
@@ -28,7 +28,7 @@ what should be considered OOD, and how a human reviewer should reason about unce
 
 ## MVP Scope
 
-Add a planned version-level dataset card:
+Add a version-level dataset card:
 
 ```text
 dataset_version_id -> dataset_card
@@ -58,12 +58,14 @@ card from the backend when the request references a dataset version or review it
 - Do not let the LLM update the dataset card automatically.
 - Do not write feedback directly into the training dataset.
 - Do not implement online abstention updates.
-- Do not add VLM image understanding in this iteration.
+- Do not let VLM/LLM image understanding create final labels or bypass human review.
 - Do not add a separate dataset-card governance workflow yet.
 
 ## Data Model
 
-Planned storage: `dataset_card` on `dataset_versions` as JSONB.
+MVP storage: `dataset_card` artifact metadata. A future migration may move this to
+`dataset_versions.dataset_card` JSONB if card querying, version diffing, or governance becomes
+important.
 
 Why version-level:
 
@@ -98,13 +100,13 @@ MVP schema shape:
 
 ## API
 
-Planned dataset detail behavior:
+Dataset detail behavior:
 
 ```text
 GET /api/datasets/{dataset_id}
 ```
 
-Planned dataset-card endpoints:
+Dataset-card endpoints:
 
 ```text
 GET /api/dataset-versions/{dataset_version_id}/card

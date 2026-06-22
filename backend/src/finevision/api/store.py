@@ -49,7 +49,12 @@ class MetadataStore:
         self.root = Path(root).resolve()
 
     def save_dataset_manifest(self, manifest: DatasetManifest) -> Path:
-        return write_dataset_manifest(self._manifest_path(manifest.dataset_id, manifest.dataset_version_id), manifest)
+        manifest_path = write_dataset_manifest(self._manifest_path(manifest.dataset_id, manifest.dataset_version_id), manifest)
+        card_path = self._dataset_card_path(manifest.dataset_id, manifest.dataset_version_id)
+        if not card_path.exists():
+            card_path.parent.mkdir(parents=True, exist_ok=True)
+            card_path.write_text(json.dumps(default_dataset_card(manifest), indent=2, sort_keys=True), encoding="utf-8")
+        return manifest_path
 
     def get_dataset_manifest(self, dataset_id: str, dataset_version_id: str) -> DatasetManifest | None:
         path = self._manifest_path(dataset_id, dataset_version_id)
@@ -109,7 +114,27 @@ class MetadataStore:
             "split_counts": latest.split_counts,
             "status": self.readiness_status(latest),
             "readiness": latest.readiness,
+            "dataset_card": self.get_dataset_card(latest.dataset_version_id),
         }
+
+    def get_dataset_card(self, dataset_version_id: str) -> dict[str, Any] | None:
+        manifest = self.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            return None
+        card_path = self._dataset_card_path(manifest.dataset_id, manifest.dataset_version_id)
+        if not card_path.exists():
+            return default_dataset_card(manifest)
+        return normalize_dataset_card(json.loads(card_path.read_text(encoding="utf-8")), manifest=manifest)
+
+    def update_dataset_card(self, dataset_version_id: str, card: dict[str, Any]) -> dict[str, Any] | None:
+        manifest = self.get_dataset_version(dataset_version_id)
+        if manifest is None:
+            return None
+        normalized = normalize_dataset_card(card, manifest=manifest)
+        card_path = self._dataset_card_path(manifest.dataset_id, manifest.dataset_version_id)
+        card_path.parent.mkdir(parents=True, exist_ok=True)
+        card_path.write_text(json.dumps(normalized, indent=2, sort_keys=True), encoding="utf-8")
+        return normalized
 
     @staticmethod
     def readiness_status(manifest: DatasetManifest) -> str:
@@ -133,6 +158,56 @@ class MetadataStore:
 
     def _manifest_path(self, dataset_id: str, dataset_version_id: str) -> Path:
         return self.root / "datasets" / dataset_id / "versions" / dataset_version_id / "manifest.json"
+
+    def _dataset_card_path(self, dataset_id: str, dataset_version_id: str) -> Path:
+        return self.root / "datasets" / dataset_id / "versions" / dataset_version_id / "dataset_card.json"
+
+
+def default_dataset_card(manifest: DatasetManifest) -> dict[str, Any]:
+    split_totals = Counter(sample.split for sample in manifest.samples)
+    classes = list(manifest.classes)
+    class_preview = classes[:30]
+    summary = (
+        f"{manifest.dataset_id} is an image classification dataset version with "
+        f"{len(classes)} classes and {len(manifest.samples)} samples."
+    )
+    if split_totals:
+        split_text = ", ".join(f"{split}: {count}" for split, count in sorted(split_totals.items()))
+        summary = f"{summary} Split totals: {split_text}."
+    return {
+        "task": "image_classification",
+        "domain": "general",
+        "summary": summary,
+        "class_count": len(classes),
+        "sample_count": len(manifest.samples),
+        "class_preview": class_preview,
+        "class_preview_truncated": len(classes) > len(class_preview),
+        "split_totals": dict(sorted(split_totals.items())),
+        "known_confusions": [],
+        "ood_policy": "Treat images outside the listed class taxonomy as OOD candidates for human review.",
+        "review_guidance": "Use the dataset class list as the in-domain label space; uncertain or low-quality images should enter human review.",
+        "generated_from": "manifest",
+    }
+
+
+def normalize_dataset_card(card: dict[str, Any], *, manifest: DatasetManifest) -> dict[str, Any]:
+    base = default_dataset_card(manifest)
+    merged = {**base, **(card or {})}
+    merged["task"] = str(merged.get("task") or base["task"])[:120]
+    merged["domain"] = str(merged.get("domain") or base["domain"])[:120]
+    merged["summary"] = str(merged.get("summary") or base["summary"])[:1200]
+    merged["ood_policy"] = str(merged.get("ood_policy") or base["ood_policy"])[:1200]
+    merged["review_guidance"] = str(merged.get("review_guidance") or base["review_guidance"])[:1200]
+    known_confusions = merged.get("known_confusions")
+    if not isinstance(known_confusions, list):
+        known_confusions = []
+    merged["known_confusions"] = [str(item)[:160] for item in known_confusions[:20] if str(item).strip()]
+    merged["class_count"] = len(manifest.classes)
+    merged["sample_count"] = len(manifest.samples)
+    merged["class_preview"] = list(manifest.classes)[:30]
+    merged["class_preview_truncated"] = len(manifest.classes) > 30
+    merged["split_totals"] = base["split_totals"]
+    return merged
 
 
 class JobStore:

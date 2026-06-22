@@ -71,6 +71,23 @@ export function extractImportedDataset(payload) {
   };
 }
 
+export function normalizeDatasetCard(raw = {}) {
+  return {
+    task: raw?.task ?? "image_classification",
+    domain: raw?.domain ?? "general",
+    summary: raw?.summary ?? "",
+    classCount: firstNumber(raw?.classCount, raw?.class_count),
+    sampleCount: firstNumber(raw?.sampleCount, raw?.sample_count),
+    classPreview: raw?.classPreview ?? raw?.class_preview ?? [],
+    classPreviewTruncated: Boolean(raw?.classPreviewTruncated ?? raw?.class_preview_truncated),
+    splitTotals: raw?.splitTotals ?? raw?.split_totals ?? {},
+    knownConfusions: raw?.knownConfusions ?? raw?.known_confusions ?? [],
+    oodPolicy: raw?.oodPolicy ?? raw?.ood_policy ?? "",
+    reviewGuidance: raw?.reviewGuidance ?? raw?.review_guidance ?? "",
+    generatedFrom: raw?.generatedFrom ?? raw?.generated_from ?? "",
+  };
+}
+
 export function normalizeDataset(raw) {
   const classList = raw?.classes ?? raw?.class_names ?? raw?.taxonomy?.classes;
   const classCount = Array.isArray(classList) ? classList.length : firstNumber(raw?.classes, raw?.class_count, raw?.num_classes);
@@ -103,6 +120,7 @@ export function normalizeDataset(raw) {
     oodRecall: firstNumber(raw?.oodRecall, raw?.ood_recall, raw?.readiness?.ood_recall, 0),
     readiness: raw?.readiness ?? {},
     splitCounts: raw?.splitCounts ?? raw?.split_counts ?? {},
+    datasetCard: raw?.datasetCard ? normalizeDatasetCard(raw.datasetCard) : raw?.dataset_card ? normalizeDatasetCard(raw.dataset_card) : null,
     previewSamples: normalizeSamplePreviews(raw?.previewSamples ?? raw?.preview_samples ?? raw?.sample_previews ?? []),
     versions: Array.isArray(raw?.versions) ? raw.versions : [],
     description: raw?.description ?? raw?.summary ?? "Control-plane API 已返回该数据集，详细描述待补充。",
@@ -131,6 +149,33 @@ export async function getDataset(datasetId) {
     const payload = await fetchJson(`/api/datasets/${encodeURIComponent(datasetId)}`, { signal });
     return normalizeDataset(extractDataset(payload));
   });
+}
+
+export async function getDatasetCard(datasetVersionId) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card`, { signal });
+    return normalizeDatasetCard(payload?.dataset_card);
+  });
+}
+
+export async function updateDatasetCard(datasetVersionId, datasetCard) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card`, {
+      method: "PUT",
+      body: {
+        dataset_card: {
+          task: datasetCard.task,
+          domain: datasetCard.domain,
+          summary: datasetCard.summary,
+          known_confusions: datasetCard.knownConfusions,
+          ood_policy: datasetCard.oodPolicy,
+          review_guidance: datasetCard.reviewGuidance,
+        },
+      },
+      signal,
+    });
+    return normalizeDatasetCard(payload?.dataset_card);
+  }, 10000);
 }
 
 export async function listDatasetSamplePreviews(datasetVersionId, limit = 6) {

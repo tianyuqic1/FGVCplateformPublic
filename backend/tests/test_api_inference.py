@@ -429,6 +429,55 @@ def test_scoped_inference_accepts_uploaded_image(
     assert result["nearest_neighbors"]
 
 
+def test_folder_upload_inference_routes_all_images_to_review_queue(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    query_paths = []
+    for index, color in enumerate([(220, 40, 40), (40, 220, 40)]):
+        query_path = tmp_path / f"batch-{index}.png"
+        Image.new("RGB", (96, 96), color).save(query_path)
+        query_paths.append(query_path)
+
+    files = []
+    handles = []
+    try:
+        for query_path in query_paths:
+            handle = query_path.open("rb")
+            handles.append(handle)
+            files.append(("images", (f"batch-folder/{query_path.name}", handle, "image/png")))
+        response = client.post(
+            "/api/inference/upload-folder",
+            data={
+                "dataset_version_id": "dataset@infer-toy-001",
+                "model_version_id": model_version_id,
+                "top_k": "3",
+                "evidence_k": "2",
+                "accept_threshold": "0.0",
+                "margin_threshold": "0.0",
+                "route_all_to_review": "true",
+            },
+            files=files,
+        )
+    finally:
+        for handle in handles:
+            handle.close()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["batch"]["total"] == 2
+    assert payload["batch"]["succeeded"] == 2
+    assert payload["batch"]["review_item_count"] == 2
+    assert len(payload["results"]) == 2
+    assert all(item["review_item_id"] for item in payload["results"])
+
+    pending_response = client.get("/api/review-items?status=pending&dataset_id=infer-toy")
+    assert pending_response.status_code == 200
+    assert len(pending_response.json()["review_items"]) == 2
+
+
 def test_uploaded_image_review_item_exposes_public_image_url(
     database_url: str,
     tmp_path: Path,

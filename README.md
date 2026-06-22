@@ -195,6 +195,9 @@ GET  /api/model-weights
 DELETE /api/model-weights/{preset}
 POST /api/inference
 POST /api/inference/upload
+POST /api/inference/upload-folder
+GET  /api/dataset-versions/{dataset_version_id}/card
+PUT  /api/dataset-versions/{dataset_version_id}/card
 GET  /api/review-items
 GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/assist
@@ -206,15 +209,16 @@ POST /api/llm/assist
 Inference requests are persisted as review-auditable events when routing is enabled. `abstain` and
 `reject_ood` decisions create pending review items; `accept` decisions are recorded but do not enter
 the human queue by default. `POST /api/inference/upload` is an MVP synchronous bridge for manual
-single-image inference: it stores the uploaded image, then runs the same scoped inference path inside
-the API request. High-throughput or long-running uploaded-image inference should move behind worker
-jobs. Review submission writes typed feedback pool entries and does not mutate the immutable source
-dataset version.
+single-image inference. `POST /api/inference/upload-folder` accepts a local folder upload from the
+frontend, runs each image through the same scoped inference path, and defaults to queueing every
+result for human review so an operator can process the batch one image at a time. High-throughput or
+long-running batch inference should move behind worker jobs. Review submission writes typed feedback
+pool entries and does not mutate the immutable source dataset version.
 
-Dataset cards are planned version-level context documents for advisory LLM assistance, but the
-current codebase does not yet expose `GET`/`PUT` card routes, a card request/response schema, or
-dataset-card persistence on the active API path. Until that slice lands, callers should treat dataset
-card behavior as documented design intent rather than an implemented endpoint.
+Dataset cards are active version-level context documents for advisory LLM assistance. Import creates
+a deterministic card from the manifest; `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`
+read and update the editable summary. LLM assistance receives the card when a request references a
+dataset version.
 
 For a fresh local database, start PostgreSQL first and apply migrations before
 starting the API/worker containers:
