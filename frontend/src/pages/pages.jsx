@@ -1908,6 +1908,7 @@ export function InferencePage({ showToast }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const selectedDatasetVersionId = form.datasetVersionId.trim();
+  const selectedDataset = datasetOptions.find((dataset) => dataset.datasetVersionId === selectedDatasetVersionId) ?? null;
   const modelRunsForDataset = inferenceTrainingRuns.filter(
     (run) => run.modelVersionId && run.datasetVersionId === selectedDatasetVersionId && run.status === "succeeded",
   );
@@ -2041,12 +2042,19 @@ export function InferencePage({ showToast }) {
         <div className="field-grid section-gap-small">
           <div className="field">
             <label>数据版本</label>
-            <input list="dataset-version-options" value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} placeholder="dataset@..." />
-            <datalist id="dataset-version-options">
+            <select value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} disabled={datasetVersionOptions.length === 0}>
+              <option value="">{datasetVersionOptions.length === 0 ? "暂无数据版本" : "选择数据版本"}</option>
               {datasetOptions.map((dataset) => (
-                <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>{dataset.datasetVersionId}</option>
+                <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
+                  {dataset.name} · {dataset.datasetVersionId} · {dataset.images} samples · {dataset.status}
+                </option>
               ))}
-            </datalist>
+            </select>
+            <span className="field-hint">
+              {selectedDataset
+                ? `${datasetVersionOptions.length} 个数据版本可选；当前 ${selectedDataset.classes} 类 / ${selectedDataset.images} 张。`
+                : `${datasetVersionOptions.length} 个数据版本可选。`}
+            </span>
           </div>
           <div className="field">
             <label>模型版本</label>
