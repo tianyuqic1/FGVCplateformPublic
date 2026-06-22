@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 90000;
+const DEFAULT_TIMEOUT_MS = 150000;
 
 function apiBaseUrl() {
   const configured = import.meta.env?.VITE_API_BASE_URL;
