@@ -356,9 +356,43 @@ without mutating dataset versions or training assets.
 
 ### inference_events
 
+### inference_runs
+
+```text
+id uuid primary key
+run_key text not null unique
+dataset_id uuid not null references datasets(id)
+dataset_version_id uuid not null references dataset_versions(id)
+model_version_id uuid not null references model_versions(id)
+run_type text not null
+status text not null
+item_count integer not null default 0
+review_item_count integer not null default 0
+applied_policy_key text
+applied_policy_source text
+threshold_snapshot jsonb not null default '{}'
+request_payload jsonb not null default '{}'
+summary jsonb not null default '{}'
+created_at timestamptz not null
+updated_at timestamptz not null
+finished_at timestamptz
+```
+
+`run_key` is exposed as `inference_run_id`. Browser folder inference also aliases the same value as
+`batch_id` / `batch_inference_id`; internally these are the same trace object. A run groups one
+single-image inference or a browser-folder batch so review queues, feedback history, and threshold
+policy analysis can answer: "which inference batch produced these human-reviewed samples?"
+
+`run_type` is `single`, `upload`, or `upload_folder`. `status` is `running`, `succeeded`,
+`partial_failed`, or `failed`. Historical inference events from before this migration may have no
+run; new database-backed inference paths create a run before persisting events.
+
+### inference_events
+
 ```text
 id uuid primary key
 event_key text not null unique
+inference_run_id uuid references inference_runs(id)
 dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
 model_version_id uuid not null references model_versions(id)
@@ -388,6 +422,7 @@ created_at timestamptz not null
 id uuid primary key
 review_key text not null unique
 inference_event_id uuid not null unique references inference_events(id)
+inference_run_id uuid references inference_runs(id)
 dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
 model_version_id uuid not null references model_versions(id)
@@ -443,6 +478,7 @@ id uuid primary key
 feedback_key text not null unique
 review_item_id uuid not null unique references review_items(id)
 inference_event_id uuid not null references inference_events(id)
+inference_run_id uuid references inference_runs(id)
 dataset_id uuid not null references datasets(id)
 dataset_version_id uuid not null references dataset_versions(id)
 model_version_id uuid not null references model_versions(id)
@@ -608,6 +644,8 @@ Current deliberate simplification:
 ### Iteration 3-4: Inference, Review, And Feedback
 
 - Implemented: `20260619_0003` adds `inference_events`, `review_items`, and `feedback_items`.
+- Implemented: `20260623_0007` adds `inference_runs` and nullable run links on inference,
+  review, and feedback rows for batch-level traceability.
 - Implemented: inference records events and routes `abstain` / `reject_ood` to human review.
 - Implemented: completed reviews create typed feedback entries, visible through the feedback pool API.
 - Deferred: `feature_indexes` table and FAISS index lifecycle; MVP nearest-neighbor evidence scans the feature artifact.

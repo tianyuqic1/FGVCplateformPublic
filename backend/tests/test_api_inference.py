@@ -19,6 +19,7 @@ from finevision.db.schema import (
     datasets,
     feedback_items,
     inference_events,
+    inference_runs,
     job_events,
     jobs,
     model_versions,
@@ -75,13 +76,19 @@ def test_scoped_inference_returns_accept_decision_and_nearest_neighbors(
     assert result["nearest_neighbors"][0]["sample_id"] != sample_id
     assert {"sample_id", "label", "distance"} <= set(result["nearest_neighbors"][0])
     assert body["inference_event_id"]
+    assert body["inference_run_id"]
+    assert body["batch_id"] == body["inference_run_id"]
     assert body["review_item_id"] is None
 
     engine = create_engine(database_url)
     with engine.begin() as conn:
+        run_count = conn.execute(sa.select(sa.func.count()).select_from(inference_runs)).scalar_one()
         inference_count = conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one()
         review_count = conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one()
+        event_run_id = conn.execute(sa.select(inference_events.c.inference_run_id)).scalar_one()
     assert inference_count == 1
+    assert run_count == 1
+    assert event_run_id is not None
     assert review_count == 0
 
 
@@ -113,6 +120,7 @@ def test_routed_inference_creates_review_item_and_feedback(
     body = response.json()["inference_result"]
     review_item_id = body["review_item_id"]
     assert body["inference_event_id"]
+    assert body["inference_run_id"]
     assert review_item_id
 
     list_response = client.get("/api/review-items")
@@ -120,6 +128,7 @@ def test_routed_inference_creates_review_item_and_feedback(
     items = list_response.json()["review_items"]
     assert [item["review_item_id"] for item in items] == [review_item_id]
     assert items[0]["status"] == "pending"
+    assert items[0]["inference_run_id"] == body["inference_run_id"]
     assert items[0]["context"]["decision"]["decision"] == "reject_ood"
     assert items[0]["context"]["nearest_neighbors"]
     assert items[0]["image_url"] is None
@@ -128,6 +137,7 @@ def test_routed_inference_creates_review_item_and_feedback(
     assert detail_response.status_code == 200
     detail = detail_response.json()["review_item"]
     assert detail["risk_type"] == "ood_candidate"
+    assert detail["inference_run_id"] == body["inference_run_id"]
     assert detail["image_url"] is None
 
     submit_response = client.post(
@@ -145,7 +155,9 @@ def test_routed_inference_creates_review_item_and_feedback(
     assert completed["status"] == "feedbacked"
     assert completed["feedback"]["destination"] == "ood_stress"
     assert completed["feedback"]["review_item_id"] == review_item_id
+    assert completed["feedback"]["inference_run_id"] == body["inference_run_id"]
     assert submit_body["feedback_item"]["review_item_id"] == review_item_id
+    assert submit_body["feedback_item"]["inference_run_id"] == body["inference_run_id"]
 
     pending_response = client.get("/api/review-items?status=pending&dataset_id=infer-toy")
     assert pending_response.status_code == 200
@@ -161,6 +173,7 @@ def test_routed_inference_creates_review_item_and_feedback(
     assert [item["review_item_id"] for item in feedback_items_payload] == [review_item_id]
     assert feedback_items_payload[0]["feedback_item_id"] == submit_body["feedback_item"]["feedback_item_id"]
     assert feedback_items_payload[0]["inference_event_id"] == body["inference_event_id"]
+    assert feedback_items_payload[0]["inference_run_id"] == body["inference_run_id"]
     assert feedback_items_payload[0]["dataset_id"] == "infer-toy"
     assert feedback_items_payload[0]["dataset_version_id"] == "dataset@infer-toy-001"
     assert feedback_items_payload[0]["model_version_id"] == model_version_id
@@ -423,14 +436,28 @@ def test_folder_upload_inference_routes_all_images_to_review_queue(
     assert response.status_code == 200
     payload = response.json()
     assert payload["batch"]["total"] == 2
+    assert payload["batch"]["inference_run_id"]
+    assert payload["batch"]["batch_inference_id"] == payload["batch"]["inference_run_id"]
+    assert payload["batch"]["batch_id"] == payload["batch"]["inference_run_id"]
     assert payload["batch"]["succeeded"] == 2
     assert payload["batch"]["review_item_count"] == 2
     assert len(payload["results"]) == 2
+    assert {item["inference_run_id"] for item in payload["results"]} == {payload["batch"]["inference_run_id"]}
     assert all(item["review_item_id"] for item in payload["results"])
 
     pending_response = client.get("/api/review-items?status=pending&dataset_id=infer-toy")
     assert pending_response.status_code == 200
-    assert len(pending_response.json()["review_items"]) == 2
+    pending_items = pending_response.json()["review_items"]
+    assert len(pending_items) == 2
+    assert {item["inference_run_id"] for item in pending_items} == {payload["batch"]["inference_run_id"]}
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        run_rows = conn.execute(sa.select(inference_runs.c.run_key, inference_runs.c.item_count, inference_runs.c.review_item_count, inference_runs.c.status)).mappings().all()
+    assert len(run_rows) == 1
+    assert run_rows[0]["run_key"] == payload["batch"]["inference_run_id"]
+    assert run_rows[0]["item_count"] == 2
+    assert run_rows[0]["review_item_count"] == 2
+    assert run_rows[0]["status"] == "succeeded"
 
 
 def test_uploaded_image_review_item_exposes_public_image_url(
@@ -618,7 +645,7 @@ def _reset_database(database_url: str) -> None:
     with engine.begin() as conn:
         conn.execute(
             sa.text(
-                "TRUNCATE TABLE model_versions, training_runs, job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE inference_runs, model_versions, training_runs, job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
         )
 

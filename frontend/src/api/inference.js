@@ -84,7 +84,7 @@ function normalizeNeighbor(raw) {
 
 function normalizeDecision(raw = {}) {
   return {
-    value: raw?.value ?? raw?.decision ?? "abstain",
+    value: raw?.value ?? raw?.decision ?? "unknown",
     reasons: Array.isArray(raw?.reasons) ? raw.reasons : [],
     thresholds: raw?.thresholds ?? {},
     confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : 0,
@@ -95,8 +95,11 @@ function normalizeDecision(raw = {}) {
 
 export function normalizeInferenceResult(raw) {
   const result = raw?.result ?? raw;
+  const inferenceRunId = raw?.inferenceRunId ?? raw?.inference_run_id ?? raw?.batchId ?? raw?.batch_id ?? null;
   return {
     inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    inferenceRunId,
+    batchId: raw?.batchId ?? raw?.batch_id ?? inferenceRunId,
     reviewItemId: raw?.reviewItemId ?? raw?.review_item_id ?? null,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? result?.dataset_id ?? null,
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? result?.dataset_version_id ?? null,
@@ -156,10 +159,27 @@ export async function runInferenceUploadFolder(input) {
 
   return withTimeout(async (signal) => {
     const payload = await fetchForm("/api/inference/upload-folder", formData, { signal });
+    const batch = normalizeInferenceBatch(payload?.batch);
     return {
-      batch: payload?.batch ?? { total: 0, succeeded: 0, failed: 0, review_item_count: 0, review_item_ids: [] },
+      batch,
       results: (payload?.results ?? []).map((item) => normalizeInferenceResult(extractInferenceResult(item))),
       failures: payload?.failures ?? [],
     };
   }, 600000);
+}
+
+function normalizeInferenceBatch(raw = {}) {
+  const inferenceRunId = raw?.inferenceRunId ?? raw?.inference_run_id ?? raw?.batchInferenceId ?? raw?.batch_inference_id ?? raw?.batchId ?? raw?.batch_id ?? null;
+  return {
+    ...raw,
+    inference_run_id: inferenceRunId,
+    batch_inference_id: raw?.batch_inference_id ?? inferenceRunId,
+    batch_id: raw?.batch_id ?? inferenceRunId,
+    total: Number.isFinite(Number(raw?.total)) ? Number(raw.total) : 0,
+    succeeded: Number.isFinite(Number(raw?.succeeded)) ? Number(raw.succeeded) : 0,
+    failed: Number.isFinite(Number(raw?.failed)) ? Number(raw.failed) : 0,
+    review_item_count: Number.isFinite(Number(raw?.review_item_count)) ? Number(raw.review_item_count) : 0,
+    review_item_ids: Array.isArray(raw?.review_item_ids) ? raw.review_item_ids : [],
+    route_all_to_review: Boolean(raw?.route_all_to_review),
+  };
 }

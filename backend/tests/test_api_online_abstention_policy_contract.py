@@ -428,7 +428,7 @@ def _reset_database(database_url: str) -> None:
         conn.execute(
             sa.text(
                 "TRUNCATE TABLE abstention_shadow_decisions, abstention_policy_versions, "
-                "feedback_items, review_items, inference_events, model_versions, training_runs, job_events, artifacts, "
+                "feedback_items, review_items, inference_events, inference_runs, model_versions, training_runs, job_events, artifacts, "
                 "dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
         )

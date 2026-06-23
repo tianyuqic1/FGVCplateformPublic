@@ -140,11 +140,42 @@ model_versions = sa.Table(
     ),
 )
 
+inference_runs = sa.Table(
+    "inference_runs",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("run_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
+    sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
+    sa.Column("run_type", sa.Text(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("item_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("review_item_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("applied_policy_key", sa.Text()),
+    sa.Column("applied_policy_source", sa.Text()),
+    sa.Column("threshold_snapshot", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("request_payload", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("summary", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.CheckConstraint(
+        "run_type in ('single', 'upload', 'upload_folder')",
+        name="ck_inference_runs_run_type",
+    ),
+    sa.CheckConstraint(
+        "status in ('running', 'succeeded', 'partial_failed', 'failed')",
+        name="ck_inference_runs_status",
+    ),
+)
+
 inference_events = sa.Table(
     "inference_events",
     metadata,
     sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
     sa.Column("event_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("inference_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_runs.id")),
     sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
     sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
@@ -179,6 +210,7 @@ review_items = sa.Table(
         nullable=False,
         unique=True,
     ),
+    sa.Column("inference_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_runs.id")),
     sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
     sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
@@ -220,6 +252,7 @@ feedback_items = sa.Table(
         unique=True,
     ),
     sa.Column("inference_event_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_events.id"), nullable=False),
+    sa.Column("inference_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_runs.id")),
     sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
     sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
@@ -239,6 +272,28 @@ feedback_items = sa.Table(
         "destination in ('training_candidate', 'ood_stress', 'bad_image', 'taxonomy_dispute', 'ignore')",
         name="ck_feedback_items_destination",
     ),
+)
+
+sa.Index(
+    "ix_inference_runs_scope_created_at",
+    inference_runs.c.dataset_version_id,
+    inference_runs.c.model_version_id,
+    inference_runs.c.created_at,
+)
+sa.Index(
+    "ix_inference_events_run_created_at",
+    inference_events.c.inference_run_id,
+    inference_events.c.created_at,
+)
+sa.Index(
+    "ix_review_items_run_status",
+    review_items.c.inference_run_id,
+    review_items.c.status,
+)
+sa.Index(
+    "ix_feedback_items_run_created_at",
+    feedback_items.c.inference_run_id,
+    feedback_items.c.created_at,
 )
 
 abstention_policy_versions = sa.Table(

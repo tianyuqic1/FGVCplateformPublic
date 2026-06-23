@@ -82,7 +82,7 @@ function normalizeNeighbor(raw) {
 
 function normalizeDecision(raw = {}) {
   return {
-    value: raw?.value ?? raw?.decision ?? "abstain",
+    value: raw?.value ?? raw?.decision ?? "unknown",
     reasons: Array.isArray(raw?.reasons) ? raw.reasons : [],
     thresholds: raw?.thresholds ?? {},
     confidence: Number.isFinite(Number(raw?.confidence)) ? Number(raw.confidence) : 0,
@@ -104,8 +104,10 @@ export function normalizeReviewItem(raw = {}) {
     context?.input?.uploaded_image_url ??
     imageUrlFromInputRef(inputRef);
   return {
-    id: raw?.id ?? raw?.reviewItemId ?? raw?.review_item_id ?? "review-preview",
+    id: raw?.id ?? raw?.reviewItemId ?? raw?.review_item_id ?? null,
     inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    inferenceRunId: raw?.inferenceRunId ?? raw?.inference_run_id ?? raw?.batchId ?? raw?.batch_id ?? context?.inference_run_id ?? null,
+    batchId: raw?.batchId ?? raw?.batch_id ?? raw?.inferenceRunId ?? raw?.inference_run_id ?? context?.inference_run_id ?? null,
     status: raw?.status ?? "pending",
     riskType: raw?.riskType ?? raw?.risk_type ?? "mixed",
     priority: Number.isFinite(Number(raw?.priority)) ? Number(raw.priority) : 100,
@@ -133,9 +135,11 @@ export function normalizeFeedbackItem(raw = {}) {
   const inputRef = raw?.inputRef ?? raw?.input_ref ?? null;
   const rawImageUrl = raw?.imageUrl ?? raw?.image_url ?? imageUrlFromInputRef(inputRef);
   return {
-    id: raw?.id ?? raw?.feedbackItemId ?? raw?.feedback_item_id ?? "feedback-preview",
+    id: raw?.id ?? raw?.feedbackItemId ?? raw?.feedback_item_id ?? null,
     reviewItemId: raw?.reviewItemId ?? raw?.review_item_id ?? null,
     inferenceEventId: raw?.inferenceEventId ?? raw?.inference_event_id ?? null,
+    inferenceRunId: raw?.inferenceRunId ?? raw?.inference_run_id ?? raw?.batchId ?? raw?.batch_id ?? null,
+    batchId: raw?.batchId ?? raw?.batch_id ?? raw?.inferenceRunId ?? raw?.inference_run_id ?? null,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? null,
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? null,
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,

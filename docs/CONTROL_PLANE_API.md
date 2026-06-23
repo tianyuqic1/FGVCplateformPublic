@@ -333,7 +333,9 @@ single-image checks. `POST /api/inference/upload-folder` accepts multipart `imag
 folder picker, runs them sequentially through the same scoped inference path, and defaults to
 `route_all_to_review=true` so every image becomes a pending review item for human batch review.
 These upload routes are still synchronous MVP bridges, not the production shape for high-throughput
-or long-running inference.
+or long-running inference. Each database-backed inference request now creates an `inference_run_id`;
+folder upload returns the same value as `batch_id` / `batch_inference_id` and attaches it to every
+result, review item, and feedback item created from that batch.
 
 Scoped inference response shape:
 
@@ -347,6 +349,8 @@ Scoped inference response shape:
     "model_artifact_id": "dataset@cifar10-mini-001-run-abc123-linear-head",
     "feature_artifact_id": "dataset@cifar10-mini-001-color_stats_v1-cff1350237",
     "threshold_strategy_id": "dataset@cifar10-mini-001-run-abc123-threshold-strategy",
+    "inference_run_id": "infer-run-abc123",
+    "batch_id": "infer-run-abc123",
     "inference_event_id": "inference-abc123",
     "review_item_id": null,
     "input": {
@@ -374,6 +378,31 @@ Scoped inference response shape:
       ]
     }
   }
+}
+```
+
+Folder upload response shape:
+
+```json
+{
+  "batch": {
+    "inference_run_id": "infer-run-batch001",
+    "batch_inference_id": "infer-run-batch001",
+    "batch_id": "infer-run-batch001",
+    "total": 20,
+    "succeeded": 20,
+    "failed": 0,
+    "review_item_count": 20,
+    "review_item_ids": ["review-001"]
+  },
+  "results": [
+    {
+      "inference_run_id": "infer-run-batch001",
+      "inference_event_id": "inference-001",
+      "review_item_id": "review-001"
+    }
+  ],
+  "failures": []
 }
 ```
 
@@ -421,6 +450,8 @@ Feedback pool responses are read-only MVP curation inputs:
       "feedback_item_id": "feedback-001",
       "review_item_id": "review-001",
       "inference_event_id": "inference-001",
+      "inference_run_id": "infer-run-batch001",
+      "batch_id": "infer-run-batch001",
       "dataset_id": "cifar10-mini",
       "dataset_version_id": "dataset@cifar10-mini-001",
       "model_version_id": "cifar10-mini-run-001-candidate",

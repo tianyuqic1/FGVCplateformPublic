@@ -22,6 +22,7 @@ FineVision 当前已经有这些基础：
 - 数据集版本和类别范围。
 - DINOv3 CLS 特征和分类头。
 - 校准报告、阈值 sweep、阈值策略 artifact。
+- 推理批次 `inference_runs`，对外字段为 `inference_run_id`；文件夹推理也称作 `batch_id`。
 - 推理事件 `inference_events`。
 - 自动复核队列 `review_items`。
 - 人工结论反馈池 `feedback_items`。
@@ -36,6 +37,10 @@ FineVision 当前已经有这些基础：
 生成策略报告
 用户确认后再考虑启用策略版本
 ```
+
+实际落地时，`inference_run_id` 是阈值策略评估的重要分组键：一批上传图片会产生同一个
+run/batch，随后进入复核队列和反馈池。策略推荐可以按这个批次审计“这批样本在当前阈值下
+接受了多少、弃权了多少、人工确认后错了多少”，再和全量历史反馈一起判断是否应该启用新阈值。
 
 ## 核心术语
 

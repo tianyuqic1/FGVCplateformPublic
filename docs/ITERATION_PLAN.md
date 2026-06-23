@@ -491,6 +491,8 @@ Implementation status:
 
 - Done: `inference_events`, `review_items`, and `feedback_items` tables are added by Alembic migration.
 - Done: `POST /api/inference` and `/api/inference/upload` persist inference events when routing is enabled.
+- Done: `inference_runs` persists single-image and folder-upload inference batches. `inference_run_id`
+  is propagated to inference events, review items, feedback items, and frontend review/feedback views.
 - Done: `abstain` and `reject_ood` decisions create pending review items; `accept` only records the inference event.
 - Done: `GET /api/review-items`, `GET /api/review-items/{id}`, and `POST /api/review-items/{id}/submit` serve the Review Workflow MVP.
 - Done: `/review` and `/review/:id` read the Review API and submit typed human feedback.

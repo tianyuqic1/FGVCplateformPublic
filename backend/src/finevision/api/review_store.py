@@ -14,6 +14,7 @@ from finevision.db.schema import (
     datasets,
     feedback_items,
     inference_events,
+    inference_runs,
     model_versions,
     review_items,
     training_runs,
@@ -23,6 +24,7 @@ from finevision.db.schema import (
 @dataclass(frozen=True)
 class InferenceEventRecord:
     inference_event_id: str
+    inference_run_id: str | None
     dataset_id: str
     dataset_version_id: str
     model_version_id: str
@@ -44,6 +46,7 @@ class FeedbackItemRecord:
     created_by: str | None
     created_at: str
     inference_event_id: str | None = None
+    inference_run_id: str | None = None
     dataset_id: str | None = None
     dataset_version_id: str | None = None
     model_version_id: str | None = None
@@ -55,6 +58,7 @@ class FeedbackItemRecord:
 class ReviewItemRecord:
     review_item_id: str
     inference_event_id: str
+    inference_run_id: str | None
     dataset_id: str
     dataset_version_id: str
     model_version_id: str
@@ -79,6 +83,92 @@ class DatabaseReviewStore:
     def __init__(self, database_url: str | Engine) -> None:
         self.engine = database_url if isinstance(database_url, Engine) else create_engine(database_url, poolclass=NullPool)
 
+    def create_inference_run(
+        self,
+        *,
+        dataset_version_id: str,
+        model_version_id: str,
+        run_type: str,
+        request_payload: dict[str, Any] | None = None,
+    ) -> str:
+        now = _now()
+        run_key = f"infer-run-{uuid4().hex[:12]}"
+        with self.engine.begin() as conn:
+            context_row = conn.execute(
+                _review_context_select().where(
+                    dataset_versions.c.version_key == dataset_version_id,
+                    model_versions.c.model_key == model_version_id,
+                )
+            ).mappings().first()
+            if context_row is None:
+                raise ValueError(f"Model version not found for dataset version: {model_version_id}")
+            conn.execute(
+                inference_runs.insert().values(
+                    id=uuid4(),
+                    run_key=run_key,
+                    dataset_id=context_row["dataset_db_id"],
+                    dataset_version_id=context_row["dataset_version_db_id"],
+                    model_version_id=context_row["model_version_db_id"],
+                    run_type=run_type,
+                    status="running",
+                    request_payload=request_payload or {},
+                    summary={},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return run_key
+
+    def finish_inference_run(
+        self,
+        run_id: str | None,
+        *,
+        summary: dict[str, Any] | None = None,
+        first_result_payload: dict[str, Any] | None = None,
+        status: str | None = None,
+    ) -> None:
+        if not run_id:
+            return
+        now = _now()
+        with self.engine.begin() as conn:
+            run_row = conn.execute(
+                sa.select(inference_runs.c.id).where(inference_runs.c.run_key == run_id).with_for_update()
+            ).mappings().first()
+            if run_row is None:
+                return
+            run_db_id = run_row["id"]
+            event_count = conn.execute(
+                sa.select(sa.func.count()).select_from(inference_events).where(inference_events.c.inference_run_id == run_db_id)
+            ).scalar_one()
+            review_count = conn.execute(
+                sa.select(sa.func.count()).select_from(review_items).where(review_items.c.inference_run_id == run_db_id)
+            ).scalar_one()
+            merged_summary = dict(summary or {})
+            failed = int(merged_summary.get("failed") or 0)
+            succeeded = int(merged_summary.get("succeeded") or event_count or 0)
+            resolved_status = status or ("partial_failed" if failed and succeeded else "failed" if failed else "succeeded")
+            update_values: dict[str, Any] = {
+                "status": resolved_status,
+                "item_count": int(event_count),
+                "review_item_count": int(review_count),
+                "summary": merged_summary,
+                "updated_at": now,
+                "finished_at": now,
+            }
+            if first_result_payload:
+                update_values.update(
+                    {
+                        "applied_policy_key": first_result_payload.get("applied_policy_id"),
+                        "applied_policy_source": first_result_payload.get("applied_policy_source"),
+                        "threshold_snapshot": _threshold_snapshot(first_result_payload),
+                    }
+                )
+            conn.execute(
+                inference_runs.update()
+                .where(inference_runs.c.id == run_db_id)
+                .values(**update_values)
+            )
+
     def record_inference_result(
         self,
         *,
@@ -96,6 +186,7 @@ class DatabaseReviewStore:
         input_type, input_ref, sample_id = _input_identity(input_payload)
         force_review = bool(request_payload.get("force_review"))
         route_to_review = bool(request_payload.get("route_to_review", True))
+        inference_run_key = response_payload.get("inference_run_id") or request_payload.get("inference_run_id")
 
         with self.engine.begin() as conn:
             context_row = conn.execute(
@@ -106,6 +197,7 @@ class DatabaseReviewStore:
             ).mappings().first()
             if context_row is None:
                 raise ValueError(f"Model version not found for dataset version: {model_key}")
+            inference_run_db_id = _lookup_inference_run_id(conn, str(inference_run_key)) if inference_run_key else None
 
             event_db_id = uuid4()
             event_key = f"inference-{uuid4().hex[:12]}"
@@ -113,6 +205,7 @@ class DatabaseReviewStore:
                 inference_events.insert().values(
                     id=event_db_id,
                     event_key=event_key,
+                    inference_run_id=inference_run_db_id,
                     dataset_id=context_row["dataset_db_id"],
                     dataset_version_id=context_row["dataset_version_db_id"],
                     model_version_id=context_row["model_version_db_id"],
@@ -142,6 +235,7 @@ class DatabaseReviewStore:
                         id=uuid4(),
                         review_key=review_key,
                         inference_event_id=event_db_id,
+                        inference_run_id=inference_run_db_id,
                         dataset_id=context_row["dataset_db_id"],
                         dataset_version_id=context_row["dataset_version_db_id"],
                         model_version_id=context_row["model_version_db_id"],
@@ -245,6 +339,7 @@ class DatabaseReviewStore:
                     feedback_key=feedback_key,
                     review_item_id=row["id"],
                     inference_event_id=row["inference_event_id"],
+                    inference_run_id=row["inference_run_id"],
                     dataset_id=row["dataset_id"],
                     dataset_version_id=row["dataset_version_id"],
                     model_version_id=row["model_version_id"],
@@ -278,9 +373,7 @@ class DatabaseReviewStore:
 
     def get_feedback_item(self, feedback_id: str) -> FeedbackItemRecord | None:
         with self.engine.begin() as conn:
-            row = conn.execute(
-                sa.select(feedback_items).where(feedback_items.c.feedback_key == feedback_id)
-            ).mappings().first()
+            row = conn.execute(_feedback_item_select().where(feedback_items.c.feedback_key == feedback_id)).mappings().first()
         return _feedback_item_from_row(row) if row else None
 
     def list_feedback_items(
@@ -323,6 +416,7 @@ def _inference_event_select() -> sa.Select[Any]:
     return (
         sa.select(
             inference_events.c.event_key,
+            inference_runs.c.run_key,
             datasets.c.dataset_key,
             dataset_versions.c.version_key,
             model_versions.c.model_key,
@@ -334,6 +428,7 @@ def _inference_event_select() -> sa.Select[Any]:
         )
         .select_from(
             inference_events.join(datasets, datasets.c.id == inference_events.c.dataset_id)
+            .outerjoin(inference_runs, inference_runs.c.id == inference_events.c.inference_run_id)
             .join(dataset_versions, dataset_versions.c.id == inference_events.c.dataset_version_id)
             .join(model_versions, model_versions.c.id == inference_events.c.model_version_id)
         )
@@ -351,12 +446,14 @@ def _review_item_select() -> sa.Select[Any]:
             feedback_items.c.reviewer_note,
             feedback_items.c.created_by,
             feedback_items.c.created_at.label("feedback_created_at"),
+            feedback_items.c.inference_run_id.label("feedback_inference_run_id"),
         ).subquery()
     )
     return (
         sa.select(
             review_items.c.review_key,
             inference_events.c.event_key,
+            inference_runs.c.run_key,
             datasets.c.dataset_key,
             dataset_versions.c.version_key,
             model_versions.c.model_key,
@@ -384,6 +481,7 @@ def _review_item_select() -> sa.Select[Any]:
         )
         .select_from(
             review_items.join(inference_events, inference_events.c.id == review_items.c.inference_event_id)
+            .outerjoin(inference_runs, inference_runs.c.id == review_items.c.inference_run_id)
             .join(datasets, datasets.c.id == review_items.c.dataset_id)
             .join(dataset_versions, dataset_versions.c.id == review_items.c.dataset_version_id)
             .join(model_versions, model_versions.c.id == review_items.c.model_version_id)
@@ -398,6 +496,7 @@ def _feedback_item_select() -> sa.Select[Any]:
             feedback_items.c.feedback_key,
             review_items.c.review_key,
             inference_events.c.event_key,
+            inference_runs.c.run_key,
             datasets.c.dataset_key,
             dataset_versions.c.version_key,
             model_versions.c.model_key,
@@ -413,6 +512,7 @@ def _feedback_item_select() -> sa.Select[Any]:
         .select_from(
             feedback_items.join(review_items, review_items.c.id == feedback_items.c.review_item_id)
             .join(inference_events, inference_events.c.id == feedback_items.c.inference_event_id)
+            .outerjoin(inference_runs, inference_runs.c.id == feedback_items.c.inference_run_id)
             .join(datasets, datasets.c.id == feedback_items.c.dataset_id)
             .join(dataset_versions, dataset_versions.c.id == feedback_items.c.dataset_version_id)
             .join(model_versions, model_versions.c.id == feedback_items.c.model_version_id)
@@ -433,6 +533,7 @@ def _input_identity(input_payload: dict[str, Any]) -> tuple[str, str | None, str
 def _review_context_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
     result = dict(response_payload.get("result") or {})
     return {
+        "inference_run_id": response_payload.get("inference_run_id"),
         "input": dict(response_payload.get("input") or {}),
         "dataset_id": response_payload.get("dataset_id"),
         "dataset_version_id": response_payload.get("dataset_version_id"),
@@ -444,6 +545,25 @@ def _review_context_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
         "top_k": result.get("top_k") or [],
         "decision": result.get("decision") or {},
         "nearest_neighbors": result.get("nearest_neighbors") or [],
+    }
+
+
+def _lookup_inference_run_id(conn: sa.Connection, run_key: str) -> UUID | None:
+    if not run_key:
+        return None
+    value = conn.execute(sa.select(inference_runs.c.id).where(inference_runs.c.run_key == run_key)).scalar_one_or_none()
+    return value
+
+
+def _threshold_snapshot(response_payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(response_payload.get("result") or {})
+    decision = dict(result.get("decision") or {})
+    return {
+        "threshold_strategy_id": response_payload.get("threshold_strategy_id"),
+        "applied_policy_id": response_payload.get("applied_policy_id"),
+        "applied_policy_source": response_payload.get("applied_policy_source"),
+        "thresholds": decision.get("thresholds") or {},
+        "decision": decision.get("decision"),
     }
 
 
@@ -481,6 +601,7 @@ def _validate_feedback(final_outcome: str, destination: str, final_label: str | 
 def _inference_event_from_row(row: Any) -> InferenceEventRecord:
     return InferenceEventRecord(
         inference_event_id=row["event_key"],
+        inference_run_id=row.get("run_key"),
         dataset_id=row["dataset_key"],
         dataset_version_id=row["version_key"],
         model_version_id=row["model_key"],
@@ -498,6 +619,7 @@ def _review_item_from_row(row: Any) -> ReviewItemRecord:
         feedback = FeedbackItemRecord(
             feedback_item_id=row["feedback_key"],
             review_item_id=row["review_key"],
+            inference_run_id=row.get("run_key") or row.get("feedback_inference_run_id"),
             final_outcome=row["final_outcome"],
             destination=row["destination"],
             final_label=row["final_label"],
@@ -508,6 +630,7 @@ def _review_item_from_row(row: Any) -> ReviewItemRecord:
     return ReviewItemRecord(
         review_item_id=row["review_key"],
         inference_event_id=row["event_key"],
+        inference_run_id=row.get("run_key"),
         dataset_id=row["dataset_key"],
         dataset_version_id=row["version_key"],
         model_version_id=row["model_key"],
@@ -534,6 +657,7 @@ def _feedback_item_from_row(row: Any) -> FeedbackItemRecord:
         feedback_item_id=row["feedback_key"],
         review_item_id=row.get("review_key") or str(row["review_item_id"]),
         inference_event_id=row.get("event_key"),
+        inference_run_id=row.get("run_key"),
         dataset_id=row.get("dataset_key"),
         dataset_version_id=row.get("version_key"),
         model_version_id=row.get("model_key"),

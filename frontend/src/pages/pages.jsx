@@ -493,6 +493,7 @@ function ApiReviewCard({ item, queryString = "" }) {
         </div>
         <h3>{item.sampleId || item.id}</h3>
         <p className="small">{item.datasetVersionId} · {item.modelVersionId}</p>
+        <p className="small">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</p>
         <p className="small">
           {topCandidate ? `${topCandidate.label} ${topCandidate.score.toFixed(2)}` : "无候选"} ·{" "}
           {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无 second"}
@@ -2566,7 +2567,7 @@ export function InferencePage({ showToast }) {
         {state.status === "running" && (
           <div className="timeline-item">
             <div className="timeline-icon"><Icon name="LoaderCircle" size={18} /></div>
-            <div><strong>正在运行推理</strong><div className="row-meta">{form.datasetVersionId} · {form.modelVersionId}</div><ProgressBar value={72} fill="#315fbd" shimmer /></div>
+            <div><strong>正在运行推理</strong><div className="row-meta">{form.datasetVersionId} · {form.modelVersionId} · 进度由 API 返回后确认</div><ProgressBar value={35} fill="#315fbd" shimmer /></div>
             <StatusChip tone="info">运行中</StatusChip>
           </div>
         )}
@@ -2587,6 +2588,7 @@ export function InferencePage({ showToast }) {
                   <div className="row-meta">
                     {result.batch.succeeded}/{result.batch.total} 张完成，{result.batch.review_item_count} 条进入人工复核队列。
                   </div>
+                  <div className="row-meta">batch: {result.batch.batch_id ?? result.batch.inference_run_id ?? "n/a"}</div>
                 </div>
                 <StatusChip tone={result.batch.failed > 0 ? "warn" : "default"}>{result.batch.failed > 0 ? "部分失败" : "完成"}</StatusChip>
               </div>
@@ -2615,6 +2617,7 @@ export function InferencePage({ showToast }) {
                     <div className="row-meta">
                       {item.decision.value} · {item.topK[0]?.label ?? "unknown"} {item.topK[0] ? item.topK[0].score.toFixed(3) : ""}
                     </div>
+                    <div className="row-meta">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</div>
                   </div>
                   {item.reviewItemId ? <StatusChip tone="info">{item.reviewItemId}</StatusChip> : <StatusChip tone="default">{compactStatusLabel("event")}</StatusChip>}
                 </div>
@@ -2709,7 +2712,7 @@ export function InferencePage({ showToast }) {
             />
             <details className="advanced-fields section-gap-small">
               <summary>调试信息</summary>
-              <div className="code-panel section-gap-small">event: {result.inferenceEventId ?? "n/a"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />feature: {result.featureArtifactId ?? "n/a"}</div>
+              <div className="code-panel section-gap-small">run: {result.inferenceRunId ?? "n/a"}<br />event: {result.inferenceEventId ?? "n/a"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />feature: {result.featureArtifactId ?? "n/a"}</div>
             </details>
           </>
         )}
@@ -2940,6 +2943,7 @@ export function ReviewDetailPage({ showToast }) {
             <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
             <StatusChip tone="info">优先级 {item.priority}</StatusChip>
             <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{decisionValueLabel(item.decision.value)}</StatusChip>
+            <StatusChip tone="neutral">{item.inferenceRunId ? `run ${item.inferenceRunId}` : "历史记录无 run"}</StatusChip>
           </div>
           <div className="evidence-metrics section-gap-small">
             <div><span>confidence</span><strong>{item.decision.confidence.toFixed(4)}</strong></div>
@@ -2986,6 +2990,10 @@ export function ReviewDetailPage({ showToast }) {
                 </div>
               )}
             </div>
+          </details>
+          <details className="advanced-fields section-gap-small">
+            <summary>来源追踪</summary>
+            <div className="code-panel section-gap-small">run: {item.inferenceRunId ?? "n/a"}<br />event: {item.inferenceEventId ?? "n/a"}<br />review: {item.id ?? "n/a"}<br />dataset: {item.datasetVersionId ?? "n/a"}<br />model: {item.modelVersionId ?? "n/a"}</div>
           </details>
         </Panel>
         <Panel title="LLM 辅助" caption="只读建议，不是最终结论；不会写入真值、不会提交反馈池。">
@@ -3110,6 +3118,7 @@ function FeedbackCard({ item }) {
         </div>
         <h3>{item.finalLabel || item.sampleId || item.id}</h3>
         <p className="small">{item.datasetVersionId || item.datasetId || "unknown dataset"} · {item.modelVersionId || "unknown model"}</p>
+        <p className="small">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</p>
         <p className="small review-reason">{item.reviewerNote || "暂无人工备注。"}</p>
         <div className="toolbar spread section-gap-small">
           <span className="row-meta">{item.createdBy || "local-reviewer"} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : "unknown time"}</span>

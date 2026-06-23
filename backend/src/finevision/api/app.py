@@ -79,6 +79,7 @@ class CreateTrainingRunRequest(BaseModel):
 class RunInferenceRequest(BaseModel):
     dataset_version_id: str = Field(..., min_length=1)
     model_version_id: str = Field(..., min_length=1)
+    inference_run_id: str | None = Field(default=None, min_length=1)
     image_path: str | None = Field(default=None, min_length=1)
     sample_id: str | None = Field(default=None, min_length=1)
     top_k: int = Field(default=3, ge=1, le=10)
@@ -495,7 +496,10 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     @api.post("/api/inference")
     def run_scoped_inference(request: RunInferenceRequest) -> dict[str, object]:
         payload = _run_scoped_inference_payload(api, request)
-        _record_review_route(api, request, payload)
+        inference_run_id = request.inference_run_id or _create_inference_run(api, request, run_type="single")
+        _attach_inference_run_payload(payload, inference_run_id)
+        _record_review_route(api, request, payload, inference_run_id=inference_run_id)
+        _finish_inference_run(api, inference_run_id, summary={"total": 1, "succeeded": 1, "failed": 0}, first_result_payload=payload)
         return {"inference_result": payload}
 
     @api.post("/api/inference/upload")
@@ -529,7 +533,15 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
                 "uploaded_image_path": str(uploaded_path),
             },
         )
-        _record_review_route(api, request, payload)
+        inference_run_id = _create_inference_run(
+            api,
+            request,
+            run_type="upload",
+            request_payload={"upload_filename": image.filename},
+        )
+        _attach_inference_run_payload(payload, inference_run_id)
+        _record_review_route(api, request, payload, inference_run_id=inference_run_id)
+        _finish_inference_run(api, inference_run_id, summary={"total": 1, "succeeded": 1, "failed": 0}, first_result_payload=payload)
         return {"inference_result": payload}
 
     @api.post("/api/inference/upload-folder")
@@ -549,6 +561,24 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         results: list[dict[str, Any]] = []
         failures: list[dict[str, str]] = []
         review_item_ids: list[str] = []
+        batch_run_id = _create_inference_run(
+            api,
+            RunInferenceRequest(
+                dataset_version_id=dataset_version_id,
+                model_version_id=model_version_id,
+                top_k=top_k,
+                evidence_k=evidence_k,
+                accept_threshold=accept_threshold,
+                margin_threshold=margin_threshold,
+                ood_distance_threshold=ood_distance_threshold,
+            ),
+            run_type="upload_folder",
+            request_payload={
+                "total": len(images),
+                "route_all_to_review": route_all_to_review,
+            },
+        )
+        first_successful_payload: dict[str, Any] | None = None
         for image in images:
             try:
                 uploaded_path = _save_uploaded_image(api.state.upload_dir, image)
@@ -572,7 +602,10 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
                         "batch_upload": True,
                     },
                 )
+                _attach_inference_run_payload(payload, batch_run_id)
                 _record_review_route(api, request, payload, force_review=route_all_to_review)
+                if first_successful_payload is None:
+                    first_successful_payload = payload
                 if payload.get("review_item_id"):
                     review_item_ids.append(str(payload["review_item_id"]))
                 results.append(payload)
@@ -580,15 +613,25 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
                 failures.append({"filename": image.filename or "unknown", "error": str(exc.detail)})
             except Exception as exc:
                 failures.append({"filename": image.filename or "unknown", "error": str(exc)})
+        batch_summary = {
+            "inference_run_id": batch_run_id,
+            "batch_inference_id": batch_run_id,
+            "batch_id": batch_run_id,
+            "total": len(images),
+            "succeeded": len(results),
+            "failed": len(failures),
+            "review_item_count": len(review_item_ids),
+            "review_item_ids": review_item_ids,
+            "route_all_to_review": route_all_to_review,
+        }
+        _finish_inference_run(
+            api,
+            batch_run_id,
+            summary={**batch_summary, "failures": failures[:20]},
+            first_result_payload=first_successful_payload,
+        )
         return {
-            "batch": {
-                "total": len(images),
-                "succeeded": len(results),
-                "failed": len(failures),
-                "review_item_count": len(review_item_ids),
-                "review_item_ids": review_item_ids,
-                "route_all_to_review": route_all_to_review,
-            },
+            "batch": batch_summary,
             "results": results,
             "failures": failures,
         }
@@ -1232,15 +1275,69 @@ def _run_scoped_inference_payload(
     }
 
 
-def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: dict[str, Any], *, force_review: bool = False) -> None:
+def _create_inference_run(
+    api: FastAPI,
+    request: RunInferenceRequest,
+    *,
+    run_type: Literal["single", "upload", "upload_folder"],
+    request_payload: dict[str, Any] | None = None,
+) -> str | None:
+    review_store: DatabaseReviewStore | None = api.state.review_store
+    if review_store is None:
+        return None
+    try:
+        return review_store.create_inference_run(
+            dataset_version_id=request.dataset_version_id,
+            model_version_id=request.model_version_id,
+            run_type=run_type,
+            request_payload={**request.model_dump(), **(request_payload or {})},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _attach_inference_run_payload(payload: dict[str, Any], inference_run_id: str | None) -> None:
+    if not inference_run_id:
+        return
+    payload["inference_run_id"] = inference_run_id
+    payload["batch_id"] = inference_run_id
+
+
+def _finish_inference_run(
+    api: FastAPI,
+    inference_run_id: str | None,
+    *,
+    summary: dict[str, Any],
+    first_result_payload: dict[str, Any] | None = None,
+) -> None:
+    review_store: DatabaseReviewStore | None = api.state.review_store
+    if review_store is None:
+        return
+    review_store.finish_inference_run(
+        inference_run_id,
+        summary=summary,
+        first_result_payload=first_result_payload,
+    )
+
+
+def _record_review_route(
+    api: FastAPI,
+    request: RunInferenceRequest,
+    payload: dict[str, Any],
+    *,
+    force_review: bool = False,
+    inference_run_id: str | None = None,
+) -> None:
     review_store: DatabaseReviewStore | None = api.state.review_store
     if review_store is None:
         return
     event, review_item = review_store.record_inference_result(
-        request_payload={**request.model_dump(), "force_review": force_review},
+        request_payload={**request.model_dump(), "force_review": force_review, "inference_run_id": inference_run_id or payload.get("inference_run_id")},
         response_payload=payload,
     )
     payload["inference_event_id"] = event.inference_event_id
+    payload["inference_run_id"] = event.inference_run_id
+    payload["batch_id"] = event.inference_run_id
     payload["review_item_id"] = review_item.review_item_id if review_item else None
     abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
     if abstention_store is not None:
@@ -1260,9 +1357,12 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
         sample_id=item.sample_id,
         input_ref=item.input_ref,
     )
+    inference_run_id = getattr(item, "inference_run_id", None)
     return {
         "review_item_id": item.review_item_id,
         "inference_event_id": item.inference_event_id,
+        "inference_run_id": inference_run_id,
+        "batch_id": inference_run_id,
         "dataset_id": item.dataset_id,
         "dataset_version_id": item.dataset_version_id,
         "model_version_id": item.model_version_id,
@@ -1290,6 +1390,7 @@ def _review_assistance_context(item: Any, *, question: str | None = None) -> dic
     return _sanitize_llm_context(
         {
             "review_item_id": item.review_item_id,
+            "inference_run_id": getattr(item, "inference_run_id", None),
             "dataset_id": item.dataset_id,
             "dataset_version_id": item.dataset_version_id,
             "model_version_id": item.model_version_id,
@@ -1340,6 +1441,8 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
         "feedback_item_id": item.feedback_item_id,
         "review_item_id": review_item_id or item.review_item_id,
         "inference_event_id": item.inference_event_id,
+        "inference_run_id": item.inference_run_id,
+        "batch_id": item.inference_run_id,
         "dataset_id": item.dataset_id,
         "dataset_version_id": item.dataset_version_id,
         "model_version_id": item.model_version_id,
@@ -1394,6 +1497,7 @@ def _abstention_shadow_decision_payload(item: Any) -> dict[str, object]:
         "shadow_decision_id": item.shadow_decision_id,
         "policy_id": item.policy_id,
         "inference_event_id": item.inference_event_id,
+        "inference_run_id": getattr(item, "inference_run_id", None),
         "dataset_id": item.dataset_id,
         "dataset_version_id": item.dataset_version_id,
         "model_version_id": item.model_version_id,

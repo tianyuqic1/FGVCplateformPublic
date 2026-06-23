@@ -12,6 +12,8 @@ const payload = {
     {
       review_item_id: "review-001",
       inference_event_id: "inference-001",
+      inference_run_id: "infer-run-001",
+      batch_id: "infer-run-001",
       dataset_id: "toy",
       dataset_version_id: "dataset@toy-001",
       model_version_id: "toy-run-001-candidate",
@@ -52,6 +54,8 @@ const payload = {
 const items = extractReviewItemList(payload).map(normalizeReviewItem);
 if (items.length !== 1) throw new Error("Review list extraction failed");
 if (items[0].id !== "review-001") throw new Error("Review id missing");
+if (items[0].inferenceRunId !== "infer-run-001") throw new Error("Review inference run id missing");
+if (items[0].batchId !== "infer-run-001") throw new Error("Review batch id missing");
 if (items[0].riskType !== "low_margin") throw new Error("Risk type missing");
 if (items[0].topK[0].label !== "red_square") throw new Error("Top-k not normalized");
 if (items[0].decision.value !== "abstain") throw new Error("Decision not normalized");
@@ -83,6 +87,7 @@ const feedback = normalizeFeedbackItem({
   feedback_item_id: "feedback-001",
   review_item_id: "review-001",
   inference_event_id: "inference-001",
+  inference_run_id: "infer-run-001",
   dataset_id: "toy",
   dataset_version_id: "dataset@toy-001",
   model_version_id: "toy-run-001-candidate",
@@ -94,6 +99,7 @@ const feedback = normalizeFeedbackItem({
 });
 if (feedback.id !== "feedback-001") throw new Error("Feedback id missing");
 if (feedback.reviewItemId !== "review-001") throw new Error("Feedback review id missing");
+if (feedback.inferenceRunId !== "infer-run-001") throw new Error("Feedback inference run id missing");
 if (feedback.datasetId !== "toy") throw new Error("Feedback dataset missing");
 if (!feedback.imageUrl.endsWith("/api/uploads/query-001.jpg")) throw new Error("Feedback image url missing");
 
