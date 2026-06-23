@@ -12,6 +12,7 @@
     "smoke:jobs-client": "node scripts/smoke-jobs-client.mjs",
     "smoke:training-client": "node scripts/smoke-training-client.mjs",
     "smoke:inference-client": "node scripts/smoke-inference-client.mjs",
+    "smoke:abstention-client": "node scripts/smoke-abstention-client.mjs",
     "smoke:review-client": "node scripts/smoke-review-client.mjs",
     "smoke:llm-client": "node scripts/smoke-llm-client.mjs"
   },

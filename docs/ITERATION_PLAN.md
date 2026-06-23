@@ -642,7 +642,7 @@ Suggested checkpoint pushes:
 Validation:
 
 ```text
-FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run pytest backend/tests/test_online_abstention_policy.py backend/tests/test_api_online_abstention_policy_contract.py -q
+scripts/smoke-online-abstention-contract.sh
 cd frontend && npm run build
 ```
 

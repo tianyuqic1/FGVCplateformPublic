@@ -27,6 +27,10 @@ from finevision.ml_toolkit.online_abstention import (
 )
 
 
+class InsufficientFeedbackError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class AbstentionPolicyRecord:
     policy_id: str
@@ -74,14 +78,6 @@ class DatabaseAbstentionStore:
         review_cost_per_item: float = 1.0,
         created_by: str | None = None,
     ) -> AbstentionPolicyRecord:
-        samples = self._feedback_samples(dataset_version_id=dataset_version_id, model_version_id=model_version_id)
-        proposal = propose_risk_constrained_policy(
-            samples,
-            target_selective_risk=target_selective_risk,
-            review_cost_per_item=review_cost_per_item,
-        )
-        now = _now()
-        policy_key = f"policy-{uuid4().hex[:12]}"
         with self.engine.begin() as conn:
             context = conn.execute(
                 _scope_select().where(
@@ -89,8 +85,22 @@ class DatabaseAbstentionStore:
                     model_versions.c.model_key == model_version_id,
                 )
             ).mappings().first()
-            if context is None:
-                raise ValueError(f"Model version not found for dataset version: {model_version_id}")
+        if context is None:
+            raise ValueError(f"Model version not found for dataset version: {model_version_id}")
+
+        samples = self._feedback_samples(dataset_version_id=dataset_version_id, model_version_id=model_version_id)
+        proposal = propose_risk_constrained_policy(
+            samples,
+            target_selective_risk=target_selective_risk,
+            review_cost_per_item=review_cost_per_item,
+        )
+        if int(proposal.metrics["source_feedback_count"]) == 0:
+            raise InsufficientFeedbackError(
+                "At least one evaluable feedback item is required before proposing an abstention policy."
+            )
+        now = _now()
+        policy_key = f"policy-{uuid4().hex[:12]}"
+        with self.engine.begin() as conn:
             policy_db_id = uuid4()
             conn.execute(
                 abstention_policy_versions.insert().values(
@@ -112,7 +122,13 @@ class DatabaseAbstentionStore:
                     updated_at=now,
                 )
             )
-            self._record_shadow_rows_for_samples(conn, policy_db_id=policy_db_id, samples=samples, created_at=now)
+            self._record_shadow_rows_for_scope(
+                conn,
+                policy_db_id=policy_db_id,
+                dataset_version_db_id=context["dataset_version_db_id"],
+                model_version_db_id=context["model_version_db_id"],
+                created_at=now,
+            )
         policy = self.get_policy(policy_key)
         if policy is None:
             raise ValueError(f"Abstention policy was not created: {policy_key}")
@@ -198,12 +214,13 @@ class DatabaseAbstentionStore:
             rows = conn.execute(query).mappings().all()
         return [_feedback_sample_from_row(row) for row in rows]
 
-    def _record_shadow_rows_for_samples(
+    def _record_shadow_rows_for_scope(
         self,
         conn: sa.Connection,
         *,
         policy_db_id: Any,
-        samples: list[FeedbackDecisionSample],
+        dataset_version_db_id: Any,
+        model_version_db_id: Any,
         created_at: datetime,
     ) -> None:
         policy = conn.execute(
@@ -214,12 +231,16 @@ class DatabaseAbstentionStore:
                 abstention_policy_versions.c.tau_ood,
             ).where(abstention_policy_versions.c.id == policy_db_id)
         ).mappings().one()
-        for sample in samples:
-            row = conn.execute(
-                _inference_sample_select().where(inference_events.c.event_key == sample.inference_event_id)
-            ).mappings().first()
-            if row is not None:
-                self._record_shadow_row_for_event(conn, policy=policy, row=row, created_at=created_at)
+        rows = conn.execute(
+            _inference_sample_select()
+            .where(
+                inference_events.c.dataset_version_id == dataset_version_db_id,
+                inference_events.c.model_version_id == model_version_db_id,
+            )
+            .order_by(inference_events.c.created_at.asc())
+        ).mappings().all()
+        for row in rows:
+            self._record_shadow_row_for_event(conn, policy=policy, row=row, created_at=created_at)
 
     def _record_shadow_row_for_event(
         self,

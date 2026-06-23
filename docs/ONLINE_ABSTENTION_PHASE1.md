@@ -310,13 +310,12 @@ GET  /api/abstention-policies/{policy_key}
 GET  /api/abstention-policies/{policy_key}/shadow-decisions
 ```
 
-暂不建议做自动启用接口。若要启用，也必须是后续阶段的手动操作：
+第一阶段实现范围到此为止：只支持 shadow/candidate 策略生成、查询和 shadow decision
+审计。没有实现 activation API；候选策略不会改变真实推理 decision、review routing、
+model threshold artifact、feedback item 或 dataset version。
 
-```text
-POST /api/abstention-policies/{policy_key}/activate
-```
-
-这个接口第一阶段可以不做。
+暂不建议做自动启用接口。若要启用，也必须是后续阶段的手动操作，并带 release gate
+和 rollback metadata。这个接口第一阶段未实现。
 
 ## 前端页面建议
 
@@ -355,6 +354,7 @@ POST /api/abstention-policies/{policy_key}/activate
 第一阶段完成后应满足：
 
 - 可以从反馈池生成一个候选弃权策略版本。
+- 没有可评估人工反馈时，API 拒绝生成候选策略，避免把无依据阈值持久化。
 - 候选策略包含 `tau_conf`、`tau_margin`、`tau_ood` 和目标风险。
 - 候选策略报告包含 coverage、selective risk、review cost。
 - 推理事件可以记录 shadow decision，且不改变真实 decision。

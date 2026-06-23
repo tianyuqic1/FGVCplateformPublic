@@ -267,6 +267,18 @@ abstention_policy_versions = sa.Table(
     sa.CheckConstraint("tau_ood is null or tau_ood >= 0", name="ck_abstention_policy_tau_ood"),
 )
 
+sa.Index(
+    "ix_abstention_policy_versions_scope_created_at",
+    abstention_policy_versions.c.dataset_version_id,
+    abstention_policy_versions.c.model_version_id,
+    abstention_policy_versions.c.created_at,
+)
+sa.Index(
+    "ix_abstention_policy_versions_status_created_at",
+    abstention_policy_versions.c.status,
+    abstention_policy_versions.c.created_at,
+)
+
 abstention_shadow_decisions = sa.Table(
     "abstention_shadow_decisions",
     metadata,
@@ -295,4 +307,12 @@ abstention_shadow_decisions = sa.Table(
         "decision_diff in ('same', 'new_accepts_old_abstains', 'new_abstains_old_accepts', 'new_rejects_ood', 'other_change')",
         name="ck_abstention_shadow_decision_diff",
     ),
+    sa.UniqueConstraint("policy_version_id", "inference_event_id", name="uq_abstention_shadow_policy_inference"),
+)
+
+sa.Index(
+    "ix_abstention_shadow_policy_diff_created_at",
+    abstention_shadow_decisions.c.policy_version_id,
+    abstention_shadow_decisions.c.decision_diff,
+    abstention_shadow_decisions.c.created_at,
 )

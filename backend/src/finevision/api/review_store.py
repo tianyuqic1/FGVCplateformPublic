@@ -95,6 +95,7 @@ class DatabaseReviewStore:
         reasons = list(decision_payload.get("reasons") or [])
         input_type, input_ref, sample_id = _input_identity(input_payload)
         force_review = bool(request_payload.get("force_review"))
+        route_to_review = bool(request_payload.get("route_to_review", True))
 
         with self.engine.begin() as conn:
             context_row = conn.execute(
@@ -133,7 +134,7 @@ class DatabaseReviewStore:
                 )
             )
             review_key: str | None = None
-            if decision in {"abstain", "reject_ood"} or force_review:
+            if route_to_review and (decision in {"abstain", "reject_ood"} or force_review):
                 risk_type, priority, reason = _review_routing(decision, reasons, force_review=force_review)
                 review_key = f"review-{uuid4().hex[:12]}"
                 conn.execute(

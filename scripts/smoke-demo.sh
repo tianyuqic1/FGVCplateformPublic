@@ -8,6 +8,7 @@ API_URL="${API_URL:-http://localhost:8001}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 WAIT_SECONDS="${WAIT_SECONDS:-90}"
 RUN_FRONTEND_ROUTE_SMOKE="${RUN_FRONTEND_ROUTE_SMOKE:-0}"
+RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE="${RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE:-1}"
 contracts_only=0
 
 usage() {
@@ -72,8 +73,16 @@ npm --prefix frontend run smoke:api-client
 npm --prefix frontend run smoke:jobs-client
 npm --prefix frontend run smoke:training-client
 npm --prefix frontend run smoke:inference-client
+npm --prefix frontend run smoke:abstention-client
 npm --prefix frontend run smoke:review-client
 npm --prefix frontend run smoke:llm-client
+
+if [[ "$RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE" == "1" ]]; then
+  echo "Running online abstention contract smoke..."
+  scripts/smoke-online-abstention-contract.sh --skip-if-unavailable
+else
+  echo "Skipping online abstention contract smoke; set RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE=1 to include it."
+fi
 
 if [[ "$contracts_only" -eq 0 && "$RUN_FRONTEND_ROUTE_SMOKE" == "1" ]]; then
   echo "Running optional frontend route smoke..."

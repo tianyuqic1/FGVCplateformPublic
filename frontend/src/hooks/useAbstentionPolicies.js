@@ -6,9 +6,14 @@ import {
 } from "../api/abstentionPolicies.js";
 
 export function useAbstentionPolicies(filters = {}) {
-  const [state, setState] = useState({ policies: [], loading: true, error: null });
+  const enabled = filters.enabled !== false;
+  const [state, setState] = useState({ policies: [], loading: enabled, error: null });
 
   const refresh = useCallback(() => {
+    if (!enabled) {
+      setState({ policies: [], loading: false, error: null });
+      return () => {};
+    }
     let active = true;
     setState((current) => ({ ...current, loading: true, error: null }));
     listAbstentionPolicies(filters)
@@ -23,7 +28,7 @@ export function useAbstentionPolicies(filters = {}) {
     return () => {
       active = false;
     };
-  }, [filters.datasetVersionId, filters.modelVersionId, filters.status, filters.limit]);
+  }, [enabled, filters.datasetVersionId, filters.modelVersionId, filters.status, filters.limit]);
 
   useEffect(() => refresh(), [refresh]);
 

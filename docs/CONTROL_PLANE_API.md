@@ -559,25 +559,35 @@ cd frontend && npm run smoke:api-client
 cd frontend && npm run smoke:jobs-client
 cd frontend && npm run smoke:training-client
 cd frontend && npm run smoke:inference-client
+cd frontend && npm run smoke:abstention-client
 cd frontend && npm run smoke:review-client
+cd frontend && npm run smoke:llm-client
+scripts/smoke-online-abstention-contract.sh
 cd frontend && npm run build
 cd frontend && npm run smoke:routes
 docker compose config
 ```
 
-Current verified result:
+Current verified result from the targeted docs/demo smoke update on 2026-06-23:
 
 ```text
-backend: 10 passed, 14 db integration tests skipped unless FINEVISION_TEST_DATABASE_URL is set
-db integration: 14 passed against local PostgreSQL
+shell syntax: bash -n scripts/demo-up.sh scripts/smoke-demo.sh scripts/smoke-online-abstention-contract.sh passed
+shellcheck: not run; shellcheck is not installed in this environment
+online abstention policy unit tests: 7 passed
+online abstention API contract tests: 5 passed, 1 StarletteDeprecationWarning
+online abstention contract smoke: 12 passed, 1 StarletteDeprecationWarning
+inference API tests: 11 passed, 3 warnings
+scripts/smoke-demo.sh --contracts-only: passed
+docker compose config: passed through scripts/smoke-demo.sh
 frontend api client: passed
 frontend jobs client: passed
 frontend training client: passed
 frontend inference client: passed
+frontend review client: passed
+frontend llm client: passed
+frontend abstention client: passed
 frontend build: passed
 frontend routes: 16 x 200
-docker compose config: passed
-worker --once CLI smoke: passed
 ```
 
 ## Review Workflow Status
@@ -621,6 +631,10 @@ Phase 1 runs in shadow mode:
 - Do not let LLM assistance activate or tune policies.
 - Persist candidate policy versions and shadow decisions for audit and comparison.
 
+This is the complete implemented surface for Phase 1. No activation endpoint is implemented, and
+shadow policies do not change live inference decisions, review routing, model threshold artifacts,
+feedback rows, or dataset versions.
+
 Implemented endpoints:
 
 ```text
@@ -647,6 +661,8 @@ release gates and rollback metadata.
 
 The response returns a `policy` with `tau_conf`, `tau_margin`, optional `tau_ood`,
 `source_feedback_count`, estimated coverage/risk/cost, and `selection_config.selection_rule`.
+If the selected dataset/model scope has no evaluable feedback item yet, the API returns `409`
+instead of persisting an unusable all-abstain policy.
 
 `GET /api/abstention-policies/{policy_key}/shadow-decisions` returns current-vs-shadow decision
 diffs. These rows are audit artifacts only; they do not change inference events, review routing, or

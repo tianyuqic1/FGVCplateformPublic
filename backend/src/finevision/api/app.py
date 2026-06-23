@@ -20,7 +20,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from finevision.api.abstention_store import DatabaseAbstentionStore
+from finevision.api.abstention_store import DatabaseAbstentionStore, InsufficientFeedbackError
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
 from finevision.api.llm import (
     LLMConfigurationError,
@@ -713,6 +713,8 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except InsufficientFeedbackError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return {"policy": _abstention_policy_payload(policy)}
 
     @api.get("/api/abstention-policies")
@@ -1140,8 +1142,6 @@ def _run_scoped_inference_payload(
 
 
 def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: dict[str, Any], *, force_review: bool = False) -> None:
-    if not request.route_to_review:
-        return
     review_store: DatabaseReviewStore | None = api.state.review_store
     if review_store is None:
         return
@@ -1155,8 +1155,12 @@ def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: di
     if abstention_store is not None:
         try:
             payload["shadow_policy_count"] = abstention_store.record_shadow_for_inference_event(event.inference_event_id)
-        except Exception:
-            payload["shadow_policy_count"] = 0
+        except Exception as exc:
+            payload["shadow_policy_count"] = None
+            payload["shadow_policy_error"] = {
+                "type": exc.__class__.__name__,
+                "message": str(exc),
+            }
 
 
 def _review_item_payload(item: Any) -> dict[str, Any]:

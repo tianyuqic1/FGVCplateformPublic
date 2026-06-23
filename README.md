@@ -145,7 +145,7 @@ The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
 docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
-The planned first online-abstention phase is documented in:
+The implemented shadow-only online-abstention Phase 1 is documented in:
 
 ```text
 docs/ONLINE_ABSTENTION_PHASE1.md
@@ -216,6 +216,10 @@ GET  /api/review-items/{review_item_id}
 POST /api/review-items/{review_item_id}/assist
 POST /api/review-items/{review_item_id}/submit
 GET  /api/feedback-items
+POST /api/abstention-policies/propose
+GET  /api/abstention-policies
+GET  /api/abstention-policies/{policy_key}
+GET  /api/abstention-policies/{policy_key}/shadow-decisions
 POST /api/llm/assist
 ```
 
@@ -234,6 +238,10 @@ read and update the editable summary. `POST /api/dataset-versions/{dataset_versi
 lets the configured LLM read class labels and write a domain-aware draft, for example bird species,
 plant disease classes, or CIFAR-10 general objects. LLM assistance receives the card when a request
 references a dataset version.
+
+Online abstention Phase 1 is implemented as shadow-only policy evaluation. The API can propose,
+list, inspect, and audit shadow policy decisions, but it does not expose activation and does not
+change live inference decisions, review routing, model threshold artifacts, or dataset versions.
 
 For a fresh local database, Compose can apply Alembic migrations before starting the API and worker:
 
@@ -279,7 +287,14 @@ Run PostgreSQL-backed repository tests:
 
 ```text
 docker compose stop ml-worker
-FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run pytest backend/tests/test_db_stores.py backend/tests/test_api_inference.py
+FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run pytest backend/tests/test_db_stores.py backend/tests/test_api_inference.py
+```
+
+Run the minimal online abstention contract smoke. It uses toy data and the lightweight default
+extractor, so it does not train DINOv3 or download model weights:
+
+```text
+scripts/smoke-online-abstention-contract.sh
 ```
 
 Run frontend API client smoke checks:
@@ -290,6 +305,7 @@ npm run smoke:api-client
 npm run smoke:jobs-client
 npm run smoke:training-client
 npm run smoke:inference-client
+npm run smoke:abstention-client
 npm run smoke:review-client
 npm run smoke:llm-client
 npm run smoke:routes

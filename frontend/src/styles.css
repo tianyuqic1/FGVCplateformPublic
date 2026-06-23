@@ -749,6 +749,17 @@ a {
   background: #ffffff;
 }
 
+.filter-select input[aria-invalid="true"] {
+  border-color: #b91c1c;
+}
+
+.field-error {
+  margin: -4px 0 12px;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .card {
   padding: 14px;
   transition:

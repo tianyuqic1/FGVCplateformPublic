@@ -11,6 +11,7 @@ from finevision.ml_toolkit.online_abstention import (
 from finevision.ml_toolkit.inference import run_inference
 from finevision.ml_toolkit.thresholds import select_threshold_strategy
 from finevision.schemas.artifacts import ModelArtifact, ThresholdPoint, ThresholdStrategy, ThresholdSweep
+from finevision.db.schema import abstention_policy_versions, abstention_shadow_decisions
 
 
 def test_policy_proposal_selects_max_coverage_under_target_risk() -> None:
@@ -163,6 +164,18 @@ def test_feedback_driven_policy_proposal_maximizes_coverage_under_risk() -> None
     assert proposal.tau_conf > 0.81 or proposal.tau_margin > 0.3
 
 
+def test_policy_proposal_without_feedback_reports_insufficient_feedback() -> None:
+    proposal = propose_risk_constrained_policy([], target_selective_risk=0.05, review_cost_per_item=2.0)
+
+    assert proposal.tau_conf == 1.0
+    assert proposal.tau_margin == 1.0
+    assert proposal.tau_ood is None
+    assert proposal.metrics["source_feedback_count"] == 0
+    assert proposal.metrics["coverage"] == 0.0
+    assert proposal.selection_config["selection_rule"] == "insufficient_feedback"
+    assert proposal.selection_config["eligible_feedback_count"] == 0
+
+
 def test_policy_evaluation_counts_ood_as_risk_when_accepted() -> None:
     samples = [
         _feedback("e1", confidence=0.95, margin=0.8, predicted="class-a", final="class-a"),
@@ -187,6 +200,21 @@ def test_policy_evaluation_counts_ood_as_risk_when_accepted() -> None:
     assert strict_ood["accepted_count"] == 1
     assert strict_ood["distribution"]["reject_ood"] == 1
     assert strict_ood["selective_risk"] == 0.0
+
+
+def test_abstention_schema_metadata_includes_shadow_uniqueness_and_indexes() -> None:
+    assert "ix_abstention_policy_versions_scope_created_at" in {
+        index.name for index in abstention_policy_versions.indexes
+    }
+    assert "ix_abstention_policy_versions_status_created_at" in {
+        index.name for index in abstention_policy_versions.indexes
+    }
+    assert "uq_abstention_shadow_policy_inference" in {
+        constraint.name for constraint in abstention_shadow_decisions.constraints
+    }
+    assert "ix_abstention_shadow_policy_diff_created_at" in {
+        index.name for index in abstention_shadow_decisions.indexes
+    }
 
 
 def _model_artifact() -> ModelArtifact:

@@ -37,7 +37,7 @@ function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return request(controller.signal).finally(() => window.clearTimeout(timer));
 }
 
-function normalizePolicy(raw = {}) {
+export function normalizePolicy(raw = {}) {
   const metrics = raw.metrics ?? {};
   return {
     id: raw.policyId ?? raw.policy_id ?? "policy-preview",
@@ -60,7 +60,7 @@ function normalizePolicy(raw = {}) {
   };
 }
 
-function normalizeShadowDecision(raw = {}) {
+export function normalizeShadowDecision(raw = {}) {
   return {
     id: raw.shadowDecisionId ?? raw.shadow_decision_id ?? "shadow-preview",
     policyId: raw.policyId ?? raw.policy_id ?? null,

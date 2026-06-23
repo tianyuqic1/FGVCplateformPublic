@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { generateDatasetCard, updateDatasetCard, uploadImagefolder } from "../api/datasets.js";
 import { runInference, runInferenceUpload, runInferenceUploadFolder } from "../api/inference.js";
@@ -186,16 +186,6 @@ const FEEDBACK_DESTINATIONS = [
   ["ignore", "忽略池", "明确不进入后续数据版本的记录"],
 ];
 
-const SAMPLE_IMAGES = {
-  bird: "/api/sample-assets/test/bird/bird_001.png",
-  ship: "/api/sample-assets/test/ship/ship_001.png",
-  deer: "/api/sample-assets/test/deer/deer_001.png",
-  automobile: "/api/sample-assets/test/automobile/automobile_001.png",
-  frog: "/api/sample-assets/test/frog/frog_001.png",
-  ood: "/api/sample-assets/test/ship/ship_003.png",
-  defect: "/api/sample-assets/test/automobile/automobile_003.png",
-};
-
 function apiAssetUrl(path) {
   const base = import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
   return path?.startsWith("/") ? `${base}${path}` : path;
@@ -213,10 +203,6 @@ function uiStateLabel(status) {
     clear: "清空",
   };
   return labels[status] ?? status;
-}
-
-function sampleImageFor(key = "bird") {
-  return apiAssetUrl(SAMPLE_IMAGES[key] ?? SAMPLE_IMAGES.bird);
 }
 
 function imageFolderRelativePath(file) {
@@ -396,27 +382,6 @@ function reasonLabel(reason) {
     meets_acceptance_thresholds: "满足自动直出阈值",
   };
   return labels[reason] ?? reason;
-}
-
-function ReviewCard({ item }) {
-  const imageKey = item.route === "ood" ? "ood" : item.route === "bad-image" ? "defect" : "bird";
-  return (
-    <Link className="sample-card clickable" to={`/review/${item.id}`}>
-      <SampleImage src={sampleImageFor(imageKey)} label={item.id} compact low={item.route !== "ood"} />
-      <div>
-        <div className="chips">
-          <StatusChip tone={riskTone(item.route)}>{item.risk}</StatusChip>
-          <StatusChip tone="info">{item.datasetName}</StatusChip>
-        </div>
-        <h3>{item.title}</h3>
-        <p className="small">
-          {item.modelCandidate.label} {item.modelCandidate.score.toFixed(2)} · {item.secondCandidate.label}{" "}
-          {item.secondCandidate.score.toFixed(2)}
-        </p>
-        <p className="small">{item.assistance}</p>
-      </div>
-    </Link>
-  );
 }
 
 function SampleImage({ src, label, compact = false, low = false }) {
@@ -3220,55 +3185,81 @@ function LLMListItem({ icon, title, items = [], empty, tone = "info" }) {
   );
 }
 
-function AbstentionPolicyPanel({ feedbackItems, showToast }) {
+function AbstentionPolicyPanel({ feedbackItems, feedbackLoading = false, showToast }) {
   const proposeState = useProposeAbstentionPolicy();
-  const scopeOptions = Array.from(
-    new Map(
-      feedbackItems
-        .filter((item) => item.datasetVersionId && item.modelVersionId)
-        .map((item) => [
-          `${item.datasetVersionId}::${item.modelVersionId}`,
-          {
-            key: `${item.datasetVersionId}::${item.modelVersionId}`,
-            datasetVersionId: item.datasetVersionId,
-            modelVersionId: item.modelVersionId,
-            label: `${item.datasetVersionId} · ${item.modelVersionId}`,
-          },
-        ]),
-    ).values(),
+  const [optimisticPolicy, setOptimisticPolicy] = useState(null);
+  const scopeOptions = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          feedbackItems
+            .filter((item) => item.datasetVersionId && item.modelVersionId)
+            .map((item) => [
+              `${item.datasetVersionId}::${item.modelVersionId}`,
+              {
+                key: `${item.datasetVersionId}::${item.modelVersionId}`,
+                datasetVersionId: item.datasetVersionId,
+                modelVersionId: item.modelVersionId,
+                label: `${item.datasetVersionId} · ${item.modelVersionId}`,
+              },
+            ]),
+        ).values(),
+      ),
+    [feedbackItems],
   );
+  const scopeKeys = scopeOptions.map((item) => item.key).join("|");
   const [selectedScope, setSelectedScope] = useState(scopeOptions[0]?.key ?? "");
   const [targetRisk, setTargetRisk] = useState("0.05");
   useEffect(() => {
-    if (!selectedScope && scopeOptions[0]?.key) setSelectedScope(scopeOptions[0].key);
-  }, [selectedScope, scopeOptions.map((item) => item.key).join("|")]);
+    if (scopeOptions.length === 0) {
+      if (selectedScope) setSelectedScope("");
+      return;
+    }
+    if (!selectedScope || !scopeOptions.some((item) => item.key === selectedScope)) setSelectedScope(scopeOptions[0].key);
+  }, [selectedScope, scopeKeys, scopeOptions]);
   const activeScope = scopeOptions.find((item) => item.key === selectedScope) ?? scopeOptions[0] ?? null;
   const { policies, loading, error, refresh } = useAbstentionPolicies({
     datasetVersionId: activeScope?.datasetVersionId,
     modelVersionId: activeScope?.modelVersionId,
     status: "all",
     limit: 5,
+    enabled: Boolean(activeScope),
   });
-  const latestPolicy = policies[0] ?? null;
-  const { shadowDecisions, loading: shadowLoading, error: shadowError, refresh: refreshShadow } = useAbstentionShadowDecisions(latestPolicy?.id, {
+  const policyMatchesActiveScope = (policy) =>
+    Boolean(activeScope) &&
+    policy?.datasetVersionId === activeScope.datasetVersionId &&
+    policy?.modelVersionId === activeScope.modelVersionId;
+  const latestPolicy = policyMatchesActiveScope(optimisticPolicy) ? optimisticPolicy : policies.find(policyMatchesActiveScope) ?? null;
+  const { shadowDecisions, loading: shadowLoading, error: shadowError } = useAbstentionShadowDecisions(latestPolicy?.id, {
     diff: "all",
     limit: 12,
   });
   const diffCounts = latestPolicy?.metrics?.decision_diff_counts ?? {};
-  const canPropose = Boolean(activeScope) && proposeState.status !== "submitting";
+  const parsedTargetRisk = Number(targetRisk);
+  const targetRiskError =
+    targetRisk.trim() === ""
+      ? "请输入 0 到 1 之间的目标风险。"
+      : !Number.isFinite(parsedTargetRisk) || parsedTargetRisk < 0 || parsedTargetRisk > 1
+        ? "目标风险必须是 0 到 1 之间的数字。"
+        : null;
+  const canPropose = Boolean(activeScope) && !targetRiskError && proposeState.status !== "submitting";
 
   async function handleProposePolicy() {
     if (!activeScope) return;
+    if (targetRiskError) {
+      showToast?.(targetRiskError);
+      return;
+    }
     try {
-      await proposeState.propose({
+      const policy = await proposeState.propose({
         dataset_version_id: activeScope.datasetVersionId,
         model_version_id: activeScope.modelVersionId,
-        target_selective_risk: Number(targetRisk),
+        target_selective_risk: parsedTargetRisk,
         review_cost_per_item: 1.0,
         created_by: "local-operator",
       });
+      setOptimisticPolicy(policy);
       refresh();
-      refreshShadow();
       showToast?.("已生成影子弃权策略");
     } catch {
       showToast?.("生成弃权策略失败");
@@ -3282,7 +3273,7 @@ function AbstentionPolicyPanel({ feedbackItems, showToast }) {
           <span>反馈范围</span>
           <select value={selectedScope} onChange={(event) => setSelectedScope(event.target.value)} disabled={scopeOptions.length === 0}>
             {scopeOptions.length === 0 ? (
-              <option value="">等待反馈样本</option>
+              <option value="">{feedbackLoading ? "正在读取反馈范围" : "等待反馈样本"}</option>
             ) : (
               scopeOptions.map((item) => (
                 <option value={item.key} key={item.key}>{item.label}</option>
@@ -3292,12 +3283,13 @@ function AbstentionPolicyPanel({ feedbackItems, showToast }) {
         </label>
         <label className="filter-select compact">
           <span>目标风险</span>
-          <input value={targetRisk} onChange={(event) => setTargetRisk(event.target.value)} inputMode="decimal" />
+          <input value={targetRisk} onChange={(event) => setTargetRisk(event.target.value)} inputMode="decimal" aria-invalid={Boolean(targetRiskError)} />
         </label>
         <button className="secondary-button" onClick={handleProposePolicy} disabled={!canPropose}>
           <Icon name={proposeState.status === "submitting" ? "LoaderCircle" : "Gauge"} size={16} />生成候选策略
         </button>
       </div>
+      {targetRiskError && <div className="field-error">{targetRiskError}</div>}
       {proposeState.error && (
         <div className="timeline-item">
           <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
@@ -3372,6 +3364,10 @@ export function FeedbackPage({ showToast }) {
     destination: destinationFilter,
     datasetId: datasetFilter || undefined,
     limit: 120,
+  });
+  const { feedbackItems: policyScopeFeedbackItems, loading: policyScopeLoading } = useFeedbackItems({
+    destination: "all",
+    limit: 300,
   });
   const poolCounts = FEEDBACK_DESTINATIONS.filter(([value]) => value !== "all").map(([value, label]) => [
     value,
@@ -3462,7 +3458,7 @@ export function FeedbackPage({ showToast }) {
             {feedbackItems.map((item) => <FeedbackCard item={item} key={item.id} />)}
           </div>
         </Panel>
-        <AbstentionPolicyPanel feedbackItems={feedbackItems} showToast={showToast} />
+        <AbstentionPolicyPanel feedbackItems={policyScopeFeedbackItems} feedbackLoading={policyScopeLoading} showToast={showToast} />
         <Panel title="策展门禁" caption="MVP 只做候选池可见，不自动生成新数据集版本。">
           <div className="feedback-summary">
             {poolCounts.map(([value, label, count]) => (

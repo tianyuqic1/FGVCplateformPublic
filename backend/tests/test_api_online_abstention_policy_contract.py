@@ -16,6 +16,7 @@ from finevision.db.schema import (
     artifacts,
     dataset_versions,
     datasets,
+    feedback_items,
     inference_events,
     job_events,
     jobs,
@@ -42,6 +43,7 @@ def test_policy_propose_list_and_detail_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, model_version_id, _sample_id, _label = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    _create_nonfeedback_inference_sample(client, model_version_id=model_version_id, sample_id=_sample_id)
     review_item_id = _create_feedback_sample(client, model_version_id=model_version_id, tmp_path=tmp_path)
 
     propose_response = client.post(
@@ -51,7 +53,6 @@ def test_policy_propose_list_and_detail_contract(
             "model_version_id": model_version_id,
             "target_selective_risk": 0.05,
             "review_cost_per_item": 2.0,
-            "selection_rule": "max_coverage_under_target_risk",
         },
     )
     assert propose_response.status_code == 201
@@ -91,9 +92,9 @@ def test_policy_propose_list_and_detail_contract(
     shadow_response = client.get(f"/api/abstention-policies/{proposal['policy_id']}/shadow-decisions")
     assert shadow_response.status_code == 200
     shadows = shadow_response.json()["shadow_decisions"]
-    assert [item["inference_event_id"] for item in shadows] != []
-    assert shadows[0]["score_snapshot"]["final_outcome"] == "ood"
-    assert shadows[0]["policy_id"] == proposal["policy_id"]
+    assert len(shadows) == 2
+    assert {item["score_snapshot"]["final_outcome"] for item in shadows} == {None, "ood"}
+    assert {item["policy_id"] for item in shadows} == {proposal["policy_id"]}
     assert review_item_id
 
 
@@ -137,11 +138,108 @@ def test_shadow_policy_write_does_not_change_real_inference_or_review_route(
     assert inference["shadow_policy_count"] == 1
     assert after["inference_events"] == before["inference_events"] + 1
     assert after["review_items"] == before["review_items"]
+    assert after["feedback_items"] == before["feedback_items"]
     assert after["shadow_decisions"] == before["shadow_decisions"] + 1
 
     shadow_response = client.get(f"/api/abstention-policies/{policy_id}/shadow-decisions")
     assert shadow_response.status_code == 200
     assert len(shadow_response.json()["shadow_decisions"]) == 2
+
+
+def test_policy_propose_without_feedback_is_rejected(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id, _label = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    _create_nonfeedback_inference_sample(client, model_version_id=model_version_id, sample_id=sample_id)
+
+    propose_response = client.post(
+        "/api/abstention-policies/propose",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "target_selective_risk": 0.05,
+        },
+    )
+
+    assert propose_response.status_code == 409
+    assert "evaluable feedback item" in propose_response.json()["detail"]
+
+
+def test_route_to_review_false_still_records_inference_event_and_shadow(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id, _label = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    _create_feedback_sample(client, model_version_id=model_version_id, tmp_path=tmp_path)
+    proposal_response = client.post(
+        "/api/abstention-policies/propose",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "target_selective_risk": 0.05,
+        },
+    )
+    assert proposal_response.status_code == 201
+
+    engine = create_engine(database_url)
+    before = _event_counts(engine)
+    inference_response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+            "accept_threshold": 0.0,
+            "margin_threshold": 0.0,
+            "route_to_review": False,
+        },
+    )
+    after = _event_counts(engine)
+
+    assert inference_response.status_code == 200
+    inference = inference_response.json()["inference_result"]
+    assert inference["inference_event_id"]
+    assert inference["review_item_id"] is None
+    assert inference["shadow_policy_count"] == 1
+    assert after["inference_events"] == before["inference_events"] + 1
+    assert after["review_items"] == before["review_items"]
+    assert after["shadow_decisions"] == before["shadow_decisions"] + 1
+
+
+def test_shadow_policy_write_error_is_exposed_in_inference_payload(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id, _label = _trained_toy_context(database_url, tmp_path, monkeypatch)
+
+    def fail_shadow_write(_inference_event_id: str) -> int:
+        raise RuntimeError("shadow write failed")
+
+    monkeypatch.setattr(client.app.state.abstention_store, "record_shadow_for_inference_event", fail_shadow_write)
+
+    inference_response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+            "accept_threshold": 0.0,
+            "margin_threshold": 0.0,
+            "route_to_review": True,
+        },
+    )
+
+    assert inference_response.status_code == 200
+    inference = inference_response.json()["inference_result"]
+    assert inference["shadow_policy_count"] is None
+    assert inference["shadow_policy_error"] == {
+        "type": "RuntimeError",
+        "message": "shadow write failed",
+    }
 
 
 def _trained_toy_context(
@@ -218,11 +316,30 @@ def _create_feedback_sample(client: TestClient, *, model_version_id: str, tmp_pa
     return str(review_item_id)
 
 
+def _create_nonfeedback_inference_sample(client: TestClient, *, model_version_id: str, sample_id: str) -> str:
+    inference_response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+            "accept_threshold": 0.0,
+            "margin_threshold": 0.0,
+            "route_to_review": True,
+        },
+    )
+    assert inference_response.status_code == 200
+    inference = inference_response.json()["inference_result"]
+    assert inference["review_item_id"] is None
+    return str(inference["inference_event_id"])
+
+
 def _event_counts(engine: sa.Engine) -> dict[str, int]:
     with engine.begin() as conn:
         return {
             "inference_events": conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one(),
             "review_items": conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one(),
+            "feedback_items": conn.execute(sa.select(sa.func.count()).select_from(feedback_items)).scalar_one(),
             "shadow_decisions": conn.execute(sa.select(sa.func.count()).select_from(abstention_shadow_decisions)).scalar_one(),
         }
 
