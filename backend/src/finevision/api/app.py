@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
+from finevision.api.abstention_store import DatabaseAbstentionStore
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
 from finevision.api.llm import (
     LLMConfigurationError,
@@ -109,6 +110,14 @@ class DatasetCardRequest(BaseModel):
     dataset_card: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProposeAbstentionPolicyRequest(BaseModel):
+    dataset_version_id: str = Field(..., min_length=1)
+    model_version_id: str = Field(..., min_length=1)
+    target_selective_risk: float = Field(default=0.05, ge=0.0, le=1.0)
+    review_cost_per_item: float = Field(default=1.0, ge=0.0)
+    created_by: str | None = Field(default="local-operator")
+
+
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
     resolved_database_url: str | None = None
     database_engine: Engine | None = None
@@ -138,6 +147,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.training_store = training_store
     api.state.inference_store = DatabaseInferenceStore(database_engine) if database_engine is not None else None
     api.state.review_store = DatabaseReviewStore(database_engine) if database_engine is not None else None
+    api.state.abstention_store = DatabaseAbstentionStore(database_engine) if database_engine is not None else None
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
     api.state.upload_dir.mkdir(parents=True, exist_ok=True)
     api.state.imported_dataset_dir = _default_imported_dataset_dir()
@@ -685,6 +695,88 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             ]
         }
 
+    @api.post("/api/abstention-policies/propose", status_code=status.HTTP_201_CREATED)
+    def propose_abstention_policy(request: ProposeAbstentionPolicyRequest) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Online abstention policy proposals require DATABASE_URL-backed persistence",
+            )
+        try:
+            policy = abstention_store.propose_policy(
+                dataset_version_id=request.dataset_version_id,
+                model_version_id=request.model_version_id,
+                target_selective_risk=request.target_selective_risk,
+                review_cost_per_item=request.review_cost_per_item,
+                created_by=request.created_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return {"policy": _abstention_policy_payload(policy)}
+
+    @api.get("/api/abstention-policies")
+    def list_abstention_policies(
+        dataset_version_id: str | None = Query(default=None),
+        model_version_id: str | None = Query(default=None),
+        status_filter: str | None = Query(default=None, alias="status"),
+        limit: int = 50,
+    ) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            return {"policies": []}
+        allowed_statuses = {None, "", "all", "shadow", "candidate", "archived"}
+        if status_filter not in allowed_statuses:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported abstention policy status")
+        normalized_status = None if status_filter in {None, "", "all"} else status_filter
+        return {
+            "policies": [
+                _abstention_policy_payload(policy)
+                for policy in abstention_store.list_policies(
+                    dataset_version_id=dataset_version_id,
+                    model_version_id=model_version_id,
+                    status=normalized_status,
+                    limit=max(1, min(limit, 100)),
+                )
+            ]
+        }
+
+    @api.get("/api/abstention-policies/{policy_id}")
+    def get_abstention_policy(policy_id: str) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Abstention policy not found")
+        policy = abstention_store.get_policy(policy_id)
+        if policy is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Abstention policy not found")
+        return {"policy": _abstention_policy_payload(policy)}
+
+    @api.get("/api/abstention-policies/{policy_id}/shadow-decisions")
+    def list_abstention_shadow_decisions(
+        policy_id: str,
+        diff: str | None = Query(default=None),
+        limit: int = 100,
+    ) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            return {"shadow_decisions": []}
+        allowed_diffs = {None, "", "all", "same", "new_accepts_old_abstains", "new_abstains_old_accepts", "new_rejects_ood", "other_change"}
+        if diff not in allowed_diffs:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported shadow decision diff")
+        if abstention_store.get_policy(policy_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Abstention policy not found")
+        normalized_diff = None if diff in {None, "", "all"} else diff
+        return {
+            "shadow_decisions": [
+                _abstention_shadow_decision_payload(item)
+                for item in abstention_store.list_shadow_decisions(
+                    policy_id=policy_id,
+                    diff=normalized_diff,
+                    limit=max(1, min(limit, 300)),
+                )
+            ]
+        }
+
     return api
 
 
@@ -1059,6 +1151,12 @@ def _record_review_route(api: FastAPI, request: RunInferenceRequest, payload: di
     )
     payload["inference_event_id"] = event.inference_event_id
     payload["review_item_id"] = review_item.review_item_id if review_item else None
+    abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+    if abstention_store is not None:
+        try:
+            payload["shadow_policy_count"] = abstention_store.record_shadow_for_inference_event(event.inference_event_id)
+        except Exception:
+            payload["shadow_policy_count"] = 0
 
 
 def _review_item_payload(item: Any) -> dict[str, Any]:
@@ -1162,6 +1260,46 @@ def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | No
         "final_label": item.final_label,
         "reviewer_note": item.reviewer_note,
         "created_by": item.created_by,
+        "created_at": item.created_at,
+    }
+
+
+def _abstention_policy_payload(item: Any) -> dict[str, object]:
+    metrics = dict(item.metrics or {})
+    return {
+        "policy_id": item.policy_id,
+        "dataset_id": item.dataset_id,
+        "dataset_version_id": item.dataset_version_id,
+        "model_version_id": item.model_version_id,
+        "status": item.status,
+        "target_selective_risk": item.target_selective_risk,
+        "tau_conf": item.tau_conf,
+        "tau_margin": item.tau_margin,
+        "tau_ood": item.tau_ood,
+        "source_feedback_count": item.source_feedback_count,
+        "estimated_coverage": metrics.get("coverage", 0.0),
+        "estimated_selective_risk": metrics.get("selective_risk", 0.0),
+        "estimated_review_cost": metrics.get("estimated_review_cost", 0.0),
+        "metrics": metrics,
+        "selection_config": item.selection_config,
+        "created_by": item.created_by,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+    }
+
+
+def _abstention_shadow_decision_payload(item: Any) -> dict[str, object]:
+    return {
+        "shadow_decision_id": item.shadow_decision_id,
+        "policy_id": item.policy_id,
+        "inference_event_id": item.inference_event_id,
+        "dataset_id": item.dataset_id,
+        "dataset_version_id": item.dataset_version_id,
+        "model_version_id": item.model_version_id,
+        "current_decision": item.current_decision,
+        "shadow_decision": item.shadow_decision,
+        "decision_diff": item.decision_diff,
+        "score_snapshot": item.score_snapshot,
         "created_at": item.created_at,
     }
 

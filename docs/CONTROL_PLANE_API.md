@@ -589,7 +589,7 @@ dataset-version curation remain deferred.
 
 ## Online Abstention Phase 1
 
-Planned design:
+Implemented MVP:
 
 ```text
 docs/ONLINE_ABSTENTION_PHASE1.md
@@ -614,14 +614,14 @@ The target risk is `target_selective_risk`: the maximum allowed error rate among
 policy chooses to automatically accept. For example, `target_selective_risk = 0.05` means the
 auto-accepted subset should be at least roughly `95%` accurate.
 
-Phase 1 must run in shadow mode:
+Phase 1 runs in shadow mode:
 
 - Do not replace the current inference `decision`.
 - Do not mutate model-version threshold artifacts.
 - Do not let LLM assistance activate or tune policies.
 - Persist candidate policy versions and shadow decisions for audit and comparison.
 
-Planned endpoints:
+Implemented endpoints:
 
 ```text
 POST /api/abstention-policies/propose
@@ -632,6 +632,25 @@ GET  /api/abstention-policies/{policy_key}/shadow-decisions
 
 Activation is intentionally deferred. A future manual activation endpoint should require explicit
 release gates and rollback metadata.
+
+`POST /api/abstention-policies/propose` accepts:
+
+```json
+{
+  "dataset_version_id": "dataset@cub-200-2011-imagenet-001",
+  "model_version_id": "cub-200-2011-imagenet-run-abc-candidate",
+  "target_selective_risk": 0.05,
+  "review_cost_per_item": 1.0,
+  "created_by": "local-operator"
+}
+```
+
+The response returns a `policy` with `tau_conf`, `tau_margin`, optional `tau_ood`,
+`source_feedback_count`, estimated coverage/risk/cost, and `selection_config.selection_rule`.
+
+`GET /api/abstention-policies/{policy_key}/shadow-decisions` returns current-vs-shadow decision
+diffs. These rows are audit artifacts only; they do not change inference events, review routing, or
+model threshold artifacts.
 
 ## LLM Assistant API
 

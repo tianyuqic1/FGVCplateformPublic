@@ -722,6 +722,15 @@ a {
   min-width: min(270px, 100%);
 }
 
+.filter-select.wide {
+  flex: 1 1 420px;
+}
+
+.filter-select.compact {
+  min-width: 160px;
+  max-width: 190px;
+}
+
 .filter-select span {
   color: var(--muted);
   font-size: 12px;
@@ -729,7 +738,8 @@ a {
   white-space: nowrap;
 }
 
-.filter-select select {
+.filter-select select,
+.filter-select input {
   width: 100%;
   min-height: 34px;
   border: 1px solid var(--line);

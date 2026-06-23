@@ -240,3 +240,59 @@ feedback_items = sa.Table(
         name="ck_feedback_items_destination",
     ),
 )
+
+abstention_policy_versions = sa.Table(
+    "abstention_policy_versions",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("policy_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
+    sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("target_selective_risk", sa.Float(), nullable=False),
+    sa.Column("tau_conf", sa.Float(), nullable=False),
+    sa.Column("tau_margin", sa.Float(), nullable=False),
+    sa.Column("tau_ood", sa.Float()),
+    sa.Column("source_feedback_count", sa.Integer(), nullable=False),
+    sa.Column("metrics", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("selection_config", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_by", sa.Text()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("status in ('shadow', 'candidate', 'archived')", name="ck_abstention_policy_versions_status"),
+    sa.CheckConstraint("target_selective_risk >= 0 and target_selective_risk <= 1", name="ck_abstention_policy_target_risk"),
+    sa.CheckConstraint("tau_conf >= 0 and tau_conf <= 1", name="ck_abstention_policy_tau_conf"),
+    sa.CheckConstraint("tau_margin >= 0 and tau_margin <= 1", name="ck_abstention_policy_tau_margin"),
+    sa.CheckConstraint("tau_ood is null or tau_ood >= 0", name="ck_abstention_policy_tau_ood"),
+)
+
+abstention_shadow_decisions = sa.Table(
+    "abstention_shadow_decisions",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column(
+        "policy_version_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("abstention_policy_versions.id"),
+        nullable=False,
+    ),
+    sa.Column("inference_event_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_events.id"), nullable=False),
+    sa.Column("current_decision", sa.Text(), nullable=False),
+    sa.Column("shadow_decision", sa.Text(), nullable=False),
+    sa.Column("decision_diff", sa.Text(), nullable=False),
+    sa.Column("score_snapshot", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "current_decision in ('accept', 'abstain', 'reject_ood')",
+        name="ck_abstention_shadow_current_decision",
+    ),
+    sa.CheckConstraint(
+        "shadow_decision in ('accept', 'abstain', 'reject_ood')",
+        name="ck_abstention_shadow_shadow_decision",
+    ),
+    sa.CheckConstraint(
+        "decision_diff in ('same', 'new_accepts_old_abstains', 'new_abstains_old_accepts', 'new_rejects_ood', 'other_change')",
+        name="ck_abstention_shadow_decision_diff",
+    ),
+)

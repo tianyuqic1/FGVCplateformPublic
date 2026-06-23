@@ -135,7 +135,7 @@ export default function App() {
           <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
-          <Route path="/feedback" element={<FeedbackPage />} />
+          <Route path="/feedback" element={<FeedbackPage showToast={showToast} />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/models/:modelId" element={<ModelDetailPage showToast={showToast} />} />
           <Route path="/pipelines" element={<PipelinesPage />} />

@@ -1,6 +1,7 @@
 # Online Abstention Phase 1: Risk-Constrained Threshold Strategy
 
-Status: planned. This is the recommended first phase for adding online abstention to FineVision.
+Status: implemented MVP. FineVision now supports feedback-backed risk-constrained abstention
+policy proposals in shadow mode.
 
 ## 一句话解释
 
@@ -238,7 +239,7 @@ LLM 可以解释模型证据，可以辅助复核，但不应该直接决定弃�
 
 ### abstention_policy_versions
 
-保存候选弃权策略版本。
+保存候选弃权策略版本。MVP 已由 migration `20260623_0005` 落地。
 
 建议字段：
 
@@ -255,7 +256,8 @@ tau_margin double precision not null
 tau_ood double precision
 metrics jsonb not null
 source_feedback_count integer not null
-created_from text not null
+selection_config jsonb not null
+created_by text
 created_at timestamptz not null
 updated_at timestamptz not null
 ```
@@ -265,11 +267,10 @@ updated_at timestamptz not null
 ```text
 shadow
 candidate
-active
 archived
 ```
 
-第一阶段只需要 `shadow` 和 `candidate`，不急着做 `active`。
+第一阶段只实现 `shadow` / `candidate` / `archived`。`active` 没有实现，避免误导为生产启用能力。
 
 ### abstention_shadow_decisions
 
@@ -295,11 +296,12 @@ same
 new_accepts_old_abstains
 new_abstains_old_accepts
 new_rejects_ood
+other_change
 ```
 
 ## API 设计建议
 
-第一阶段可以先做这些 API：
+第一阶段已实现这些 API：
 
 ```text
 POST /api/abstention-policies/propose
@@ -318,7 +320,9 @@ POST /api/abstention-policies/{policy_key}/activate
 
 ## 前端页面建议
 
-第一阶段可在反馈池或新页面展示：
+第一阶段主入口已放在 `/feedback` 反馈池页面的“弃权策略评估”面板。数据集、模型和推理页面不提供启用入口。
+
+页面展示：
 
 - 当前目标风险。
 - 候选阈值。
@@ -369,4 +373,3 @@ POST /api/abstention-policies/{policy_key}/activate
 6. 前端报告页。
 7. 回归测试和验收。
 ```
-

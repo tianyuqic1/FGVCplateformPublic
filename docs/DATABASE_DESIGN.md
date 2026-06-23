@@ -621,11 +621,11 @@ Detailed design:
 docs/ONLINE_ABSTENTION_PHASE1.md
 ```
 
-Phase 1 should keep existing `threshold_strategy` artifacts immutable. New feedback-backed
+Phase 1 keeps existing `threshold_strategy` artifacts immutable. New feedback-backed
 abstention policies should be stored as separate strategy versions and evaluated in shadow mode
 before any manual activation work is considered.
 
-Planned table:
+Implemented by migration `20260623_0005`:
 
 ```text
 abstention_policy_versions
@@ -641,15 +641,16 @@ tau_margin double precision not null
 tau_ood double precision
 metrics jsonb not null default '{}'
 source_feedback_count integer not null
-created_from text not null
+selection_config jsonb not null default '{}'
+created_by text
 created_at timestamptz not null
 updated_at timestamptz not null
 ```
 
-`status` starts with `shadow` and `candidate`. `active` is intentionally deferred until model
-release gates and rollback metadata exist.
+`status` is `shadow`, `candidate`, or `archived`. `active` is intentionally deferred until model
+release gates and rollback metadata exist. The MVP creates `shadow` policies.
 
-Planned table:
+Implemented table:
 
 ```text
 abstention_shadow_decisions

@@ -596,7 +596,7 @@ Suggested checkpoint pushes:
 
 ## Iteration 5C: Online Abstention Phase 1
 
-Status: planned. Detailed product/algorithm design is documented in:
+Status: implemented MVP. Detailed product/algorithm design is documented in:
 
 ```text
 docs/ONLINE_ABSTENTION_PHASE1.md
@@ -616,11 +616,11 @@ Scope:
 
 Deliverables:
 
-- `abstention_policy_versions` design and migration.
-- `abstention_shadow_decisions` design and migration.
-- Policy evaluation and threshold-search utilities.
-- API for proposing and viewing abstention policies.
-- UI report showing target risk, candidate thresholds, coverage, selective risk, review cost, and
+- Done: `abstention_policy_versions` design and migration.
+- Done: `abstention_shadow_decisions` design and migration.
+- Done: policy evaluation and threshold-search utilities.
+- Done: API for proposing and viewing abstention policies.
+- Done: UI report showing target risk, candidate thresholds, coverage, selective risk, review cost, and
   new-vs-current decision differences.
 
 Acceptance:
@@ -638,6 +638,13 @@ Suggested checkpoint pushes:
 - `feat: add abstention policy APIs`
 - `feat: show abstention shadow reports`
 - `test: cover shadow abstention policy`
+
+Validation:
+
+```text
+FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run pytest backend/tests/test_online_abstention_policy.py backend/tests/test_api_online_abstention_policy_contract.py -q
+cd frontend && npm run build
+```
 
 ## Iteration 5B: Model Registry And Release Gates
 

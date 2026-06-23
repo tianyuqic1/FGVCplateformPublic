@@ -6,6 +6,7 @@ import { deleteModelWeight } from "../api/modelWeights.js";
 import { listReviewItems } from "../api/reviews.js";
 import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingRun, resumeTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
+import { useAbstentionPolicies, useAbstentionShadowDecisions, useProposeAbstentionPolicy } from "../hooks/useAbstentionPolicies.js";
 import { useRecentJobs } from "../hooks/useJobs.js";
 import { useLLMAssistance, useReviewAssistance } from "../hooks/useLLMAssistance.js";
 import { useModelWeights } from "../hooks/useModelWeights.js";
@@ -76,6 +77,29 @@ function compactStatusLabel(value) {
     gate: "门禁",
     "not found": "未找到",
     missing: "缺失",
+  };
+  return labels[value] ?? value;
+}
+
+function formatPolicyPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return `${(number * 100).toFixed(1)}%`;
+}
+
+function formatPolicyNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return number.toFixed(4);
+}
+
+function shadowDiffLabel(value) {
+  const labels = {
+    same: "一致",
+    new_accepts_old_abstains: "新策略放行",
+    new_abstains_old_accepts: "新策略弃权",
+    new_rejects_ood: "新策略 OOD",
+    other_change: "其他变化",
   };
   return labels[value] ?? value;
 }
@@ -3196,7 +3220,149 @@ function LLMListItem({ icon, title, items = [], empty, tone = "info" }) {
   );
 }
 
-export function FeedbackPage() {
+function AbstentionPolicyPanel({ feedbackItems, showToast }) {
+  const proposeState = useProposeAbstentionPolicy();
+  const scopeOptions = Array.from(
+    new Map(
+      feedbackItems
+        .filter((item) => item.datasetVersionId && item.modelVersionId)
+        .map((item) => [
+          `${item.datasetVersionId}::${item.modelVersionId}`,
+          {
+            key: `${item.datasetVersionId}::${item.modelVersionId}`,
+            datasetVersionId: item.datasetVersionId,
+            modelVersionId: item.modelVersionId,
+            label: `${item.datasetVersionId} · ${item.modelVersionId}`,
+          },
+        ]),
+    ).values(),
+  );
+  const [selectedScope, setSelectedScope] = useState(scopeOptions[0]?.key ?? "");
+  const [targetRisk, setTargetRisk] = useState("0.05");
+  useEffect(() => {
+    if (!selectedScope && scopeOptions[0]?.key) setSelectedScope(scopeOptions[0].key);
+  }, [selectedScope, scopeOptions.map((item) => item.key).join("|")]);
+  const activeScope = scopeOptions.find((item) => item.key === selectedScope) ?? scopeOptions[0] ?? null;
+  const { policies, loading, error, refresh } = useAbstentionPolicies({
+    datasetVersionId: activeScope?.datasetVersionId,
+    modelVersionId: activeScope?.modelVersionId,
+    status: "all",
+    limit: 5,
+  });
+  const latestPolicy = policies[0] ?? null;
+  const { shadowDecisions, loading: shadowLoading, error: shadowError, refresh: refreshShadow } = useAbstentionShadowDecisions(latestPolicy?.id, {
+    diff: "all",
+    limit: 12,
+  });
+  const diffCounts = latestPolicy?.metrics?.decision_diff_counts ?? {};
+  const canPropose = Boolean(activeScope) && proposeState.status !== "submitting";
+
+  async function handleProposePolicy() {
+    if (!activeScope) return;
+    try {
+      await proposeState.propose({
+        dataset_version_id: activeScope.datasetVersionId,
+        model_version_id: activeScope.modelVersionId,
+        target_selective_risk: Number(targetRisk),
+        review_cost_per_item: 1.0,
+        created_by: "local-operator",
+      });
+      refresh();
+      refreshShadow();
+      showToast?.("已生成影子弃权策略");
+    } catch {
+      showToast?.("生成弃权策略失败");
+    }
+  }
+
+  return (
+    <Panel title="弃权策略评估" caption="Phase 1 只做反馈池回放和影子评估，不改变真实推理阈值。" action={<StatusChip tone="info">shadow only</StatusChip>}>
+      <div className="review-filter-bar">
+        <label className="filter-select wide">
+          <span>反馈范围</span>
+          <select value={selectedScope} onChange={(event) => setSelectedScope(event.target.value)} disabled={scopeOptions.length === 0}>
+            {scopeOptions.length === 0 ? (
+              <option value="">等待反馈样本</option>
+            ) : (
+              scopeOptions.map((item) => (
+                <option value={item.key} key={item.key}>{item.label}</option>
+              ))
+            )}
+          </select>
+        </label>
+        <label className="filter-select compact">
+          <span>目标风险</span>
+          <input value={targetRisk} onChange={(event) => setTargetRisk(event.target.value)} inputMode="decimal" />
+        </label>
+        <button className="secondary-button" onClick={handleProposePolicy} disabled={!canPropose}>
+          <Icon name={proposeState.status === "submitting" ? "LoaderCircle" : "Gauge"} size={16} />生成候选策略
+        </button>
+      </div>
+      {proposeState.error && (
+        <div className="timeline-item">
+          <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+          <div><strong>策略生成失败</strong><div className="row-meta">{proposeState.error.message}</div></div>
+          <StatusChip tone="risk">错误</StatusChip>
+        </div>
+      )}
+      {error && (
+        <div className="timeline-item">
+          <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
+          <div><strong>策略列表读取失败</strong><div className="row-meta">{error.message}</div></div>
+          <StatusChip tone="risk">错误</StatusChip>
+        </div>
+      )}
+      {!latestPolicy && !error && (
+        <div className="timeline-item">
+          <div className="timeline-icon"><Icon name={loading ? "LoaderCircle" : "ShieldCheck"} size={18} /></div>
+          <div><strong>{loading ? "正在读取候选策略" : "还没有候选弃权策略"}</strong><div className="row-meta">先完成一批人工复核，再从反馈池生成 shadow policy。</div></div>
+          <StatusChip tone={loading ? "info" : "warn"}>{loading ? "加载中" : "待生成"}</StatusChip>
+        </div>
+      )}
+      {latestPolicy && (
+        <>
+          <div className="feedback-summary section-gap">
+            <div><span>coverage</span><strong>{formatPolicyPercent(latestPolicy.estimatedCoverage)}</strong></div>
+            <div><span>selective risk</span><strong>{formatPolicyPercent(latestPolicy.estimatedSelectiveRisk)}</strong></div>
+            <div><span>feedback</span><strong>{latestPolicy.sourceFeedbackCount}</strong></div>
+            <div><span>review cost</span><strong>{formatPolicyNumber(latestPolicy.estimatedReviewCost)}</strong></div>
+          </div>
+          <div className="timeline section-gap">
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="SlidersHorizontal" size={18} /></div><div><strong>阈值</strong><div className="row-meta">conf {formatPolicyNumber(latestPolicy.tauConf)} · margin {formatPolicyNumber(latestPolicy.tauMargin)} · ood {latestPolicy.tauOod == null ? "未启用" : formatPolicyNumber(latestPolicy.tauOod)}</div></div><StatusChip tone="info">{latestPolicy.status}</StatusChip></div>
+            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>限制</strong><div className="row-meta">反馈池样本有选择偏差；该策略不会自动覆盖模型 artifact 或真实推理结果。</div></div><StatusChip tone="warn">{latestPolicy.metrics?.status_note ?? "shadow"}</StatusChip></div>
+          </div>
+          <div className="feedback-summary section-gap">
+            {Object.entries(diffCounts).map(([key, count]) => (
+              <div key={key}><span>{shadowDiffLabel(key)}</span><strong>{count}</strong></div>
+            ))}
+          </div>
+          <div className="timeline section-gap">
+            {shadowError && (
+              <div className="timeline-item"><div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div><div><strong>影子决策读取失败</strong><div className="row-meta">{shadowError.message}</div></div><StatusChip tone="risk">错误</StatusChip></div>
+            )}
+            {!shadowError && shadowDecisions.length === 0 && (
+              <div className="timeline-item"><div className="timeline-icon"><Icon name={shadowLoading ? "LoaderCircle" : "Route"} size={18} /></div><div><strong>{shadowLoading ? "正在读取影子决策" : "暂无影子决策"}</strong><div className="row-meta">生成策略时会回放已有反馈；后续推理也会追加 shadow row。</div></div><StatusChip tone="info">{shadowLoading ? "加载中" : "空"}</StatusChip></div>
+            )}
+            {shadowDecisions.map((item) => (
+              <div className="timeline-item" key={item.id}>
+                <div className="timeline-icon"><Icon name={item.decisionDiff === "same" ? "CheckCircle2" : "GitCompare"} size={18} /></div>
+                <div>
+                  <strong>{item.inferenceEventId}</strong>
+                  <div className="row-meta">
+                    {decisionValueLabel(item.currentDecision)} 到 {decisionValueLabel(item.shadowDecision)} · conf {formatPolicyNumber(item.scoreSnapshot.confidence)} · margin {formatPolicyNumber(item.scoreSnapshot.margin)}
+                  </div>
+                </div>
+                <StatusChip tone={item.decisionDiff === "same" ? "default" : "warn"}>{shadowDiffLabel(item.decisionDiff)}</StatusChip>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+export function FeedbackPage({ showToast }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const llm = useLLMAssistance();
   const destinationFilter = searchParams.get("destination") || "all";
@@ -3296,6 +3462,7 @@ export function FeedbackPage() {
             {feedbackItems.map((item) => <FeedbackCard item={item} key={item.id} />)}
           </div>
         </Panel>
+        <AbstentionPolicyPanel feedbackItems={feedbackItems} showToast={showToast} />
         <Panel title="策展门禁" caption="MVP 只做候选池可见，不自动生成新数据集版本。">
           <div className="feedback-summary">
             {poolCounts.map(([value, label, count]) => (
