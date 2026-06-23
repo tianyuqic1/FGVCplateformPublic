@@ -472,6 +472,69 @@ def test_uploaded_image_review_item_exposes_public_image_url(
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/jpeg"
 
+    def fake_assistance(*, task: str, context: dict[str, object]) -> dict[str, object]:
+        assert task == "review_assistance"
+        assert context["review_item_id"] == review_item_id
+        return {
+            "task": task,
+            "advisory_only": True,
+            "model": "test-llm",
+            "summary": "Persist this advisory note with the review item.",
+            "holistic_analysis": "The uploaded image should remain available after API restart.",
+            "inspection_notes": ["Check the uploaded image before choosing a final label."],
+            "suggested_actions": ["Submit human feedback only after inspection."],
+            "risk_flags": ["LLM advice is not a label."],
+            "created_at": "2026-06-20T00:00:00+00:00",
+        }
+
+    app_module = importlib.import_module("finevision.api.app")
+    monkeypatch.setattr(app_module, "generate_assistance", fake_assistance)
+
+    assistance_response = client.post(f"/api/review-items/{review_item_id}/assist", json={})
+    assert assistance_response.status_code == 200
+    assert assistance_response.json()["review_item"]["assistance_metadata"]["llm_assistance"]["model"] == "test-llm"
+
+    submit_response = client.post(
+        f"/api/review-items/{review_item_id}/submit",
+        json={
+            "final_outcome": "corrected_label",
+            "destination": "training_candidate",
+            "final_label": "red_square",
+            "reviewer_note": "human reviewed uploaded image",
+            "reviewer": "qa",
+        },
+    )
+    assert submit_response.status_code == 200
+    assert submit_response.json()["review_item"]["status"] == "feedbacked"
+
+    restarted_client = TestClient(create_app(database_url=database_url))
+    persisted_detail_response = restarted_client.get(f"/api/review-items/{review_item_id}")
+    assert persisted_detail_response.status_code == 200
+    persisted_detail = persisted_detail_response.json()["review_item"]
+    assert persisted_detail["status"] == "feedbacked"
+    assert persisted_detail["image_url"] == detail["image_url"]
+    assert persisted_detail["assistance_metadata"]["llm_assistance"]["summary"].startswith("Persist this")
+    assert persisted_detail["feedback"]["destination"] == "training_candidate"
+    assert persisted_detail["feedback"]["final_label"] == "red_square"
+
+    history_response = restarted_client.get("/api/review-items?status=feedbacked&dataset_id=infer-toy")
+    assert history_response.status_code == 200
+    history_items = history_response.json()["review_items"]
+    assert [item["review_item_id"] for item in history_items] == [review_item_id]
+    assert history_items[0]["image_url"] == detail["image_url"]
+    assert history_items[0]["assistance_metadata"]["llm_assistance"]["model"] == "test-llm"
+
+    feedback_response = restarted_client.get("/api/feedback-items?destination=training_candidate&dataset_id=infer-toy")
+    assert feedback_response.status_code == 200
+    feedback_payload = feedback_response.json()["feedback_items"]
+    assert [item["review_item_id"] for item in feedback_payload] == [review_item_id]
+    assert feedback_payload[0]["image_url"] == detail["image_url"]
+    assert feedback_payload[0]["final_label"] == "red_square"
+
+    persisted_image_response = restarted_client.get(detail["image_url"])
+    assert persisted_image_response.status_code == 200
+    assert persisted_image_response.headers["content-type"] == "image/jpeg"
+
 
 def test_scoped_inference_rejects_unknown_model_version(
     database_url: str,
