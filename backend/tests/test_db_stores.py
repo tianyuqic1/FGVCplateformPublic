@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 
 from finevision.api import create_app
 from finevision.api.db_store import DatabaseJobStore
@@ -918,10 +919,20 @@ def test_training_run_reuses_feature_artifact_for_same_dataset_and_extractor_con
 
 
 def _reset_database(database_url: str) -> None:
+    _assert_test_database_url(database_url)
     engine = create_engine(database_url)
     with engine.begin() as conn:
         conn.execute(
             sa.text(
                 "TRUNCATE TABLE model_versions, training_runs, job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
+        )
+
+
+def _assert_test_database_url(database_url: str) -> None:
+    database_name = (make_url(database_url).database or "").lower()
+    if "test" not in database_name:
+        pytest.fail(
+            f"Refusing to reset non-test database {database_name!r}; "
+            "set FINEVISION_TEST_DATABASE_URL to a dedicated test database."
         )

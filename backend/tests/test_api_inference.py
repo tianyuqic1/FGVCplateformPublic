@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 
 from finevision.api import create_app
 from finevision.db.schema import (
@@ -549,10 +550,20 @@ def _run_forced_ood_inference(client: TestClient, model_version_id: str, tmp_pat
 
 
 def _reset_database(database_url: str) -> None:
+    _assert_test_database_url(database_url)
     engine = create_engine(database_url)
     with engine.begin() as conn:
         conn.execute(
             sa.text(
                 "TRUNCATE TABLE model_versions, training_runs, job_events, artifacts, dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
+        )
+
+
+def _assert_test_database_url(database_url: str) -> None:
+    database_name = (make_url(database_url).database or "").lower()
+    if "test" not in database_name:
+        pytest.fail(
+            f"Refusing to reset non-test database {database_name!r}; "
+            "set FINEVISION_TEST_DATABASE_URL to a dedicated test database."
         )
