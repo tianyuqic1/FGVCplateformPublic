@@ -22,6 +22,7 @@ class LLMSettings:
     provider: str
     model: str
     review_model: str
+    fallback_models: tuple[str, ...]
     reasoning_effort: str
     base_url: str
     wire_api: str
@@ -37,6 +38,7 @@ class LLMSettings:
             provider=os.environ.get("FINEVISION_LLM_PROVIDER", "OpenAI"),
             model=os.environ.get("FINEVISION_LLM_MODEL", "gpt-5.5"),
             review_model=os.environ.get("FINEVISION_LLM_REVIEW_MODEL", os.environ.get("FINEVISION_LLM_MODEL", "gpt-5.5")),
+            fallback_models=tuple(_env_list("FINEVISION_LLM_FALLBACK_MODELS")),
             reasoning_effort=os.environ.get("FINEVISION_LLM_REASONING_EFFORT", "high"),
             base_url=os.environ.get("FINEVISION_LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
             wire_api=os.environ.get("FINEVISION_LLM_WIRE_API", "responses"),
@@ -58,17 +60,18 @@ def generate_assistance(
     _validate_settings(resolved)
     prompt_context, image_data_urls = _prepare_context_for_prompt(context)
     prompt = _prompt_for(task=task, context=prompt_context)
-    raw_text = _responses_request(prompt=prompt, task=task, settings=resolved, image_data_urls=image_data_urls)
+    raw_text, used_model = _llm_request(prompt=prompt, task=task, settings=resolved, image_data_urls=image_data_urls)
     parsed = _parse_json_object(raw_text)
     now = datetime.now(UTC).isoformat()
+    summary = str(parsed.get("summary") or parsed.get("holistic_analysis") or raw_text).strip()
     return {
         "task": task,
         "advisory_only": True,
         "provider": resolved.provider,
-        "model": resolved.review_model if task == "review_assistance" else resolved.model,
+        "model": used_model,
         "reasoning_effort": resolved.reasoning_effort,
         "created_at": now,
-        "summary": str(parsed.get("summary") or raw_text).strip(),
+        "summary": summary,
         "holistic_analysis": str(parsed.get("holistic_analysis") or parsed.get("summary") or "").strip(),
         "inspection_notes": _string_list(parsed.get("inspection_notes")),
         "suggested_actions": _string_list(parsed.get("suggested_actions")),
@@ -87,7 +90,7 @@ def generate_dataset_card(
     resolved = settings or LLMSettings.from_env()
     _validate_settings(resolved)
     prompt = _dataset_card_prompt(manifest=manifest, existing_card=existing_card or {})
-    raw_text = _responses_request(
+    raw_text, used_model = _llm_request(
         prompt=prompt,
         task="dataset_card_generation",
         settings=resolved,
@@ -105,22 +108,74 @@ def generate_dataset_card(
         "generated_from": "llm_class_labels",
         "llm_metadata": {
             "provider": resolved.provider,
-            "model": resolved.model,
+            "model": used_model,
             "reasoning_effort": resolved.reasoning_effort,
             "created_at": now,
         },
     }
 
 
-def _responses_request(
+def _llm_request(
     *,
     prompt: str,
     task: str,
     settings: LLMSettings,
     image_data_urls: list[str] | None = None,
     response_format: dict[str, Any] | None = None,
+) -> tuple[str, str]:
+    primary_model = settings.review_model if task == "review_assistance" else settings.model
+    errors: list[str] = []
+    for model in _candidate_models(primary_model, settings.fallback_models):
+        for wire_api in _candidate_wire_apis(settings.wire_api):
+            try:
+                if wire_api == "responses":
+                    raw_text = _responses_request(
+                        prompt=prompt,
+                        model=model,
+                        settings=settings,
+                        image_data_urls=image_data_urls,
+                        response_format=response_format,
+                    )
+                else:
+                    raw_text = _chat_completions_request(
+                        prompt=prompt,
+                        model=model,
+                        settings=settings,
+                        image_data_urls=image_data_urls,
+                        response_format=response_format,
+                    )
+                if settings.structured_outputs:
+                    _ensure_required_json_fields(raw_text, response_format or _assistance_response_format())
+                return raw_text, model
+            except LLMRequestError as exc:
+                errors.append(f"{model}/{wire_api}: {exc}")
+    details = " | ".join(errors[-6:])
+    raise LLMRequestError(f"LLM provider failed for all configured models: {details}")
+
+
+def _candidate_models(primary_model: str, fallback_models: tuple[str, ...]) -> list[str]:
+    candidates: list[str] = []
+    for model in (primary_model, *fallback_models):
+        normalized = model.strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+    return candidates
+
+
+def _candidate_wire_apis(wire_api: str) -> list[str]:
+    if wire_api == "auto":
+        return ["responses", "chat_completions"]
+    return [wire_api]
+
+
+def _responses_request(
+    *,
+    prompt: str,
+    model: str,
+    settings: LLMSettings,
+    image_data_urls: list[str] | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
-    model = settings.review_model if task == "review_assistance" else settings.model
     payload = _responses_payload(
         prompt=prompt,
         model=model,
@@ -156,6 +211,51 @@ def _responses_request(
     except Exception as exc:
         raise LLMRequestError(f"LLM provider request failed: {exc}") from exc
     return _extract_response_text(body)
+
+
+def _chat_completions_request(
+    *,
+    prompt: str,
+    model: str,
+    settings: LLMSettings,
+    image_data_urls: list[str] | None = None,
+    response_format: dict[str, Any] | None = None,
+) -> str:
+    payload = _chat_completions_payload(
+        prompt=prompt,
+        model=model,
+        settings=settings,
+        image_data_urls=image_data_urls or [],
+        response_format=response_format,
+    )
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if settings.requires_openai_auth:
+        headers["Authorization"] = f"Bearer {settings.api_key}"
+
+    url = f"{settings.base_url}/chat/completions"
+    try:
+        body = _post_responses(url=url, payload=payload, headers=headers, timeout_seconds=settings.timeout_seconds)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        if image_data_urls:
+            fallback_payload = _chat_completions_payload(
+                prompt=prompt,
+                model=model,
+                settings=settings,
+                image_data_urls=[],
+                response_format=response_format,
+            )
+            try:
+                body = _post_responses(url=url, payload=fallback_payload, headers=headers, timeout_seconds=settings.timeout_seconds)
+            except Exception as fallback_exc:
+                raise LLMRequestError(
+                    f"LLM provider rejected chat image input with {exc.code}: {detail}; text fallback failed: {fallback_exc}"
+                ) from fallback_exc
+        else:
+            raise LLMRequestError(f"LLM provider returned {exc.code}: {detail}") from exc
+    except Exception as exc:
+        raise LLMRequestError(f"LLM provider request failed: {exc}") from exc
+    return _extract_chat_completion_text(body)
 
 
 def _post_responses(*, url: str, payload: dict[str, Any], headers: dict[str, str], timeout_seconds: float) -> dict[str, Any]:
@@ -205,6 +305,48 @@ def _responses_payload(
     if settings.structured_outputs:
         payload["text"] = {"format": response_format or _assistance_response_format()}
     return payload
+
+
+def _chat_completions_payload(
+    *,
+    prompt: str,
+    model: str,
+    settings: LLMSettings,
+    image_data_urls: list[str] | None = None,
+    response_format: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    prompt = _json_object_prompt(prompt=prompt, response_format=response_format)
+    image_inputs = [
+        {"type": "image_url", "image_url": {"url": image_data_url, "detail": "auto"}}
+        for image_data_url in (image_data_urls or [])
+        if _is_image_data_url(image_data_url)
+    ]
+    content: str | list[dict[str, Any]]
+    if image_inputs:
+        content = [{"type": "text", "text": prompt}, *image_inputs]
+    else:
+        content = prompt
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0.2,
+        "max_tokens": 900,
+    }
+    if settings.structured_outputs:
+        payload["response_format"] = {"type": "json_object"}
+    return payload
+
+
+def _json_object_prompt(*, prompt: str, response_format: dict[str, Any] | None) -> str:
+    schema = (response_format or _assistance_response_format()).get("schema", {})
+    required = schema.get("required") if isinstance(schema, dict) else None
+    return (
+        f"{prompt}\n\n"
+        "输出要求：必须只返回一个合法 JSON object，不要使用 Markdown，不要添加解释文字。"
+        "JSON object 必须符合下面的 schema；缺失字段也要用合理空值补齐。\n"
+        f"必须包含字段：{json.dumps(required or [], ensure_ascii=False)}。\n"
+        f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+    )
 
 
 def _assistance_response_format() -> dict[str, Any]:
@@ -329,6 +471,16 @@ def _extract_response_text(body: dict[str, Any]) -> str:
     raise LLMRequestError("LLM provider response did not include output text")
 
 
+def _extract_chat_completion_text(body: dict[str, Any]) -> str:
+    choices = body.get("choices") or []
+    for choice in choices:
+        message = choice.get("message") or {}
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    raise LLMRequestError("LLM provider chat response did not include message content")
+
+
 def _prepare_context_for_prompt(context: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     image_data_urls: list[str] = []
 
@@ -435,6 +587,17 @@ def _parse_json_object(text: str) -> dict[str, Any]:
     return {"summary": text}
 
 
+def _ensure_required_json_fields(text: str, response_format: dict[str, Any]) -> None:
+    schema = response_format.get("schema", {})
+    required = schema.get("required", []) if isinstance(schema, dict) else []
+    if not required:
+        return
+    parsed = _parse_json_object(text)
+    missing = [field for field in required if field not in parsed]
+    if missing:
+        raise LLMRequestError(f"LLM response missing required structured fields: {', '.join(missing)}")
+
+
 def _string_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if str(item).strip()]
@@ -444,8 +607,8 @@ def _string_list(value: Any) -> list[str]:
 
 
 def _validate_settings(settings: LLMSettings) -> None:
-    if settings.wire_api != "responses":
-        raise LLMConfigurationError("Only responses wire_api is supported in the LLM Assistant MVP")
+    if settings.wire_api not in {"responses", "chat_completions", "auto"}:
+        raise LLMConfigurationError("FINEVISION_LLM_WIRE_API must be responses, chat_completions, or auto")
     if settings.requires_openai_auth and not settings.api_key:
         raise LLMConfigurationError("OPENAI_API_KEY or FINEVISION_LLM_API_KEY is required")
     if not settings.base_url:
@@ -457,3 +620,8 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name: str) -> list[str]:
+    value = os.environ.get(name, "")
+    return [item.strip() for item in value.split(",") if item.strip()]
