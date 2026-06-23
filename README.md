@@ -145,11 +145,17 @@ The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
 docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
-The implemented shadow-only online-abstention Phase 1 is documented in:
+The implemented online-abstention work is documented in:
 
 ```text
 docs/ONLINE_ABSTENTION_PHASE1.md
 ```
+
+FineVision now supports shadow evaluation plus a manual activation gate for abstention policies.
+A human operator can promote a feedback-backed policy to `active` only after minimum feedback,
+target-risk, exact-scope, and explicit-reason gates pass. Active policies are the only abstention
+policies allowed to affect live inference thresholds; LLM assistance remains advisory-only and
+cannot activate or tune policies.
 
 For a reproducible local demo with PostgreSQL migration and lightweight smoke checks, see:
 
@@ -219,6 +225,8 @@ GET  /api/feedback-items
 POST /api/abstention-policies/propose
 GET  /api/abstention-policies
 GET  /api/abstention-policies/{policy_key}
+POST /api/abstention-policies/{policy_key}/activate
+POST /api/abstention-policies/{policy_key}/deactivate
 GET  /api/abstention-policies/{policy_key}/shadow-decisions
 POST /api/llm/assist
 ```
@@ -239,9 +247,11 @@ lets the configured LLM read class labels and write a domain-aware draft, for ex
 plant disease classes, or CIFAR-10 general objects. LLM assistance receives the card when a request
 references a dataset version.
 
-Online abstention Phase 1 is implemented as shadow-only policy evaluation. The API can propose,
-list, inspect, and audit shadow policy decisions, but it does not expose activation and does not
-change live inference decisions, review routing, model threshold artifacts, or dataset versions.
+Online abstention now has two guarded modes. Shadow policies can be proposed, listed, inspected,
+and audited without changing live inference decisions. A manually activated policy can affect live
+inference thresholds for its exact dataset/model scope, but activation requires an explicit human
+reason and risk/feedback gates. Activation never mutates model threshold artifacts, dataset versions,
+review items, feedback items, or LLM outputs.
 
 For a fresh local database, Compose can apply Alembic migrations before starting the API and worker:
 
@@ -295,6 +305,13 @@ extractor, so it does not train DINOv3 or download model weights:
 
 ```text
 scripts/smoke-online-abstention-contract.sh
+```
+
+To include the manual activation gate contract smoke:
+
+```text
+scripts/smoke-online-abstention-contract.sh --with-activation-contracts
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
 ```
 
 Run frontend API client smoke checks:

@@ -258,19 +258,30 @@ metrics jsonb not null
 source_feedback_count integer not null
 selection_config jsonb not null
 created_by text
+activated_by text
+activation_reason text
+activated_at timestamptz
+deactivated_by text
+deactivation_reason text
+deactivated_at timestamptz
 created_at timestamptz not null
 updated_at timestamptz not null
 ```
 
-`status` 建议：
+`status`：
 
 ```text
 shadow
 candidate
+active
+superseded
+deactivated
 archived
 ```
 
-第一阶段只实现 `shadow` / `candidate` / `archived`。`active` 没有实现，避免误导为生产启用能力。
+`shadow` / `candidate` 只做回放评估。`active` 是唯一会影响真实推理阈值的状态。
+同一 `dataset_version_id + model_version_id` 通过部分唯一索引限制最多一个 active policy。
+启用新策略会把旧 active 策略标记为 `superseded`；人工停用会标记为 `deactivated`。
 
 ### abstention_shadow_decisions
 
@@ -301,21 +312,144 @@ other_change
 
 ## API 设计建议
 
-第一阶段已实现这些 API：
+已实现这些 API：
 
 ```text
 POST /api/abstention-policies/propose
 GET  /api/abstention-policies
 GET  /api/abstention-policies/{policy_key}
+POST /api/abstention-policies/{policy_key}/activate
+POST /api/abstention-policies/{policy_key}/deactivate
 GET  /api/abstention-policies/{policy_key}/shadow-decisions
 ```
 
-第一阶段实现范围到此为止：只支持 shadow/candidate 策略生成、查询和 shadow decision
-审计。没有实现 activation API；候选策略不会改变真实推理 decision、review routing、
-model threshold artifact、feedback item 或 dataset version。
+默认仍是 shadow/candidate 策略生成、查询和 shadow decision 审计。只有经过人工
+activation gate 的 `active` policy 会改变真实推理阈值。无论是否 active，策略都不会
+修改 model threshold artifact、feedback item 或 dataset version。
 
-暂不建议做自动启用接口。若要启用，也必须是后续阶段的手动操作，并带 release gate
-和 rollback metadata。这个接口第一阶段未实现。
+## Manual Activation Gate
+
+Manual Activation Gate 不是自动在线调参，而是把已经生成的 shadow policy 变成一个
+可人工审核、可启用、可停用/回滚的策略版本系统。
+
+目标流程：
+
+```text
+feedback pool
+-> propose shadow policy
+-> shadow replay / diff report
+-> manual activation gate
+-> active policy affects live inference thresholds
+-> monitor / deactivate / rollback
+```
+
+### 范围边界
+
+当前已实现：
+
+- `active` policy 状态，但同一 `dataset_version_id + model_version_id` 同一时间只能有一个 active policy。
+- 手动启用 API，要求操作者提供明确 reason。
+- 手动停用/回滚 API，把 active policy 退回非 active 状态；回滚通过重新激活历史 policy 完成。
+- 推理时优先读取 active policy 的 `tau_conf`、`tau_margin`、`tau_ood`。
+- 推理响应记录 `applied_policy_id` / `applied_policy_source`，方便追溯。
+- UI 上明确展示 active 与 shadow 的差异，并把启用操作放在人工确认门禁后。
+
+仍然不实现：
+
+- 不做自动启用。
+- 不做 LLM 启用策略。
+- 不让 LLM 调阈值或绕过人工 reason。
+- 不把 feedback 直接写回训练集。
+- 不把 shadow/candidate policy 默认为生产策略。
+
+### Manual Activation Gate
+
+启用策略必须满足最小门禁：
+
+```text
+min_feedback_count: source_feedback_count >= configured_min_feedback_count
+risk_gate: metrics.selective_risk <= target_selective_risk
+manual_reason: non-empty activation reason from an operator
+status_gate: policy status is shadow, candidate, superseded, or deactivated; archived cannot be activated
+scope_gate: policy dataset_version_id and model_version_id exactly match the target inference scope
+```
+
+当前 MVP 默认值：
+
+```text
+configured_min_feedback_count = 5
+target_selective_risk = user supplied, commonly 0.01 to 0.05
+```
+
+测试环境可以显式传更低的 `min_feedback_count` 覆盖默认值，但生产默认不能因为样本不足而启用策略。
+
+### LLM 权限边界
+
+LLM 可以做：
+
+- 总结候选策略的风险。
+- 解释为什么某个样本从 accept 变成 abstain。
+- 生成启用前的检查建议。
+
+LLM 不能做：
+
+- 调用 activation API。
+- 修改 `tau_conf`、`tau_margin`、`tau_ood`。
+- 生成或代填人工 activation reason 后自动提交。
+- 把策略状态改成 active。
+
+### API 合同
+
+```text
+POST /api/abstention-policies/{policy_key}/activate
+POST /api/abstention-policies/{policy_key}/deactivate
+```
+
+`POST /activate` 请求体：
+
+```json
+{
+  "activation_reason": "Shadow replay meets 5% target risk with reviewed samples.",
+  "min_feedback_count": 5,
+  "activated_by": "local-operator"
+}
+```
+
+`POST /activate` 返回启用后的 policy。
+
+`POST /deactivate` 请求体：
+
+```json
+{
+  "deactivation_reason": "Rollback after drift review.",
+  "deactivated_by": "local-operator"
+}
+```
+
+停用后，真实推理不应继续使用该 policy 的阈值。
+
+### 验收合同
+
+下一阶段完成后必须证明：
+
+- 未达 `min_feedback_count` 时启用失败。
+- `selective_risk > target_selective_risk` 时启用失败。
+- 缺少人工 reason 时启用失败。
+- LLM assist endpoint 不能启用策略。
+- 启用后，同 scope 的真实推理使用 active policy threshold snapshot。
+- 启用后，abstain / reject_ood 仍按真实 decision 进入 review queue。
+- 停用/回滚后，同 scope 推理回到模型版本默认阈值。
+- 同一 scope 不允许同时存在两个 active policy。
+- activation/deactivation 操作有审计字段：operator、reason、timestamp。
+
+验收命令：
+
+```text
+scripts/smoke-online-abstention-contract.sh --with-activation-contracts
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
+```
+
+上述命令会额外覆盖 activate、active inference、deactivate 和 rollback 合同。
 
 ## 前端页面建议
 
@@ -358,9 +492,11 @@ model threshold artifact、feedback item 或 dataset version。
 - 候选策略包含 `tau_conf`、`tau_margin`、`tau_ood` 和目标风险。
 - 候选策略报告包含 coverage、selective risk、review cost。
 - 推理事件可以记录 shadow decision，且不改变真实 decision。
-- UI 明确展示 shadow-only 状态。
+- UI 明确区分 shadow / active / superseded / deactivated；只有 active 会影响真实推理阈值。
+- 人工启用必须通过 min feedback、selective risk、状态和人工原因门禁。
+- 手动停用 active policy 后，真实推理回到模型默认 threshold strategy；回滚通过重新激活历史 policy 完成。
 - LLM 只能解释报告，不能改策略。
-- 测试覆盖策略生成、指标计算、shadow decision 记录和不改变真实推理路径。
+- 测试覆盖策略生成、指标计算、shadow decision、人工启用、真实推理应用 active policy、停用和回滚。
 
 ## 推荐实施顺序
 

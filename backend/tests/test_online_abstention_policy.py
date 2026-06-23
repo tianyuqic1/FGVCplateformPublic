@@ -215,6 +215,17 @@ def test_abstention_schema_metadata_includes_shadow_uniqueness_and_indexes() -> 
     assert "ix_abstention_shadow_policy_diff_created_at" in {
         index.name for index in abstention_shadow_decisions.indexes
     }
+    assert "uq_abstention_policy_versions_active_scope" in {
+        index.name for index in abstention_policy_versions.indexes
+    }
+    status_constraints = {
+        constraint.name: str(constraint.sqltext)
+        for constraint in abstention_policy_versions.constraints
+        if constraint.name == "ck_abstention_policy_versions_status"
+    }
+    assert "active" in status_constraints["ck_abstention_policy_versions_status"]
+    assert "superseded" in status_constraints["ck_abstention_policy_versions_status"]
+    assert "deactivated" in status_constraints["ck_abstention_policy_versions_status"]
 
 
 def _model_artifact() -> ModelArtifact:

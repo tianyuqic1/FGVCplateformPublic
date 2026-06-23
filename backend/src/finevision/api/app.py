@@ -20,7 +20,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from finevision.api.abstention_store import DatabaseAbstentionStore, InsufficientFeedbackError
+from finevision.api.abstention_store import AbstentionPolicyGateError, DatabaseAbstentionStore, InsufficientFeedbackError
 from finevision.api.inference_store import DatabaseInferenceStore, InferenceContext
 from finevision.api.llm import (
     LLMConfigurationError,
@@ -116,6 +116,17 @@ class ProposeAbstentionPolicyRequest(BaseModel):
     target_selective_risk: float = Field(default=0.05, ge=0.0, le=1.0)
     review_cost_per_item: float = Field(default=1.0, ge=0.0)
     created_by: str | None = Field(default="local-operator")
+
+
+class ActivateAbstentionPolicyRequest(BaseModel):
+    activated_by: str | None = Field(default="local-operator")
+    activation_reason: str = Field(..., min_length=1, max_length=1200)
+    min_feedback_count: int = Field(default=5, ge=1, le=100000)
+
+
+class DeactivateAbstentionPolicyRequest(BaseModel):
+    deactivated_by: str | None = Field(default="local-operator")
+    deactivation_reason: str = Field(..., min_length=1, max_length=1200)
 
 
 def create_app(metadata_dir: str | Path | None = None, database_url: str | None = None) -> FastAPI:
@@ -727,7 +738,7 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
         if abstention_store is None:
             return {"policies": []}
-        allowed_statuses = {None, "", "all", "shadow", "candidate", "archived"}
+        allowed_statuses = {None, "", "all", "shadow", "candidate", "active", "superseded", "deactivated", "archived"}
         if status_filter not in allowed_statuses:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported abstention policy status")
         normalized_status = None if status_filter in {None, "", "all"} else status_filter
@@ -751,6 +762,47 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         policy = abstention_store.get_policy(policy_id)
         if policy is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Abstention policy not found")
+        return {"policy": _abstention_policy_payload(policy)}
+
+    @api.post("/api/abstention-policies/{policy_id}/activate")
+    def activate_abstention_policy(policy_id: str, request: ActivateAbstentionPolicyRequest) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Abstention policy activation requires DATABASE_URL-backed persistence",
+            )
+        try:
+            policy = abstention_store.activate_policy(
+                policy_id,
+                activated_by=request.activated_by,
+                activation_reason=request.activation_reason,
+                min_feedback_count=request.min_feedback_count,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except AbstentionPolicyGateError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return {"policy": _abstention_policy_payload(policy)}
+
+    @api.post("/api/abstention-policies/{policy_id}/deactivate")
+    def deactivate_abstention_policy(policy_id: str, request: DeactivateAbstentionPolicyRequest) -> dict[str, object]:
+        abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+        if abstention_store is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Abstention policy deactivation requires DATABASE_URL-backed persistence",
+            )
+        try:
+            policy = abstention_store.deactivate_policy(
+                policy_id,
+                deactivated_by=request.deactivated_by,
+                deactivation_reason=request.deactivation_reason,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except AbstentionPolicyGateError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return {"policy": _abstention_policy_payload(policy)}
 
     @api.get("/api/abstention-policies/{policy_id}/shadow-decisions")
@@ -1092,6 +1144,43 @@ def _run_scoped_inference_payload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model version not found for dataset version")
 
     strategy = context.threshold_strategy
+    effective_request = request
+    applied_policy_id: str | None = None
+    applied_policy_source = "model_threshold_strategy"
+    has_manual_threshold_override = any(
+        value is not None
+        for value in (request.accept_threshold, request.margin_threshold, request.ood_distance_threshold)
+    )
+    abstention_store: DatabaseAbstentionStore | None = api.state.abstention_store
+    if not has_manual_threshold_override and abstention_store is not None:
+        active_policy = abstention_store.get_active_policy(
+            dataset_version_id=request.dataset_version_id,
+            model_version_id=request.model_version_id,
+        )
+        if active_policy is not None:
+            strategy = replace(
+                strategy,
+                strategy_id=f"{active_policy.policy_id}:active",
+                accept_threshold=active_policy.tau_conf,
+                margin_threshold=active_policy.tau_margin,
+                target_selective_risk=active_policy.target_selective_risk,
+                expected_coverage=float(active_policy.metrics.get("coverage", strategy.expected_coverage)),
+                expected_selective_risk=float(active_policy.metrics.get("selective_risk", strategy.expected_selective_risk)),
+                review_cost_per_item=float(active_policy.metrics.get("review_cost_per_item", strategy.review_cost_per_item)),
+                selection_rule="active_abstention_policy",
+                selection_config={
+                    **strategy.selection_config,
+                    "active_policy_id": active_policy.policy_id,
+                    "policy_selection_config": active_policy.selection_config,
+                },
+            )
+            if active_policy.tau_ood is not None:
+                effective_request = request.model_copy(update={"ood_distance_threshold": active_policy.tau_ood})
+            applied_policy_id = active_policy.policy_id
+            applied_policy_source = "active_abstention_policy"
+    elif has_manual_threshold_override:
+        applied_policy_source = "request_threshold_override"
+
     if request.accept_threshold is not None or request.margin_threshold is not None:
         strategy = replace(
             strategy,
@@ -1106,7 +1195,7 @@ def _run_scoped_inference_payload(
     try:
         result = _run_inference_from_context(
             context=context,
-            request=request,
+            request=effective_request,
             strategy=strategy,
         )
     except FileNotFoundError as exc:
@@ -1136,6 +1225,8 @@ def _run_scoped_inference_payload(
         "model_artifact_id": context.model_artifact.artifact_id,
         "feature_artifact_id": context.feature_artifact.artifact_id,
         "threshold_strategy_id": result.threshold_strategy_id,
+        "applied_policy_id": applied_policy_id,
+        "applied_policy_source": applied_policy_source,
         "input": input_payload,
         "result": to_jsonable(result),
     }
@@ -1287,6 +1378,12 @@ def _abstention_policy_payload(item: Any) -> dict[str, object]:
         "metrics": metrics,
         "selection_config": item.selection_config,
         "created_by": item.created_by,
+        "activated_by": item.activated_by,
+        "activation_reason": item.activation_reason,
+        "activated_at": item.activated_at,
+        "deactivated_by": item.deactivated_by,
+        "deactivation_reason": item.deactivation_reason,
+        "deactivated_at": item.deactivated_at,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

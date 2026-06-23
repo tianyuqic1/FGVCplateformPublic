@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
 from finevision.api import create_app
+from finevision.api.db_store import DatabaseJobStore, DatabaseMetadataStore
+from finevision.api.training_store import DatabaseTrainingStore
 from finevision.db.schema import (
+    abstention_policy_versions,
     abstention_shadow_decisions,
     artifacts,
     dataset_versions,
@@ -25,7 +29,29 @@ from finevision.db.schema import (
     training_runs,
 )
 from finevision.ml_toolkit.toydata import create_toy_imagefolder
-from finevision.worker import run_next_job
+from finevision.worker.jobs import _run_job
+
+
+_CLIENTS_TO_CLOSE: list[TestClient] = []
+
+
+@pytest.fixture(autouse=True)
+def close_test_clients() -> None:
+    yield
+    _close_test_clients()
+
+
+def _close_test_clients() -> None:
+    while _CLIENTS_TO_CLOSE:
+        client = _CLIENTS_TO_CLOSE.pop()
+        client.close()
+        disposed_engine_ids: set[int] = set()
+        for attr in ("metadata_store", "job_store", "training_store", "inference_store", "review_store", "abstention_store"):
+            store = getattr(client.app.state, attr, None)
+            engine = getattr(store, "engine", None)
+            if engine is not None and id(engine) not in disposed_engine_ids:
+                engine.dispose()
+                disposed_engine_ids.add(id(engine))
 
 
 @pytest.fixture()
@@ -249,10 +275,11 @@ def _trained_toy_context(
 ) -> tuple[TestClient, str, str, str]:
     dataset_dir = create_toy_imagefolder(tmp_path / "toy-imagefolder", samples_per_class=5)
     artifact_dir = tmp_path / "artifacts"
-    client = TestClient(create_app(database_url=database_url))
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("FINEVISION_ARTIFACT_DIR", str(artifact_dir))
     monkeypatch.delenv("FINEVISION_METADATA_DIR", raising=False)
+    client = TestClient(create_app(database_url=database_url))
+    _CLIENTS_TO_CLOSE.append(client)
 
     import_response = client.post(
         "/api/datasets/import-imagefolder",
@@ -270,8 +297,8 @@ def _trained_toy_context(
     )
     assert create_run_response.status_code == 202
 
-    completed_job = run_next_job()
-    assert completed_job is not None
+    job_id = create_run_response.json()["training_run"]["job_id"]
+    completed_job = _run_created_job(database_url, job_id)
     assert completed_job.status == "succeeded"
     model_version_id = str(completed_job.result["model_version_id"])
 
@@ -334,6 +361,55 @@ def _create_nonfeedback_inference_sample(client: TestClient, *, model_version_id
     return str(inference["inference_event_id"])
 
 
+def _run_created_job(database_url: str, job_id: str):
+    job_store = DatabaseJobStore(database_url)
+    job = job_store.get_job(job_id)
+    assert job is not None
+    running = replace(job, status="running")
+    job_store.save_job(running)
+    metadata_store = DatabaseMetadataStore(database_url)
+    training_store = DatabaseTrainingStore(database_url)
+    try:
+        result = _run_job(running, metadata_store, training_store)
+    except Exception as exc:
+        job_store.save_job(replace(running, status="failed", error=str(exc)))
+        raise
+    completed = replace(running, status="succeeded", result=result, error=None)
+    job_store.save_job(completed)
+    return completed
+
+
+def _propose_policy(client: TestClient, *, model_version_id: str) -> dict[str, object]:
+    propose_response = client.post(
+        "/api/abstention-policies/propose",
+        json={
+            "dataset_version_id": "dataset@policy-api-toy-001",
+            "model_version_id": model_version_id,
+            "target_selective_risk": 0.05,
+        },
+    )
+    assert propose_response.status_code == 201
+    return propose_response.json()["policy"]
+
+
+def _run_created_job(database_url: str, job_id: str):
+    job_store = DatabaseJobStore(database_url)
+    job = job_store.get_job(job_id)
+    assert job is not None
+    running = replace(job, status="running")
+    job_store.save_job(running)
+    metadata_store = DatabaseMetadataStore(database_url)
+    training_store = DatabaseTrainingStore(database_url)
+    try:
+        result = _run_job(running, metadata_store, training_store)
+    except Exception as exc:
+        job_store.save_job(replace(running, status="failed", error=str(exc)))
+        raise
+    completed = replace(running, status="succeeded", result=result, error=None)
+    job_store.save_job(completed)
+    return completed
+
+
 def _event_counts(engine: sa.Engine) -> dict[str, int]:
     with engine.begin() as conn:
         return {
@@ -346,11 +422,13 @@ def _event_counts(engine: sa.Engine) -> dict[str, int]:
 
 def _reset_database(database_url: str) -> None:
     _assert_test_database_url(database_url)
+    _close_test_clients()
     engine = create_engine(database_url)
     with engine.begin() as conn:
         conn.execute(
             sa.text(
-                "TRUNCATE TABLE model_versions, training_runs, job_events, artifacts, "
+                "TRUNCATE TABLE abstention_shadow_decisions, abstention_policy_versions, "
+                "feedback_items, review_items, inference_events, model_versions, training_runs, job_events, artifacts, "
                 "dataset_versions, datasets, jobs RESTART IDENTITY CASCADE"
             )
         )

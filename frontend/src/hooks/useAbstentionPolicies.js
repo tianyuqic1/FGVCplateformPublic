@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  activateAbstentionPolicy,
+  deactivateAbstentionPolicy,
   listAbstentionPolicies,
   listAbstentionShadowDecisions,
   proposeAbstentionPolicy,
@@ -80,4 +82,40 @@ export function useProposeAbstentionPolicy() {
   }, []);
 
   return { ...state, propose };
+}
+
+export function useActivateAbstentionPolicy() {
+  const [state, setState] = useState({ status: "idle", error: null, result: null });
+
+  const activate = useCallback(async (policyId, input = {}) => {
+    setState({ status: "submitting", error: null, result: null });
+    try {
+      const result = await activateAbstentionPolicy(policyId, input);
+      setState({ status: "succeeded", error: null, result });
+      return result;
+    } catch (error) {
+      setState({ status: "failed", error, result: null });
+      throw error;
+    }
+  }, []);
+
+  return { ...state, activate };
+}
+
+export function useDeactivateAbstentionPolicy() {
+  const [state, setState] = useState({ status: "idle", error: null, result: null });
+
+  const deactivate = useCallback(async (policyId, input = {}) => {
+    setState({ status: "submitting", error: null, result: null });
+    try {
+      const result = await deactivateAbstentionPolicy(policyId, input);
+      setState({ status: "succeeded", error: null, result });
+      return result;
+    } catch (error) {
+      setState({ status: "failed", error, result: null });
+      throw error;
+    }
+  }, []);
+
+  return { ...state, deactivate };
 }

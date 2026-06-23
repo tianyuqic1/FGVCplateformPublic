@@ -646,6 +646,65 @@ scripts/smoke-online-abstention-contract.sh
 cd frontend && npm run build
 ```
 
+## Iteration 5D: Abstention Policy Registry And Manual Activation Gate
+
+Status: implemented MVP as of 2026-06-23.
+
+Objective: move from shadow-only abstention policy evaluation to a manually gated active-policy
+workflow that can safely affect live inference thresholds.
+
+Scope:
+
+- Extend abstention policy registry semantics with `active` and deactivated/archived policy history.
+- Enforce one active policy per `dataset_version_id + model_version_id` scope.
+- Add manual activation and deactivation/rollback APIs.
+- Require activation gates:
+  - minimum evaluable feedback count.
+  - policy `selective_risk <= target_selective_risk`.
+  - non-empty human operator reason.
+  - exact dataset-version/model-version scope match.
+- Make live inference prefer active policy thresholds over model-version default threshold artifacts.
+- Persist active policy id/source and threshold snapshot in inference event payloads.
+- Keep LLM assistance advisory-only; LLM may explain a policy report but cannot activate,
+  deactivate, tune thresholds, or supply the final operator reason.
+- Add UI review of active/candidate policies with gate status, activation reason, and rollback action.
+
+Non-goals:
+
+- No automatic online threshold update.
+- No bandit/regret-minimization policy.
+- No LLM-driven activation.
+- No direct mutation of training datasets from feedback.
+
+Acceptance:
+
+- Activation fails when feedback count is below the configured minimum.
+- Activation fails when candidate selective risk exceeds the target risk.
+- Activation fails without an explicit human reason.
+- LLM endpoints remain advisory-only and do not call policy activation APIs.
+- Activation succeeds for a gated policy and marks it active for exactly one dataset/model scope.
+- Live inference in that scope uses the active policy's `tau_conf`, `tau_margin`, and `tau_ood`.
+- Inference event payloads record the policy/source and threshold snapshot used for the decision.
+- Deactivation/rollback stops the policy from influencing live inference.
+- A second active policy cannot exist in the same scope.
+- Smoke covers activation, active inference, and deactivation/rollback. LLM remains separated by API
+  design rather than sharing any activation code path.
+
+Suggested checkpoint pushes:
+
+- `feat: add abstention activation gate`
+- `feat: apply active abstention policy in inference`
+- `feat: show active policy registry`
+- `test: cover abstention policy activation`
+
+Validation:
+
+```text
+scripts/smoke-online-abstention-contract.sh --with-activation-contracts
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
+cd frontend && npm run build
+```
+
 ## Iteration 5B: Model Registry And Release Gates
 
 Objective: make model promotion auditable and safe.

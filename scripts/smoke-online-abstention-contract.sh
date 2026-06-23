@@ -9,11 +9,12 @@ FINEVISION_TEST_DATABASE_NAME="${FINEVISION_TEST_DATABASE_NAME:-finevision_test}
 prepare_db=1
 skip_if_unavailable=0
 dry_run=0
+with_activation_contracts=0
 lock_file="${TMPDIR:-/tmp}/finevision-online-abstention-smoke-${USER:-user}.lock"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/smoke-online-abstention-contract.sh [--no-prepare] [--skip-if-unavailable] [--dry-run]
+Usage: scripts/smoke-online-abstention-contract.sh [--no-prepare] [--skip-if-unavailable] [--dry-run] [--with-activation-contracts]
 
 Runs the minimal online-abstention contract smoke against a dedicated test
 database. The default URL is:
@@ -22,6 +23,9 @@ database. The default URL is:
 
 The smoke uses toy data and the lightweight default extractor; it does not run
 DINOv3 or download model weights.
+
+--with-activation-contracts also runs the manual activation gate contract:
+activate, active-policy inference, deactivate, and rollback.
 USAGE
 }
 
@@ -35,6 +39,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dry-run)
       dry_run=1
+      ;;
+    --with-activation-contracts)
+      with_activation_contracts=1
       ;;
     -h|--help)
       usage
@@ -78,6 +85,7 @@ prepare_test_database() {
   fi
 
   if db_available; then
+    DATABASE_URL="$FINEVISION_TEST_DATABASE_URL" uv run alembic upgrade head
     return 0
   fi
 
@@ -99,10 +107,28 @@ prepare_test_database() {
 }
 
 run_smoke() {
+  local tests=(
+    backend/tests/test_online_abstention_policy.py
+    backend/tests/test_api_online_abstention_policy_contract.py
+  )
+
+  if [[ "$with_activation_contracts" -eq 1 ]]; then
+    if [[ ! -f backend/tests/test_api_abstention_activation_contract.py ]]; then
+      cat <<ERROR >&2
+Activation contract smoke was requested, but the contract test file does not exist yet:
+  backend/tests/test_api_abstention_activation_contract.py
+
+Implement the manual activation gate backend contract first, then rerun:
+  scripts/smoke-online-abstention-contract.sh --with-activation-contracts
+ERROR
+      exit 1
+    fi
+    tests+=(backend/tests/test_api_abstention_activation_contract.py)
+  fi
+
   FINEVISION_TEST_DATABASE_URL="$FINEVISION_TEST_DATABASE_URL" \
     uv run --group dev pytest \
-      backend/tests/test_online_abstention_policy.py \
-      backend/tests/test_api_online_abstention_policy_contract.py \
+      "${tests[@]}" \
       -q
 }
 
@@ -114,6 +140,13 @@ FINEVISION_TEST_DATABASE_URL=$FINEVISION_TEST_DATABASE_URL \\
   uv run --group dev pytest \\
     backend/tests/test_online_abstention_policy.py \\
     backend/tests/test_api_online_abstention_policy_contract.py \\
+DRYRUN
+  if [[ "$with_activation_contracts" -eq 1 ]]; then
+    cat <<DRYRUN
+    backend/tests/test_api_abstention_activation_contract.py \\
+DRYRUN
+  fi
+  cat <<DRYRUN
     -q
 DRYRUN
   exit 0

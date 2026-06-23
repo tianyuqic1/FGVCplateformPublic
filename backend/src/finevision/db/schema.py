@@ -258,9 +258,15 @@ abstention_policy_versions = sa.Table(
     sa.Column("metrics", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("selection_config", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("created_by", sa.Text()),
+    sa.Column("activated_by", sa.Text()),
+    sa.Column("activation_reason", sa.Text()),
+    sa.Column("activated_at", sa.DateTime(timezone=True)),
+    sa.Column("deactivated_by", sa.Text()),
+    sa.Column("deactivation_reason", sa.Text()),
+    sa.Column("deactivated_at", sa.DateTime(timezone=True)),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.CheckConstraint("status in ('shadow', 'candidate', 'archived')", name="ck_abstention_policy_versions_status"),
+    sa.CheckConstraint("status in ('shadow', 'candidate', 'active', 'superseded', 'deactivated', 'archived')", name="ck_abstention_policy_versions_status"),
     sa.CheckConstraint("target_selective_risk >= 0 and target_selective_risk <= 1", name="ck_abstention_policy_target_risk"),
     sa.CheckConstraint("tau_conf >= 0 and tau_conf <= 1", name="ck_abstention_policy_tau_conf"),
     sa.CheckConstraint("tau_margin >= 0 and tau_margin <= 1", name="ck_abstention_policy_tau_margin"),
@@ -277,6 +283,13 @@ sa.Index(
     "ix_abstention_policy_versions_status_created_at",
     abstention_policy_versions.c.status,
     abstention_policy_versions.c.created_at,
+)
+sa.Index(
+    "uq_abstention_policy_versions_active_scope",
+    abstention_policy_versions.c.dataset_version_id,
+    abstention_policy_versions.c.model_version_id,
+    unique=True,
+    postgresql_where=abstention_policy_versions.c.status == "active",
 )
 
 abstention_shadow_decisions = sa.Table(

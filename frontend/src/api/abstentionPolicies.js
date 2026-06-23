@@ -18,14 +18,19 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
 
   if (!response.ok) {
     let detail = `${response.status} ${method} ${path}`;
+    let errorPayload = null;
     try {
       const payload = await response.json();
+      errorPayload = payload;
       const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
       detail = message ? `${detail}: ${message}` : detail;
     } catch {
       // Keep the HTTP status fallback when the response body is not JSON.
     }
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.status = response.status;
+    error.payload = errorPayload;
+    throw error;
   }
 
   return response.json();
@@ -55,8 +60,23 @@ export function normalizePolicy(raw = {}) {
     estimatedReviewCost: Number(raw.estimatedReviewCost ?? raw.estimated_review_cost ?? metrics.estimated_review_cost ?? 0),
     metrics,
     selectionConfig: raw.selectionConfig ?? raw.selection_config ?? {},
+    activationGate: raw.activationGate ?? raw.activation_gate ?? raw.gate ?? null,
+    activatedBy: raw.activatedBy ?? raw.activated_by ?? null,
+    activationReason: raw.activationReason ?? raw.activation_reason ?? null,
+    activatedAt: raw.activatedAt ?? raw.activated_at ?? null,
+    deactivatedBy: raw.deactivatedBy ?? raw.deactivated_by ?? null,
+    deactivationReason: raw.deactivationReason ?? raw.deactivation_reason ?? null,
+    deactivatedAt: raw.deactivatedAt ?? raw.deactivated_at ?? null,
     createdBy: raw.createdBy ?? raw.created_by ?? null,
     createdAt: raw.createdAt ?? raw.created_at ?? null,
+  };
+}
+
+export function normalizeActivationResult(raw = {}) {
+  return {
+    policy: raw.policy ? normalizePolicy(raw.policy) : normalizePolicy(raw),
+    gate: raw.gate ?? raw.activation_gate ?? raw.policy?.activation_gate ?? null,
+    message: raw.message ?? raw.detail ?? null,
   };
 }
 
@@ -84,6 +104,28 @@ export async function proposeAbstentionPolicy(input) {
       signal,
     });
     return normalizePolicy(payload.policy);
+  });
+}
+
+export async function activateAbstentionPolicy(policyId, input = {}) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/abstention-policies/${encodeURIComponent(policyId)}/activate`, {
+      method: "POST",
+      body: input,
+      signal,
+    });
+    return normalizeActivationResult(payload);
+  });
+}
+
+export async function deactivateAbstentionPolicy(policyId, input = {}) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/abstention-policies/${encodeURIComponent(policyId)}/deactivate`, {
+      method: "POST",
+      body: input,
+      signal,
+    });
+    return normalizeActivationResult(payload);
   });
 }
 

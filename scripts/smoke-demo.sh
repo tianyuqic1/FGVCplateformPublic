@@ -9,6 +9,7 @@ FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 WAIT_SECONDS="${WAIT_SECONDS:-90}"
 RUN_FRONTEND_ROUTE_SMOKE="${RUN_FRONTEND_ROUTE_SMOKE:-0}"
 RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE="${RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE:-1}"
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE="${RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE:-0}"
 contracts_only=0
 
 usage() {
@@ -79,7 +80,11 @@ npm --prefix frontend run smoke:llm-client
 
 if [[ "$RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE" == "1" ]]; then
   echo "Running online abstention contract smoke..."
-  scripts/smoke-online-abstention-contract.sh --skip-if-unavailable
+  activation_args=()
+  if [[ "$RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE" == "1" ]]; then
+    activation_args+=(--with-activation-contracts)
+  fi
+  scripts/smoke-online-abstention-contract.sh --skip-if-unavailable "${activation_args[@]}"
 else
   echo "Skipping online abstention contract smoke; set RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE=1 to include it."
 fi

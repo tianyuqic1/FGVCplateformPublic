@@ -31,6 +31,13 @@ class InsufficientFeedbackError(RuntimeError):
     pass
 
 
+class AbstentionPolicyGateError(RuntimeError):
+    pass
+
+
+MIN_ACTIVATION_FEEDBACK_COUNT = 5
+
+
 @dataclass(frozen=True)
 class AbstentionPolicyRecord:
     policy_id: str
@@ -46,6 +53,12 @@ class AbstentionPolicyRecord:
     metrics: dict[str, Any]
     selection_config: dict[str, Any]
     created_by: str | None
+    activated_by: str | None
+    activation_reason: str | None
+    activated_at: str | None
+    deactivated_by: str | None
+    deactivation_reason: str | None
+    deactivated_at: str | None
     created_at: str
     updated_at: str
 
@@ -158,6 +171,118 @@ class DatabaseAbstentionStore:
             row = conn.execute(_policy_select().where(abstention_policy_versions.c.policy_key == policy_id)).mappings().first()
         return _policy_from_row(row) if row else None
 
+    def get_active_policy(self, *, dataset_version_id: str, model_version_id: str) -> AbstentionPolicyRecord | None:
+        query = (
+            _policy_select()
+            .where(
+                dataset_versions.c.version_key == dataset_version_id,
+                model_versions.c.model_key == model_version_id,
+                abstention_policy_versions.c.status == "active",
+            )
+            .order_by(abstention_policy_versions.c.activated_at.desc().nullslast(), abstention_policy_versions.c.updated_at.desc())
+            .limit(1)
+        )
+        with self.engine.begin() as conn:
+            row = conn.execute(query).mappings().first()
+        return _policy_from_row(row) if row else None
+
+    def activate_policy(
+        self,
+        policy_id: str,
+        *,
+        activated_by: str | None = None,
+        activation_reason: str | None = None,
+        min_feedback_count: int = MIN_ACTIVATION_FEEDBACK_COUNT,
+    ) -> AbstentionPolicyRecord:
+        reason = (activation_reason or "").strip()
+        if not reason:
+            raise AbstentionPolicyGateError("Activation requires a human-readable reason.")
+
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                _policy_select_with_ids().where(abstention_policy_versions.c.policy_key == policy_id)
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Abstention policy not found: {policy_id}")
+            if row["status"] not in {"shadow", "candidate", "superseded", "deactivated"}:
+                raise AbstentionPolicyGateError(
+                    "Only shadow, candidate, superseded, or deactivated policies can be activated; "
+                    f"current status is {row['status']}."
+                )
+
+            self._assert_activation_gate(row, min_feedback_count=min_feedback_count)
+            conn.execute(
+                abstention_policy_versions.update()
+                .where(
+                    abstention_policy_versions.c.dataset_version_id == row["dataset_version_db_id"],
+                    abstention_policy_versions.c.model_version_id == row["model_version_db_id"],
+                    abstention_policy_versions.c.status == "active",
+                    abstention_policy_versions.c.id != row["policy_db_id"],
+                )
+                .values(
+                    status="superseded",
+                    deactivated_by=activated_by,
+                    deactivation_reason=f"superseded by {policy_id}",
+                    deactivated_at=now,
+                    updated_at=now,
+                )
+            )
+            conn.execute(
+                abstention_policy_versions.update()
+                .where(abstention_policy_versions.c.id == row["policy_db_id"])
+                .values(
+                    status="active",
+                    activated_by=activated_by,
+                    activation_reason=reason,
+                    activated_at=now,
+                    deactivated_by=None,
+                    deactivation_reason=None,
+                    deactivated_at=None,
+                    updated_at=now,
+                )
+            )
+        policy = self.get_policy(policy_id)
+        if policy is None:
+            raise ValueError(f"Abstention policy was not activated: {policy_id}")
+        return policy
+
+    def deactivate_policy(
+        self,
+        policy_id: str,
+        *,
+        deactivated_by: str | None = None,
+        deactivation_reason: str | None = None,
+    ) -> AbstentionPolicyRecord:
+        reason = (deactivation_reason or "").strip()
+        if not reason:
+            raise AbstentionPolicyGateError("Deactivation requires a human-readable reason.")
+
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                _policy_select_with_ids().where(abstention_policy_versions.c.policy_key == policy_id)
+            ).mappings().first()
+            if row is None:
+                raise ValueError(f"Abstention policy not found: {policy_id}")
+            if row["status"] != "active":
+                raise AbstentionPolicyGateError(f"Only active policies can be deactivated; current status is {row['status']}.")
+            conn.execute(
+                abstention_policy_versions.update()
+                .where(abstention_policy_versions.c.id == row["policy_db_id"])
+                .values(
+                    status="deactivated",
+                    deactivated_by=deactivated_by,
+                    deactivation_reason=reason,
+                    deactivated_at=now,
+                    updated_at=now,
+                )
+            )
+        policy = self.get_policy(policy_id)
+        if policy is None:
+            raise ValueError(f"Abstention policy was not deactivated: {policy_id}")
+        return policy
+
     def list_shadow_decisions(
         self,
         *,
@@ -213,6 +338,20 @@ class DatabaseAbstentionStore:
         with self.engine.begin() as conn:
             rows = conn.execute(query).mappings().all()
         return [_feedback_sample_from_row(row) for row in rows]
+
+    def _assert_activation_gate(self, row: Any, *, min_feedback_count: int) -> None:
+        source_count = int(row["source_feedback_count"])
+        if source_count < min_feedback_count:
+            raise AbstentionPolicyGateError(
+                f"Activation requires at least {min_feedback_count} evaluable feedback item; current count is {source_count}."
+            )
+        target_risk = float(row["target_selective_risk"])
+        metrics = dict(row["metrics"] or {})
+        estimated_risk = float(metrics.get("selective_risk", 1.0))
+        if estimated_risk > target_risk:
+            raise AbstentionPolicyGateError(
+                f"Estimated selective risk {estimated_risk:.6f} exceeds target risk {target_risk:.6f}."
+            )
 
     def _record_shadow_rows_for_scope(
         self,
@@ -321,8 +460,36 @@ def _policy_select() -> sa.Select[Any]:
             abstention_policy_versions.c.metrics,
             abstention_policy_versions.c.selection_config,
             abstention_policy_versions.c.created_by,
+            abstention_policy_versions.c.activated_by,
+            abstention_policy_versions.c.activation_reason,
+            abstention_policy_versions.c.activated_at,
+            abstention_policy_versions.c.deactivated_by,
+            abstention_policy_versions.c.deactivation_reason,
+            abstention_policy_versions.c.deactivated_at,
             abstention_policy_versions.c.created_at,
             abstention_policy_versions.c.updated_at,
+        )
+        .select_from(
+            abstention_policy_versions.join(datasets, datasets.c.id == abstention_policy_versions.c.dataset_id)
+            .join(dataset_versions, dataset_versions.c.id == abstention_policy_versions.c.dataset_version_id)
+            .join(model_versions, model_versions.c.id == abstention_policy_versions.c.model_version_id)
+        )
+    )
+
+
+def _policy_select_with_ids() -> sa.Select[Any]:
+    return (
+        sa.select(
+            abstention_policy_versions.c.id.label("policy_db_id"),
+            datasets.c.id.label("dataset_db_id"),
+            dataset_versions.c.id.label("dataset_version_db_id"),
+            model_versions.c.id.label("model_version_db_id"),
+            abstention_policy_versions.c.policy_key,
+            abstention_policy_versions.c.status,
+            abstention_policy_versions.c.target_selective_risk,
+            abstention_policy_versions.c.source_feedback_count,
+            abstention_policy_versions.c.metrics,
+            abstention_policy_versions.c.selection_config,
         )
         .select_from(
             abstention_policy_versions.join(datasets, datasets.c.id == abstention_policy_versions.c.dataset_id)
@@ -417,6 +584,12 @@ def _policy_from_row(row: Any) -> AbstentionPolicyRecord:
         metrics=dict(row["metrics"] or {}),
         selection_config=dict(row["selection_config"] or {}),
         created_by=row["created_by"],
+        activated_by=row["activated_by"],
+        activation_reason=row["activation_reason"],
+        activated_at=_to_iso(row["activated_at"]) if row["activated_at"] else None,
+        deactivated_by=row["deactivated_by"],
+        deactivation_reason=row["deactivation_reason"],
+        deactivated_at=_to_iso(row["deactivated_at"]) if row["deactivated_at"] else None,
         created_at=_to_iso(row["created_at"]),
         updated_at=_to_iso(row["updated_at"]),
     )

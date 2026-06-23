@@ -1108,6 +1108,95 @@ a {
   overflow-wrap: anywhere;
 }
 
+.policy-registry {
+  display: grid;
+  gap: 8px;
+}
+
+.policy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--ink);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.policy-row:hover {
+  border-color: rgba(15, 118, 110, 0.3);
+  background: #f4fbfa;
+}
+
+.policy-row.selected {
+  border-color: rgba(15, 118, 110, 0.38);
+  background: #ecfbf8;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.08);
+}
+
+.policy-row strong,
+.policy-row small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.policy-row small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.gate-checks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.gate-check {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px;
+  background: #ffffff;
+}
+
+.gate-check.passed {
+  color: var(--teal);
+  border-color: rgba(15, 118, 110, 0.24);
+  background: #f0fbf8;
+}
+
+.gate-check.blocked {
+  color: #b4233c;
+  border-color: rgba(180, 35, 60, 0.24);
+  background: #fff5f6;
+}
+
+.gate-check strong,
+.gate-check small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gate-check small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .feedback-list {
   display: grid;
   gap: 10px;

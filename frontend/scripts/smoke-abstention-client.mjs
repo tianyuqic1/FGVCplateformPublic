@@ -1,6 +1,9 @@
 import {
+  activateAbstentionPolicy,
+  deactivateAbstentionPolicy,
   listAbstentionPolicies,
   listAbstentionShadowDecisions,
+  normalizeActivationResult,
   normalizePolicy,
   normalizeShadowDecision,
   proposeAbstentionPolicy,
@@ -28,6 +31,10 @@ const rawPolicy = {
     decision_diff_counts: { same: 5, abstain_to_accept: 2 },
   },
   selection_config: { selection_rule: "risk_constrained" },
+  activation_gate: {
+    passed: true,
+    checks: [{ name: "selective_risk", passed: true }],
+  },
   created_by: "local-operator",
 };
 
@@ -39,6 +46,22 @@ assert(policy.targetSelectiveRisk === 0.05, "normalizes target selective risk");
 assert(policy.sourceFeedbackCount === 7, "normalizes source feedback count");
 assert(policy.estimatedCoverage === 0.72, "falls back to metrics coverage");
 assert(policy.selectionConfig.selection_rule === "risk_constrained", "normalizes selection config");
+assert(policy.activationGate.passed === true, "normalizes activation gate");
+
+const activePolicy = normalizePolicy({
+  ...rawPolicy,
+  status: "active",
+  activated_by: "local-operator",
+  activation_reason: "manual gate",
+  activated_at: "2026-06-23T00:00:00Z",
+});
+assert(activePolicy.status === "active", "normalizes active status");
+assert(activePolicy.activatedBy === "local-operator", "normalizes activated by");
+assert(activePolicy.activationReason === "manual gate", "normalizes activation reason");
+
+const activationResult = normalizeActivationResult({ policy: activePolicy, gate: { passed: true }, message: "activated" });
+assert(activationResult.policy.status === "active", "normalizes activation result policy");
+assert(activationResult.gate.passed === true, "normalizes activation result gate");
 
 const rawShadow = {
   shadow_decision_id: "shadow-001",
@@ -69,6 +92,18 @@ globalThis.fetch = async (url, options = {}) => {
     return {
       ok: true,
       json: async () => ({ shadow_decisions: [rawShadow] }),
+    };
+  }
+  if (url.includes("/activate")) {
+    return {
+      ok: true,
+      json: async () => ({ policy: { ...rawPolicy, status: "active" }, gate: { passed: true }, message: "activated" }),
+    };
+  }
+  if (url.includes("/deactivate")) {
+    return {
+      ok: true,
+      json: async () => ({ policy: { ...rawPolicy, status: "deactivated", deactivation_reason: "manual stop" } }),
     };
   }
   if (options.method === "POST") {
@@ -113,5 +148,27 @@ assert(requestedUrl.includes("/api/abstention-policies/policy-001/shadow-decisio
 assert(requestedUrl.includes("diff=changed"), "shadow diff filter missing");
 assert(requestedUrl.includes("limit=12"), "shadow limit missing");
 assert(shadows[0].id === "shadow-001", "list normalizes shadows");
+
+const activated = await activateAbstentionPolicy("policy-001", {
+  activated_by: "local-operator",
+  activation_reason: "manual gate",
+  min_feedback_count: 5,
+});
+assert(requestedUrl.endsWith("/api/abstention-policies/policy-001/activate"), "activate endpoint missing");
+assert(requestedOptions.method === "POST", "activate method missing");
+assert(JSON.parse(requestedOptions.body).activation_reason === "manual gate", "activate reason missing");
+assert(JSON.parse(requestedOptions.body).min_feedback_count === 5, "activate min feedback missing");
+assert(activated.policy.status === "active", "activate normalizes active policy");
+assert(activated.gate.passed === true, "activate normalizes gate");
+
+const deactivated = await deactivateAbstentionPolicy("policy-001", {
+  deactivated_by: "local-operator",
+  deactivation_reason: "manual stop",
+});
+assert(requestedUrl.endsWith("/api/abstention-policies/policy-001/deactivate"), "deactivate endpoint missing");
+assert(requestedOptions.method === "POST", "deactivate method missing");
+assert(JSON.parse(requestedOptions.body).deactivation_reason === "manual stop", "deactivate reason missing");
+assert(deactivated.policy.status === "deactivated", "deactivate normalizes returned policy");
+assert(deactivated.policy.deactivationReason === "manual stop", "deactivate normalizes reason");
 
 console.log("abstention api client smoke passed");

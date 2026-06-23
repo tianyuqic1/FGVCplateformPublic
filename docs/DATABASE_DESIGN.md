@@ -621,9 +621,9 @@ Detailed design:
 docs/ONLINE_ABSTENTION_PHASE1.md
 ```
 
-Phase 1 keeps existing `threshold_strategy` artifacts immutable. New feedback-backed
-abstention policies should be stored as separate strategy versions and evaluated in shadow mode
-before any manual activation work is considered.
+Phase 1 keeps existing `threshold_strategy` artifacts immutable. Feedback-backed abstention
+policies are stored as separate strategy versions. They start in shadow mode and can affect live
+inference only after a manual activation gate succeeds.
 
 Implemented by migration `20260623_0005`:
 
@@ -643,12 +643,21 @@ metrics jsonb not null default '{}'
 source_feedback_count integer not null
 selection_config jsonb not null default '{}'
 created_by text
+activated_by text
+activation_reason text
+activated_at timestamptz
+deactivated_by text
+deactivation_reason text
+deactivated_at timestamptz
 created_at timestamptz not null
 updated_at timestamptz not null
 ```
 
-`status` is `shadow`, `candidate`, or `archived`. `active` is intentionally deferred until model
-release gates and rollback metadata exist. The MVP creates `shadow` policies.
+`status` is `shadow`, `candidate`, `active`, `superseded`, `deactivated`, or `archived`.
+`active` is controlled by a manual gate. A partial unique index enforces at most one active policy
+per `dataset_version_id + model_version_id` scope. Activating a new policy supersedes the previous
+active policy in that scope; deactivated and superseded policies can be manually reactivated for
+rollback after passing the gate again.
 
 Implemented table:
 
@@ -665,7 +674,9 @@ created_at timestamptz not null
 ```
 
 These rows must not mutate `inference_events.decision`, `review_items.status`, `feedback_items`, or
-model-version threshold artifacts. They only support audit and candidate-policy comparison.
+model-version threshold artifacts. They only support audit and candidate-policy comparison. Active
+policy application happens at inference time by reading the active policy threshold snapshot; it
+does not rewrite historical shadow decisions or model artifacts.
 
 ## Non-Goals For Now
 

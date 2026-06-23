@@ -574,10 +574,10 @@ Current verified result from the targeted docs/demo smoke update on 2026-06-23:
 shell syntax: bash -n scripts/demo-up.sh scripts/smoke-demo.sh scripts/smoke-online-abstention-contract.sh passed
 shellcheck: not run; shellcheck is not installed in this environment
 online abstention policy unit tests: 7 passed
-online abstention API contract tests: 5 passed, 1 StarletteDeprecationWarning
-online abstention contract smoke: 12 passed, 1 StarletteDeprecationWarning
+online abstention API contract tests: 8 passed, 1 StarletteDeprecationWarning
+online abstention contract smoke with activation contracts: 15 passed, 1 StarletteDeprecationWarning
 inference API tests: 11 passed, 3 warnings
-scripts/smoke-demo.sh --contracts-only: passed
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only: passed
 docker compose config: passed through scripts/smoke-demo.sh
 frontend api client: passed
 frontend jobs client: passed
@@ -631,9 +631,9 @@ Phase 1 runs in shadow mode:
 - Do not let LLM assistance activate or tune policies.
 - Persist candidate policy versions and shadow decisions for audit and comparison.
 
-This is the complete implemented surface for Phase 1. No activation endpoint is implemented, and
-shadow policies do not change live inference decisions, review routing, model threshold artifacts,
-feedback rows, or dataset versions.
+Shadow policies do not change live inference decisions, review routing, model threshold artifacts,
+feedback rows, or dataset versions. Manual activation is implemented as the first operation that
+can make a policy affect live inference thresholds.
 
 Implemented endpoints:
 
@@ -641,11 +641,36 @@ Implemented endpoints:
 POST /api/abstention-policies/propose
 GET  /api/abstention-policies
 GET  /api/abstention-policies/{policy_key}
+POST /api/abstention-policies/{policy_key}/activate
+POST /api/abstention-policies/{policy_key}/deactivate
 GET  /api/abstention-policies/{policy_key}/shadow-decisions
 ```
 
-Activation is intentionally deferred. A future manual activation endpoint should require explicit
-release gates and rollback metadata.
+The activation endpoint enforces these gates before a policy can become `active`:
+
+- `source_feedback_count >= min_feedback_count`.
+- `metrics.selective_risk <= target_selective_risk`.
+- `reason` is non-empty and supplied by a human operator.
+- The policy is in the exact dataset-version/model-version scope that inference will use.
+- The policy is not archived.
+- A partial unique index prevents two active policies in the same scope; activating a new policy
+  marks the previous active policy as `superseded`.
+
+An active policy is the first online-abstention state that may affect live inference thresholds.
+Inference must prefer the active policy's `tau_conf`, `tau_margin`, and `tau_ood` over the model
+version's default threshold artifact for the same dataset/model scope. Inference responses expose
+`applied_policy_id` and `applied_policy_source` so decisions remain auditable.
+
+LLM/VLM assistance must remain advisory-only. It may summarize a policy report or highlight risks,
+but it must not call activation/deactivation endpoints, tune thresholds, or auto-fill an activation
+reason on behalf of the operator.
+
+Activation smoke:
+
+```text
+scripts/smoke-online-abstention-contract.sh --with-activation-contracts
+RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
+```
 
 `POST /api/abstention-policies/propose` accepts:
 
