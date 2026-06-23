@@ -587,6 +587,52 @@ inference events are persisted, pending review items are created automatically, 
 writes typed feedback pool entries. LLM/VLM assistance, online abstention updates, and automatic
 dataset-version curation remain deferred.
 
+## Online Abstention Phase 1
+
+Planned design:
+
+```text
+docs/ONLINE_ABSTENTION_PHASE1.md
+```
+
+The first online-abstention phase should use a risk-constrained threshold strategy:
+
+```text
+accept:
+  confidence >= tau_conf
+  margin >= tau_margin
+  ood_score <= tau_ood
+
+reject_ood:
+  ood_score > tau_ood
+
+otherwise:
+  abstain
+```
+
+The target risk is `target_selective_risk`: the maximum allowed error rate among samples that the
+policy chooses to automatically accept. For example, `target_selective_risk = 0.05` means the
+auto-accepted subset should be at least roughly `95%` accurate.
+
+Phase 1 must run in shadow mode:
+
+- Do not replace the current inference `decision`.
+- Do not mutate model-version threshold artifacts.
+- Do not let LLM assistance activate or tune policies.
+- Persist candidate policy versions and shadow decisions for audit and comparison.
+
+Planned endpoints:
+
+```text
+POST /api/abstention-policies/propose
+GET  /api/abstention-policies
+GET  /api/abstention-policies/{policy_key}
+GET  /api/abstention-policies/{policy_key}/shadow-decisions
+```
+
+Activation is intentionally deferred. A future manual activation endpoint should require explicit
+release gates and rollback metadata.
+
 ## LLM Assistant API
 
 Iteration 5 adds advisory-only LLM assistance. The backend calls an OpenAI-compatible Responses

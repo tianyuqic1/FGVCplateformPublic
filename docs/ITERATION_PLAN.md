@@ -594,6 +594,51 @@ Suggested checkpoint pushes:
 - `feat: inject dataset cards into llm context`
 - `test: cover dataset card llm context`
 
+## Iteration 5C: Online Abstention Phase 1
+
+Status: planned. Detailed product/algorithm design is documented in:
+
+```text
+docs/ONLINE_ABSTENTION_PHASE1.md
+```
+
+Objective: add a risk-constrained abstention strategy in shadow mode before allowing any online
+policy to affect production inference decisions.
+
+Scope:
+
+- Use calibrated confidence, top-1/top-2 margin, and OOD score as the first policy signals.
+- Search candidate thresholds under a target selective-risk constraint.
+- Optimize for maximum coverage and lower review cost only after the target risk is satisfied.
+- Generate versioned abstention policy candidates from feedback pool evidence.
+- Record shadow decisions for inference events without changing the current decision path.
+- Keep LLM assistance explanatory only; it must not choose thresholds or activate policies.
+
+Deliverables:
+
+- `abstention_policy_versions` design and migration.
+- `abstention_shadow_decisions` design and migration.
+- Policy evaluation and threshold-search utilities.
+- API for proposing and viewing abstention policies.
+- UI report showing target risk, candidate thresholds, coverage, selective risk, review cost, and
+  new-vs-current decision differences.
+
+Acceptance:
+
+- A feedback-backed policy candidate can be generated for a dataset/model pair.
+- Candidate policy metrics include coverage, selective risk, abstention rate, and review cost.
+- Shadow decisions are persisted but never override the real inference decision.
+- The UI clearly labels the policy as shadow/candidate and not production-active.
+- Tests verify that policy proposal and shadow evaluation do not mutate model versions,
+  threshold-strategy artifacts, review items, feedback items, or dataset versions.
+
+Suggested checkpoint pushes:
+
+- `feat: add abstention policy evaluation`
+- `feat: add abstention policy APIs`
+- `feat: show abstention shadow reports`
+- `test: cover shadow abstention policy`
+
 ## Iteration 5B: Model Registry And Release Gates
 
 Objective: make model promotion auditable and safe.

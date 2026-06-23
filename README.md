@@ -145,6 +145,12 @@ The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
 docs/MVP_RESIDUALS_ACCEPTANCE.md
 ```
 
+The planned first online-abstention phase is documented in:
+
+```text
+docs/ONLINE_ABSTENTION_PHASE1.md
+```
+
 For a reproducible local demo with PostgreSQL migration and lightweight smoke checks, see:
 
 ```text

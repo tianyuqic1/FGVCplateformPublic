@@ -613,6 +613,59 @@ Current deliberate simplification:
 - Deferred: `feature_indexes` table and FAISS index lifecycle; MVP nearest-neighbor evidence scans the feature artifact.
 - Deferred: consuming feedback into a new immutable dataset version.
 
+### Online Abstention Phase 1: Shadow Policy Tables
+
+Detailed design:
+
+```text
+docs/ONLINE_ABSTENTION_PHASE1.md
+```
+
+Phase 1 should keep existing `threshold_strategy` artifacts immutable. New feedback-backed
+abstention policies should be stored as separate strategy versions and evaluated in shadow mode
+before any manual activation work is considered.
+
+Planned table:
+
+```text
+abstention_policy_versions
+id uuid primary key
+policy_key text unique not null
+dataset_id uuid not null references datasets(id)
+dataset_version_id uuid not null references dataset_versions(id)
+model_version_id uuid not null references model_versions(id)
+status text not null
+target_selective_risk double precision not null
+tau_conf double precision not null
+tau_margin double precision not null
+tau_ood double precision
+metrics jsonb not null default '{}'
+source_feedback_count integer not null
+created_from text not null
+created_at timestamptz not null
+updated_at timestamptz not null
+```
+
+`status` starts with `shadow` and `candidate`. `active` is intentionally deferred until model
+release gates and rollback metadata exist.
+
+Planned table:
+
+```text
+abstention_shadow_decisions
+id uuid primary key
+policy_version_id uuid not null references abstention_policy_versions(id)
+inference_event_id uuid not null references inference_events(id)
+current_decision text not null
+shadow_decision text not null
+score_snapshot jsonb not null default '{}'
+decision_diff text not null
+created_at timestamptz not null
+```
+
+These rows must not mutate `inference_events.decision`, `review_items.status`, `feedback_items`, or
+model-version threshold artifacts. They only support audit and candidate-policy comparison.
+
 ## Non-Goals For Now
 
 - No separate database per service.
