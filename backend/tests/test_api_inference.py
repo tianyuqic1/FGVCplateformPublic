@@ -394,6 +394,10 @@ def test_review_assistance_is_advisory_and_does_not_complete_review(
             "model": "test-llm",
             "summary": "Check top-k and confirm the final label manually.",
             "holistic_analysis": "Dataset and model evidence point to a manual visual check first.",
+            "final_category_suggestion": {
+                "label": "unknown",
+                "rationale": "The fake assistant does not inspect real image content.",
+            },
             "inspection_notes": ["Compare the top two candidates."],
             "suggested_actions": ["Human reviewer must choose the final outcome."],
             "risk_flags": ["Do not auto-submit this advice."],
@@ -436,6 +440,10 @@ def test_generic_llm_assistance_returns_advisory_payload(monkeypatch: pytest.Mon
             "model": "test-llm",
             "summary": "Model artifact is missing.",
             "holistic_analysis": "Training evidence is incomplete, so inspect logs before changing config.",
+            "final_category_suggestion": {
+                "label": "unknown",
+                "rationale": "Training diagnosis has no image category.",
+            },
             "inspection_notes": ["Check worker logs."],
             "suggested_actions": ["Re-run training after feature extraction succeeds."],
             "risk_flags": [],
@@ -642,6 +650,10 @@ def test_uploaded_image_review_item_exposes_public_image_url(
             "model": "test-llm",
             "summary": "Persist this advisory note with the review item.",
             "holistic_analysis": "The uploaded image should remain available after API restart.",
+            "final_category_suggestion": {
+                "label": "unknown",
+                "rationale": "Persistence test only.",
+            },
             "inspection_notes": ["Check the uploaded image before choosing a final label."],
             "suggested_actions": ["Submit human feedback only after inspection."],
             "risk_flags": ["LLM advice is not a label."],

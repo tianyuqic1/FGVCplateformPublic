@@ -8,6 +8,7 @@ def test_responses_payload_uses_strict_json_schema_format() -> None:
         provider="OpenAI",
         model="gpt-5.5",
         review_model="gpt-5.5",
+        fallback_models=(),
         reasoning_effort="high",
         base_url="https://mikuapi.org/v1",
         wire_api="responses",
@@ -30,12 +31,14 @@ def test_responses_payload_uses_strict_json_schema_format() -> None:
     assert set(response_format["schema"]["required"]) == {
         "summary",
         "holistic_analysis",
+        "final_category_suggestion",
         "inspection_notes",
         "suggested_actions",
         "risk_flags",
         "confidence",
     }
     assert "holistic_analysis" in response_format["schema"]["properties"]
+    assert "final_category_suggestion" in response_format["schema"]["properties"]
 
 
 def test_responses_payload_can_disable_structured_outputs_for_compatibility() -> None:
@@ -43,6 +46,7 @@ def test_responses_payload_can_disable_structured_outputs_for_compatibility() ->
         provider="OpenAI",
         model="gpt-5.5",
         review_model="gpt-5.5",
+        fallback_models=(),
         reasoning_effort="high",
         base_url="https://mikuapi.org/v1",
         wire_api="responses",
@@ -63,6 +67,7 @@ def test_responses_payload_can_attach_uploaded_image_pixels() -> None:
         provider="OpenAI",
         model="gpt-5.5",
         review_model="gpt-5.5",
+        fallback_models=(),
         reasoning_effort="high",
         base_url="https://mikuapi.org/v1",
         wire_api="responses",

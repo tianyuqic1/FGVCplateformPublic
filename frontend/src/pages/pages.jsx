@@ -3250,6 +3250,12 @@ function assistanceFromMetadata(metadata) {
     advisoryOnly: raw.advisoryOnly ?? raw.advisory_only ?? true,
     summary: raw.summary ?? "",
     holisticAnalysis: raw.holisticAnalysis ?? raw.holistic_analysis ?? "",
+    finalCategorySuggestion:
+      raw.finalCategorySuggestion ??
+      raw.final_category_suggestion ?? {
+        label: "unknown",
+        rationale: "",
+      },
     inspectionNotes: raw.inspectionNotes ?? raw.inspection_notes ?? [],
     suggestedActions: raw.suggestedActions ?? raw.suggested_actions ?? [],
     riskFlags: raw.riskFlags ?? raw.risk_flags ?? [],
@@ -3292,6 +3298,15 @@ function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = 
             <strong>建议摘要</strong>
             <span>{assistance.summary}</span>
           </div>
+          {assistance.finalCategorySuggestion?.label && assistance.finalCategorySuggestion.label !== "unknown" && (
+            <div className="reason-box section-gap-small">
+              <strong>最后类别建议</strong>
+              <span>
+                {assistance.finalCategorySuggestion.label}
+                {assistance.finalCategorySuggestion.rationale ? ` · ${assistance.finalCategorySuggestion.rationale}` : ""}
+              </span>
+            </div>
+          )}
           {assistance.holisticAnalysis && (
             <div className="reason-box section-gap-small">
               <strong>LLM 综合分析</strong>

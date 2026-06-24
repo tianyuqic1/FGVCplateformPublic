@@ -73,6 +73,7 @@ def generate_assistance(
         "created_at": now,
         "summary": summary,
         "holistic_analysis": str(parsed.get("holistic_analysis") or parsed.get("summary") or "").strip(),
+        "final_category_suggestion": _category_suggestion(parsed.get("final_category_suggestion")),
         "inspection_notes": _string_list(parsed.get("inspection_notes")),
         "suggested_actions": _string_list(parsed.get("suggested_actions")),
         "risk_flags": _string_list(parsed.get("risk_flags")),
@@ -376,6 +377,23 @@ def _assistance_schema() -> dict[str, Any]:
                     "If no image pixels are available, say the judgment is based on metadata and model evidence."
                 ),
             },
+            "final_category_suggestion": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "description": "Final advisory category suggestion, such as a dataset class label, OOD, uncertain, or unknown.",
+                    },
+                    "rationale": {
+                        "type": "string",
+                        "maxLength": 180,
+                        "description": "Why this label is suggested. Visual evidence should dominate when image pixels are attached.",
+                    },
+                },
+                "required": ["label", "rationale"],
+                "additionalProperties": False,
+            },
             "inspection_notes": {
                 "type": "array",
                 "minItems": 1,
@@ -402,7 +420,15 @@ def _assistance_schema() -> dict[str, Any]:
                 "description": "Assistant confidence in this advisory explanation.",
             },
         },
-        "required": ["summary", "holistic_analysis", "inspection_notes", "suggested_actions", "risk_flags", "confidence"],
+        "required": [
+            "summary",
+            "holistic_analysis",
+            "final_category_suggestion",
+            "inspection_notes",
+            "suggested_actions",
+            "risk_flags",
+            "confidence",
+        ],
         "additionalProperties": False,
     }
 
@@ -524,6 +550,11 @@ def _prompt_for(*, task: str, context: dict[str, Any]) -> str:
         "先填写 holistic_analysis：结合 image_input、dataset_summary、top-k、阈值原因做综合初判；"
         "如果 image_input.image_pixels_attached=true，可以参考图像像素但仍保持保守；"
         "如果没有收到真实图像像素，只能说明这是基于图片引用/文件名和模型证据的初判。"
+        "必须填写 final_category_suggestion：这是给人工复核员看的最后类别建议。"
+        "当收到真实图像像素时，最终类别建议以图像可见内容为主，参考权重约为图像像素 70%、文件名/数据集摘要 15%、"
+        "视觉模型 top-k/置信度/近邻证据 15%；模型 top-1 只能作为辅助，不能压过清晰可见的图像内容。"
+        "如果可见内容不在 dataset_summary.class_preview 或数据集摘要描述的范围内，label 写 OOD 或 uncertain，"
+        "不要为了迎合模型输出而发明新类。"
         "随后填写 inspection_notes、suggested_actions、risk_flags 时，要把 holistic_analysis 作为上下文，"
         "避免前后矛盾。\n"
         f"任务：{task_instruction}\n"
@@ -604,6 +635,16 @@ def _string_list(value: Any) -> list[str]:
     if value:
         return [str(value)]
     return []
+
+
+def _category_suggestion(value: Any) -> dict[str, str]:
+    if isinstance(value, dict):
+        label = str(value.get("label") or "unknown").strip() or "unknown"
+        rationale = str(value.get("rationale") or "").strip()
+        return {"label": label, "rationale": rationale}
+    if value:
+        return {"label": str(value).strip(), "rationale": ""}
+    return {"label": "unknown", "rationale": ""}
 
 
 def _validate_settings(settings: LLMSettings) -> None:

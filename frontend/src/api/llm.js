@@ -47,6 +47,12 @@ export function normalizeAssistance(raw = {}) {
     createdAt: raw?.createdAt ?? raw?.created_at ?? null,
     summary: raw?.summary ?? "",
     holisticAnalysis: raw?.holisticAnalysis ?? raw?.holistic_analysis ?? "",
+    finalCategorySuggestion:
+      raw?.finalCategorySuggestion ??
+      raw?.final_category_suggestion ?? {
+        label: "unknown",
+        rationale: "",
+      },
     inspectionNotes: raw?.inspectionNotes ?? raw?.inspection_notes ?? [],
     suggestedActions: raw?.suggestedActions ?? raw?.suggested_actions ?? [],
     riskFlags: raw?.riskFlags ?? raw?.risk_flags ?? [],
