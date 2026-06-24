@@ -513,6 +513,16 @@ def test_folder_upload_inference_routes_all_images_to_review_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, model_version_id, _sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    app_module = importlib.import_module("finevision.api.app")
+    original_build_extractor = app_module.build_extractor_from_config
+    build_extractor_calls = 0
+
+    def counted_build_extractor(*args, **kwargs):
+        nonlocal build_extractor_calls
+        build_extractor_calls += 1
+        return original_build_extractor(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "build_extractor_from_config", counted_build_extractor)
     query_paths = []
     for index, color in enumerate([(220, 40, 40), (40, 220, 40)]):
         query_path = tmp_path / f"batch-{index}.png"
@@ -552,6 +562,7 @@ def test_folder_upload_inference_routes_all_images_to_review_queue(
     assert payload["batch"]["succeeded"] == 2
     assert payload["batch"]["review_item_count"] == 2
     assert len(payload["results"]) == 2
+    assert build_extractor_calls == 1
     assert {item["inference_run_id"] for item in payload["results"]} == {payload["batch"]["inference_run_id"]}
     assert all(item["review_item_id"] for item in payload["results"])
 

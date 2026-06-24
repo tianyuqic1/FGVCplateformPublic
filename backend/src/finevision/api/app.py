@@ -583,40 +583,40 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             },
         )
         first_successful_payload: dict[str, Any] | None = None
+        base_request = RunInferenceRequest(
+            dataset_version_id=dataset_version_id,
+            model_version_id=model_version_id,
+            top_k=top_k,
+            evidence_k=evidence_k,
+            accept_threshold=accept_threshold,
+            margin_threshold=margin_threshold,
+            ood_distance_threshold=ood_distance_threshold,
+        )
+        uploaded_images: list[tuple[UploadFile, Path]] = []
         for image in images:
             try:
                 uploaded_path = _save_uploaded_image(api.state.upload_dir, image)
-                request = RunInferenceRequest(
-                    dataset_version_id=dataset_version_id,
-                    model_version_id=model_version_id,
-                    image_path=str(uploaded_path),
-                    sample_id=None,
-                    top_k=top_k,
-                    evidence_k=evidence_k,
-                    accept_threshold=accept_threshold,
-                    margin_threshold=margin_threshold,
-                    ood_distance_threshold=ood_distance_threshold,
-                )
-                payload = _run_scoped_inference_payload(
-                    api,
-                    request,
-                    input_overrides={
-                        "upload_filename": image.filename,
-                        "uploaded_image_path": str(uploaded_path),
-                        "batch_upload": True,
-                    },
-                )
-                _attach_inference_run_payload(payload, batch_run_id)
-                _record_review_route(api, request, payload, force_review=route_all_to_review)
-                if first_successful_payload is None:
-                    first_successful_payload = payload
-                if payload.get("review_item_id"):
-                    review_item_ids.append(str(payload["review_item_id"]))
-                results.append(payload)
+                uploaded_images.append((image, uploaded_path))
             except HTTPException as exc:
                 failures.append({"filename": image.filename or "unknown", "error": str(exc.detail)})
             except Exception as exc:
                 failures.append({"filename": image.filename or "unknown", "error": str(exc)})
+        if uploaded_images:
+            try:
+                for request, payload in _run_uploaded_folder_payloads(api, base_request, uploaded_images):
+                    _attach_inference_run_payload(payload, batch_run_id)
+                    _record_review_route(api, request, payload, force_review=route_all_to_review, inference_run_id=batch_run_id)
+                    if first_successful_payload is None:
+                        first_successful_payload = payload
+                    if payload.get("review_item_id"):
+                        review_item_ids.append(str(payload["review_item_id"]))
+                    results.append(payload)
+            except HTTPException as exc:
+                for image, _uploaded_path in uploaded_images:
+                    failures.append({"filename": image.filename or "unknown", "error": str(exc.detail)})
+            except Exception as exc:
+                for image, _uploaded_path in uploaded_images:
+                    failures.append({"filename": image.filename or "unknown", "error": str(exc)})
         batch_summary = {
             "inference_run_id": batch_run_id,
             "batch_inference_id": batch_run_id,
@@ -1169,18 +1169,44 @@ def _run_scoped_inference_payload(
     request: RunInferenceRequest,
     input_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if not request.image_path and not request.sample_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either image_path or sample_id is required",
+        )
+    context, strategy, effective_request, applied_policy_id, applied_policy_source = _resolve_inference_scope(api, request)
+
+    try:
+        result = _run_inference_from_context(
+            context=context,
+            request=effective_request,
+            strategy=strategy,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    return _inference_payload_from_result(
+        context=context,
+        request=request,
+        result=result,
+        applied_policy_id=applied_policy_id,
+        applied_policy_source=applied_policy_source,
+        input_overrides=input_overrides,
+    )
+
+
+def _resolve_inference_scope(
+    api: FastAPI,
+    request: RunInferenceRequest,
+) -> tuple[InferenceContext, Any, RunInferenceRequest, str | None, str]:
     inference_store: DatabaseInferenceStore | None = api.state.inference_store
     if inference_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Inference requires DATABASE_URL-backed model metadata",
         )
-    if not request.image_path and not request.sample_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Either image_path or sample_id is required",
-        )
-
     context = inference_store.load_context(
         dataset_version_id=request.dataset_version_id,
         model_version_id=request.model_version_id,
@@ -1236,18 +1262,18 @@ def _run_scoped_inference_payload(
             if request.margin_threshold is not None
             else strategy.margin_threshold,
         )
+    return context, strategy, effective_request, applied_policy_id, applied_policy_source
 
-    try:
-        result = _run_inference_from_context(
-            context=context,
-            request=effective_request,
-            strategy=strategy,
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+def _inference_payload_from_result(
+    *,
+    context: InferenceContext,
+    request: RunInferenceRequest,
+    result: InferenceResult,
+    applied_policy_id: str | None,
+    applied_policy_source: str,
+    input_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     input_payload = {
         "image_path": request.image_path,
         "sample_id": request.sample_id,
@@ -1275,6 +1301,55 @@ def _run_scoped_inference_payload(
         "input": input_payload,
         "result": to_jsonable(result),
     }
+
+
+def _run_uploaded_folder_payloads(
+    api: FastAPI,
+    base_request: RunInferenceRequest,
+    uploaded_images: list[tuple[UploadFile, Path]],
+) -> list[tuple[RunInferenceRequest, dict[str, Any]]]:
+    context, strategy, effective_base_request, applied_policy_id, applied_policy_source = _resolve_inference_scope(api, base_request)
+    extractor = build_extractor_from_config(
+        context.feature_artifact.extractor_config,
+        overrides={"device": os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")},
+    )
+    image_paths = [str(uploaded_path) for _, uploaded_path in uploaded_images]
+    query_features = extractor.extract_paths(image_paths)
+
+    payloads: list[tuple[RunInferenceRequest, dict[str, Any]]] = []
+    for (image, uploaded_path), features in zip(uploaded_images, query_features, strict=True):
+        request = base_request.model_copy(update={"image_path": str(uploaded_path), "sample_id": None})
+        effective_request = effective_base_request.model_copy(update={"image_path": str(uploaded_path), "sample_id": None})
+        result = run_inference(
+            context.model_artifact,
+            context.model_state,
+            strategy,
+            np.asarray(features, dtype=np.float32),
+            context.features,
+            context.feature_artifact.sample_ids,
+            context.feature_artifact.labels,
+            ood_distance_threshold=effective_request.ood_distance_threshold,
+            top_k=effective_request.top_k,
+            evidence_k=effective_request.evidence_k,
+        )
+        payloads.append(
+            (
+                request,
+                _inference_payload_from_result(
+                    context=context,
+                    request=request,
+                    result=result,
+                    applied_policy_id=applied_policy_id,
+                    applied_policy_source=applied_policy_source,
+                    input_overrides={
+                        "upload_filename": image.filename,
+                        "uploaded_image_path": str(uploaded_path),
+                        "batch_upload": True,
+                    },
+                ),
+            )
+        )
+    return payloads
 
 
 def _create_inference_run(
