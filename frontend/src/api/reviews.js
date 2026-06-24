@@ -57,6 +57,22 @@ export function extractReviewItemList(payload) {
   return payload?.review_items ?? payload?.items ?? [];
 }
 
+export function extractPagination(payload, fallbackLength = 0) {
+  const pagination = payload?.pagination ?? {};
+  const limit = Number.isFinite(Number(pagination.limit)) ? Number(pagination.limit) : fallbackLength;
+  const offset = Number.isFinite(Number(pagination.offset)) ? Number(pagination.offset) : 0;
+  const total = Number.isFinite(Number(pagination.total)) ? Number(pagination.total) : fallbackLength;
+  return {
+    total,
+    limit,
+    offset,
+    hasMore: Boolean(pagination.has_more ?? pagination.hasMore),
+    nextOffset: Number.isFinite(Number(pagination.next_offset ?? pagination.nextOffset))
+      ? Number(pagination.next_offset ?? pagination.nextOffset)
+      : null,
+  };
+}
+
 export function extractReviewItem(payload) {
   return payload?.review_item ?? payload?.item ?? payload;
 }
@@ -155,15 +171,25 @@ export function normalizeFeedbackItem(raw = {}) {
   };
 }
 
-export async function listReviewItems({ status = "pending", datasetId, limit = 50 } = {}) {
+export async function listReviewItemsPage({ status = "pending", datasetId, limit = 50, offset = 0 } = {}) {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (datasetId) params.set("dataset_id", datasetId);
   if (limit) params.set("limit", String(limit));
+  if (offset) params.set("offset", String(offset));
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/review-items?${params.toString()}`, { signal });
-    return extractReviewItemList(payload).map(normalizeReviewItem);
+    const items = extractReviewItemList(payload).map(normalizeReviewItem);
+    return {
+      items,
+      pagination: extractPagination(payload, items.length),
+    };
   });
+}
+
+export async function listReviewItems(filters = {}) {
+  const page = await listReviewItemsPage(filters);
+  return page.items;
 }
 
 export async function listFeedbackItems({ destination = "all", datasetId, limit = 100 } = {}) {

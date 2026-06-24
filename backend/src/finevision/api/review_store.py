@@ -293,8 +293,14 @@ class DatabaseReviewStore:
         status: str | None = "pending",
         dataset_id: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> list[ReviewItemRecord]:
-        query = _review_item_select().order_by(review_items.c.priority.asc(), review_items.c.created_at.asc()).limit(limit)
+        query = (
+            _review_item_select()
+            .order_by(review_items.c.priority.asc(), review_items.c.created_at.asc())
+            .limit(limit)
+            .offset(max(0, offset))
+        )
         if status:
             query = query.where(review_items.c.status == status)
         if dataset_id:
@@ -302,6 +308,20 @@ class DatabaseReviewStore:
         with self.engine.begin() as conn:
             rows = conn.execute(query).mappings().all()
         return [_review_item_from_row(row) for row in rows]
+
+    def count_review_items(
+        self,
+        *,
+        status: str | None = "pending",
+        dataset_id: str | None = None,
+    ) -> int:
+        query = sa.select(sa.func.count()).select_from(review_items.join(datasets, datasets.c.id == review_items.c.dataset_id))
+        if status:
+            query = query.where(review_items.c.status == status)
+        if dataset_id:
+            query = query.where(datasets.c.dataset_key == dataset_id)
+        with self.engine.begin() as conn:
+            return int(conn.execute(query).scalar_one())
 
     def get_review_item(self, review_id: str | None) -> ReviewItemRecord | None:
         if not review_id:

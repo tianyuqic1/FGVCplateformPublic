@@ -128,6 +128,9 @@ def test_routed_inference_creates_review_item_and_feedback(
     list_response = client.get("/api/review-items")
     assert list_response.status_code == 200
     items = list_response.json()["review_items"]
+    assert list_response.json()["pagination"]["total"] == 1
+    assert list_response.json()["pagination"]["offset"] == 0
+    assert list_response.json()["pagination"]["has_more"] is False
     assert [item["review_item_id"] for item in items] == [review_item_id]
     assert items[0]["status"] == "pending"
     assert items[0]["inference_run_id"] == body["inference_run_id"]
@@ -189,6 +192,12 @@ def test_routed_inference_creates_review_item_and_feedback(
     missing_dataset_response = client.get("/api/review-items?status=all&dataset_id=missing-dataset")
     assert missing_dataset_response.status_code == 200
     assert missing_dataset_response.json()["review_items"] == []
+    assert missing_dataset_response.json()["pagination"]["total"] == 0
+
+    empty_page_response = client.get("/api/review-items?status=all&offset=1&limit=1")
+    assert empty_page_response.status_code == 200
+    assert empty_page_response.json()["review_items"] == []
+    assert empty_page_response.json()["pagination"]["total"] == 1
 
     invalid_status_response = client.get("/api/review-items?status=unknown")
     assert invalid_status_response.status_code == 422
@@ -374,6 +383,10 @@ def test_review_assistance_is_advisory_and_does_not_complete_review(
         assert context["dataset_version_id"] == "dataset@infer-toy-001"
         assert context["dataset_summary"]["dataset_version_id"] == "dataset@infer-toy-001"
         assert context["dataset_summary"]["task"] == "image_classification"
+        image_input = context["image_input"]
+        assert image_input["image_data_url"].startswith("data:image/png;base64,")
+        assert image_input["image_pixels_attached"] is True
+        assert image_input["image_path"].endswith("forced-ood.png")
         assert context["top_k"]
         return {
             "task": task,

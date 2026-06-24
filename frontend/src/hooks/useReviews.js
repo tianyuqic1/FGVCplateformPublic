@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { getReviewItem, listFeedbackItems, listReviewItems, submitReviewOutcome } from "../api/reviews.js";
+import { getReviewItem, listFeedbackItems, listReviewItemsPage, submitReviewOutcome } from "../api/reviews.js";
 
 export function useReviewItems(filters = {}) {
   const [state, setState] = useState({
     reviewItems: [],
+    pagination: { total: 0, limit: filters.limit ?? 50, offset: filters.offset ?? 0, hasMore: false, nextOffset: null },
     source: "api",
     loading: true,
     error: null,
@@ -13,20 +14,26 @@ export function useReviewItems(filters = {}) {
     let active = true;
     setState((current) => ({ ...current, loading: true, error: null }));
 
-    listReviewItems(filters)
-      .then((items) => {
+    listReviewItemsPage(filters)
+      .then(({ items, pagination }) => {
         if (!active) return;
-        setState({ reviewItems: items, source: "api", loading: false, error: null });
+        setState({ reviewItems: items, pagination, source: "api", loading: false, error: null });
       })
       .catch((error) => {
         if (!active) return;
-        setState({ reviewItems: [], source: "api", loading: false, error });
+        setState({
+          reviewItems: [],
+          pagination: { total: 0, limit: filters.limit ?? 50, offset: filters.offset ?? 0, hasMore: false, nextOffset: null },
+          source: "api",
+          loading: false,
+          error,
+        });
       });
 
     return () => {
       active = false;
     };
-  }, [filters.status, filters.datasetId, filters.limit]);
+  }, [filters.status, filters.datasetId, filters.limit, filters.offset]);
 
   useEffect(() => refresh(), [refresh]);
 

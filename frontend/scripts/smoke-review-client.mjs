@@ -1,8 +1,10 @@
 import {
   extractReviewItem,
   extractReviewItemList,
+  extractPagination,
   listFeedbackItems,
   listReviewItems,
+  listReviewItemsPage,
   normalizeFeedbackItem,
   normalizeReviewItem,
 } from "../src/api/reviews.js";
@@ -52,7 +54,11 @@ const payload = {
 };
 
 const items = extractReviewItemList(payload).map(normalizeReviewItem);
+const pagination = extractPagination({ ...payload, pagination: { total: 21, limit: 20, offset: 20, has_more: true, next_offset: 40 } });
 if (items.length !== 1) throw new Error("Review list extraction failed");
+if (pagination.total !== 21 || pagination.limit !== 20 || pagination.offset !== 20 || !pagination.hasMore) {
+  throw new Error("Review pagination extraction failed");
+}
 if (items[0].id !== "review-001") throw new Error("Review id missing");
 if (items[0].inferenceRunId !== "infer-run-001") throw new Error("Review inference run id missing");
 if (items[0].batchId !== "infer-run-001") throw new Error("Review batch id missing");
@@ -121,6 +127,10 @@ if (!requestedUrl.includes("/api/review-items?")) throw new Error("Review list e
 if (!requestedUrl.includes("status=all")) throw new Error("Review status filter missing");
 if (!requestedUrl.includes("dataset_id=toy")) throw new Error("Review dataset filter missing");
 if (!requestedUrl.includes("limit=80")) throw new Error("Review limit missing");
+
+const paged = await listReviewItemsPage({ status: "pending", datasetId: "toy", limit: 20, offset: 40 });
+if (paged.items.length !== 1) throw new Error("Paged review list items missing");
+if (!requestedUrl.includes("offset=40")) throw new Error("Review offset missing");
 
 await listFeedbackItems({ destination: "training_candidate", datasetId: "toy", limit: 120 });
 if (!requestedUrl.includes("/api/feedback-items?")) throw new Error("Feedback list endpoint missing");

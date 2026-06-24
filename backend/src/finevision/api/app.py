@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
+import mimetypes
 import os
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -645,23 +647,37 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
         status_filter: str | None = Query(default="pending", alias="status"),
         dataset_id: str | None = Query(default=None),
         limit: int = 50,
+        offset: int = Query(default=0, ge=0),
     ) -> dict[str, object]:
         review_store: DatabaseReviewStore | None = api.state.review_store
         if review_store is None:
-            return {"review_items": []}
+            return {
+                "review_items": [],
+                "pagination": {"total": 0, "limit": max(1, min(limit, 200)), "offset": offset, "has_more": False},
+            }
         allowed_statuses = {None, "", "all", "pending", "submitted", "feedbacked", "skipped", "disputed"}
         if status_filter not in allowed_statuses:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported review status filter")
         normalized_status = None if status_filter in {None, "", "all"} else status_filter
+        safe_limit = max(1, min(limit, 200))
+        total = review_store.count_review_items(status=normalized_status, dataset_id=dataset_id)
         return {
             "review_items": [
                 _review_item_payload(item)
                 for item in review_store.list_review_items(
                     status=normalized_status,
                     dataset_id=dataset_id,
-                    limit=max(1, min(limit, 200)),
+                    limit=safe_limit,
+                    offset=offset,
                 )
-            ]
+            ],
+            "pagination": {
+                "total": total,
+                "limit": safe_limit,
+                "offset": offset,
+                "has_more": offset + safe_limit < total,
+                "next_offset": offset + safe_limit if offset + safe_limit < total else None,
+            },
         }
 
     @api.get("/api/review-items/{review_item_id}")
@@ -713,7 +729,14 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review item not found")
         if review_item.status != "pending":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="LLM assistance is only generated for pending review items")
-        context = _with_dataset_summary(store, _review_assistance_context(review_item, question=request.question if request else None))
+        context = _with_dataset_summary(
+            store,
+            _review_assistance_context(
+                review_item,
+                question=request.question if request else None,
+                upload_dir=api.state.upload_dir,
+            ),
+        )
         assistance = _call_llm_assistant(task="review_assistance", context=context)
         try:
             updated = review_store.update_review_assistance(review_id=review_item_id, assistance=assistance)
@@ -1483,8 +1506,30 @@ def _review_item_payload(item: Any) -> dict[str, Any]:
     }
 
 
-def _review_assistance_context(item: Any, *, question: str | None = None) -> dict[str, Any]:
+def _review_assistance_context(
+    item: Any,
+    *,
+    question: str | None = None,
+    upload_dir: Path | None = None,
+) -> dict[str, Any]:
     context = dict(item.context or {})
+    input_context = dict(context.get("input") or {})
+    image_url = _review_image_url(
+        dataset_version_id=item.dataset_version_id,
+        sample_id=item.sample_id,
+        input_ref=item.input_ref,
+    )
+    image_input: dict[str, Any] = {
+        "image_url": image_url or input_context.get("image_url") or input_context.get("uploaded_image_url"),
+        "sample_id": item.sample_id or input_context.get("sample_id"),
+        "upload_filename": input_context.get("upload_filename"),
+        "image_path": input_context.get("uploaded_image_path") or input_context.get("image_path") or item.input_ref,
+    }
+    image_data_url = _review_image_data_url(item, upload_dir=upload_dir)
+    if image_data_url:
+        image_input["image_data_url"] = image_data_url
+        image_input["image_pixels_attached"] = True
+
     return _sanitize_llm_context(
         {
             "review_item_id": item.review_item_id,
@@ -1498,6 +1543,7 @@ def _review_assistance_context(item: Any, *, question: str | None = None) -> dic
             "priority": item.priority,
             "reason": item.reason,
             "reason_codes": item.reason_codes,
+            "image_input": image_input,
             "decision": context.get("decision") or {},
             "top_k": (context.get("top_k") or [])[:5],
             "nearest_neighbors": (context.get("nearest_neighbors") or [])[:5],
@@ -1532,6 +1578,49 @@ def _redact_path(value: Any) -> str | None:
     if "/" not in text and "\\" not in text:
         return text
     return f".../{Path(text).name}"
+
+
+def _review_image_data_url(item: Any, *, upload_dir: Path | None = None) -> str | None:
+    context = dict(getattr(item, "context", None) or {})
+    input_context = dict(context.get("input") or {})
+    candidates = [
+        input_context.get("uploaded_image_path"),
+        input_context.get("image_path"),
+        getattr(item, "input_ref", None),
+    ]
+    for candidate in candidates:
+        image_path = _resolve_review_image_path(candidate, upload_dir=upload_dir)
+        if image_path is None:
+            continue
+        suffix = image_path.suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}:
+            continue
+        try:
+            if image_path.stat().st_size > 8 * 1024 * 1024:
+                continue
+            encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        except OSError:
+            continue
+        mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+        return f"data:{mime_type};base64,{encoded}"
+    return None
+
+
+def _resolve_review_image_path(value: Any, *, upload_dir: Path | None = None) -> Path | None:
+    if not value:
+        return None
+    raw_path = Path(str(value))
+    candidates = [raw_path]
+    if upload_dir is not None and raw_path.name:
+        candidates.append(upload_dir / raw_path.name)
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.is_file():
+            return resolved
+    return None
 
 
 def _feedback_item_payload(item: FeedbackItemRecord, *, review_item_id: str | None = None) -> dict[str, object]:

@@ -2812,12 +2812,20 @@ export function ReviewPage() {
   const requestedStatus = searchParams.get("status") || "pending";
   const statusFilter = REVIEW_STATUS_TABS.some(([value]) => value === requestedStatus) ? requestedStatus : "pending";
   const datasetFilter = searchParams.get("dataset_id") || "";
+  const pageSize = 20;
+  const requestedPage = Number.parseInt(searchParams.get("page") || "1", 10);
+  const currentPage = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const offset = (currentPage - 1) * pageSize;
   const { datasets: datasetItems } = useDatasets();
-  const { reviewItems: apiReviewItems, loading, error, refresh } = useReviewItems({
+  const { reviewItems: apiReviewItems, pagination, loading, error, refresh } = useReviewItems({
     status: statusFilter,
     datasetId: datasetFilter || undefined,
-    limit: 80,
+    limit: pageSize,
+    offset,
   });
+  const totalItems = pagination?.total ?? apiReviewItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
   const oodCount = apiReviewItems.filter((item) => item.riskType === "ood_candidate").length;
   const lowConfidenceCount = apiReviewItems.filter((item) => item.riskType === "low_confidence").length;
   const lowMarginCount = apiReviewItems.filter((item) => item.riskType === "low_margin").length;
@@ -2841,6 +2849,15 @@ export function ReviewPage() {
       if (value) next.set("dataset_id", value);
       else next.delete("dataset_id");
     }
+    next.delete("page");
+    setSearchParams(next);
+  }
+
+  function updateReviewPage(page) {
+    const boundedPage = Math.max(1, Math.min(page, totalPages));
+    const next = new URLSearchParams(searchParams);
+    if (boundedPage > 1) next.set("page", String(boundedPage));
+    else next.delete("page");
     setSearchParams(next);
   }
 
@@ -2848,7 +2865,7 @@ export function ReviewPage() {
     <>
       <PageHero title="让人工只处理模型真正不确定的样本。" description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。" actions={<button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>} />
       <div className="grid review">
-        <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在读取复核队列。" : `${apiReviewItems.length} 条样本。`}>
+        <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在读取复核队列。" : `第 ${safeCurrentPage}/${totalPages} 页，本页 ${apiReviewItems.length} 条，共 ${totalItems} 条。`}>
           <div className="review-filter-bar">
             <div className="tabs">
               {REVIEW_STATUS_TABS.map(([value, label]) => (
@@ -2886,8 +2903,21 @@ export function ReviewPage() {
               <ApiReviewCard item={item} queryString={queryString} key={item.id} />
             ))}
           </div>
+          {!error && totalItems > pageSize && (
+            <div className="pagination-bar">
+              <span>第 {safeCurrentPage} 页 / 共 {totalPages} 页</span>
+              <div>
+                <button className="ghost-button" onClick={() => updateReviewPage(safeCurrentPage - 1)} disabled={safeCurrentPage <= 1 || loading}>
+                  <Icon name="ChevronLeft" size={16} />上一页
+                </button>
+                <button className="ghost-button" onClick={() => updateReviewPage(safeCurrentPage + 1)} disabled={safeCurrentPage >= totalPages || loading}>
+                  下一页<Icon name="ChevronRight" size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </Panel>
-        <Panel title="队列摘要" caption="统计当前筛选结果；历史入口在左侧状态切换中。">
+        <Panel title="队列摘要" caption="统计当前页样本；历史入口在左侧状态切换中。">
           <div className="timeline">
             <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
             <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">低置信</StatusChip></div>
