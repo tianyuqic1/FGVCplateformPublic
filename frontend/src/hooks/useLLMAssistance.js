@@ -19,7 +19,9 @@ export function useReviewAssistance(reviewItemId) {
     [reviewItemId],
   );
 
-  return { ...state, generate };
+  const reset = useCallback(() => setState({ status: "idle", assistance: null, error: null }), []);
+
+  return { ...state, generate, reset };
 }
 
 export function useLLMAssistance() {

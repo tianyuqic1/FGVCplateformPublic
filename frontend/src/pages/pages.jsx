@@ -2936,6 +2936,8 @@ export function ReviewDetailPage({ showToast }) {
   const { reviewItem: item, loading, error, refresh } = useReviewItem(reviewItemId);
   const submitState = useSubmitReviewOutcome(reviewItemId);
   const reviewAssistant = useReviewAssistance(reviewItemId);
+  const storedAssistance = assistanceFromMetadata(item?.assistanceMetadata);
+  const reviewAssistance = reviewAssistant.assistance ?? storedAssistance;
   const [form, setForm] = useState({
     finalOutcome: "corrected_label",
     destination: "training_candidate",
@@ -2946,6 +2948,12 @@ export function ReviewDetailPage({ showToast }) {
   useEffect(() => {
     setForm((current) => ({ ...current, destination: destinationForOutcome(current.finalOutcome) }));
   }, [form.finalOutcome]);
+
+  useEffect(() => {
+    if (storedAssistance?.summary && reviewAssistant.status === "failed") {
+      reviewAssistant.reset();
+    }
+  }, [storedAssistance?.summary, reviewAssistant.status, reviewAssistant.reset]);
 
   function updateReviewField(field, value) {
     setForm((current) => {
@@ -3020,8 +3028,6 @@ export function ReviewDetailPage({ showToast }) {
   const candidateLabels = Array.from(new Set(item.topK.map((candidate) => candidate.label).filter(Boolean)));
   const destinationOptions = destinationOptionsForOutcome(form.finalOutcome);
   const requiresLabel = ["confirmed_label", "corrected_label"].includes(form.finalOutcome);
-  const storedAssistance = assistanceFromMetadata(item.assistanceMetadata);
-  const reviewAssistance = reviewAssistant.assistance ?? storedAssistance;
   const canSubmit =
     item.status === "pending" &&
     submitState.status !== "submitting" &&
@@ -3280,7 +3286,7 @@ function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = 
           {isGenerating ? "生成中" : hasAssistance ? "重新生成" : "生成建议"}
         </button>
       </div>
-      {error && (
+      {error && !hasAssistance && (
         <div className="route-box risk section-gap-small">
           <div><strong>LLM 辅助暂不可用</strong><div className="row-meta">{error.message}</div></div>
           <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>

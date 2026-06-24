@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 150000;
+const DEFAULT_TIMEOUT_MS = 300000;
 
 function apiBaseUrl() {
   const configured = import.meta.env?.VITE_API_BASE_URL;
@@ -33,8 +33,19 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
 
 function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
+  let timedOut = false;
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return request(controller.signal)
+    .catch((error) => {
+      if (timedOut || error?.name === "AbortError" || String(error?.message || "").includes("aborted")) {
+        throw new Error(`LLM 请求超过 ${Math.round(timeoutMs / 1000)} 秒未返回；如果后端稍后完成，刷新后会显示已保存的建议。`);
+      }
+      throw error;
+    })
+    .finally(() => window.clearTimeout(timer));
 }
 
 export function normalizeAssistance(raw = {}) {
