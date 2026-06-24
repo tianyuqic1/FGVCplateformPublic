@@ -21,6 +21,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    gpus: all
     env_file:
       - path: .env
         required: false
@@ -30,6 +31,7 @@ services:
       FINEVISION_ARTIFACT_DIR: /data/artifacts
       FINEVISION_UPLOAD_DIR: /data/uploads
       FINEVISION_IMPORTED_DATASET_DIR: /data/imported-datasets
+      FINEVISION_DINOV3_DEVICE: cuda
     ports:
       - "8001:8000"
     depends_on:
@@ -51,6 +53,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    gpus: all
     env_file:
       - path: .env
         required: false
@@ -59,6 +62,8 @@ services:
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/artifacts
       FINEVISION_IMPORTED_DATASET_DIR: /data/imported-datasets
+      FINEVISION_DINOV3_DEVICE: cuda
+      FINEVISION_LINEAR_HEAD_DEVICE: cuda
     depends_on:
       migrate:
         condition: service_completed_successfully

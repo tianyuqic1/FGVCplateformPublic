@@ -22,6 +22,16 @@ adminer   http://localhost:8081
 postgres  localhost:5432
 ```
 
+The default Compose stack attaches the local NVIDIA GPU to `api` and `ml-worker`.
+Verify GPU visibility before long DINOv3 runs:
+
+```bash
+docker compose exec ml-worker python - <<'PY'
+import torch
+print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)
+PY
+```
+
 For a focused fresh-database migration check:
 
 ```bash

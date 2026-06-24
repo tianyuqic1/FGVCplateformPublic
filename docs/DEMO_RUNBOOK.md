@@ -45,6 +45,19 @@ adminer   http://localhost:8081
 postgres  localhost:5432
 ```
 
+GPU check for DINOv3 extraction and classifier training:
+
+```bash
+docker compose exec ml-worker python - <<'PY'
+import torch
+print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)
+PY
+```
+
+Expected on the local workstation: `True` and the NVIDIA GPU name. If this prints `False`, check
+that `docker compose config` includes `gpus` for `api` and `ml-worker`, and that
+`docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi` works on the host.
+
 ## Migration-Only Check
 
 For a focused fresh-database acceptance check:
