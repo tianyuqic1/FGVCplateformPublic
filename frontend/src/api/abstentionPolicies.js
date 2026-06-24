@@ -45,7 +45,7 @@ function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
 export function normalizePolicy(raw = {}) {
   const metrics = raw.metrics ?? {};
   return {
-    id: raw.policyId ?? raw.policy_id ?? "policy-preview",
+    id: raw.policyId ?? raw.policy_id ?? "untracked-policy",
     datasetId: raw.datasetId ?? raw.dataset_id ?? null,
     datasetVersionId: raw.datasetVersionId ?? raw.dataset_version_id ?? null,
     modelVersionId: raw.modelVersionId ?? raw.model_version_id ?? null,
@@ -82,7 +82,7 @@ export function normalizeActivationResult(raw = {}) {
 
 export function normalizeShadowDecision(raw = {}) {
   return {
-    id: raw.shadowDecisionId ?? raw.shadow_decision_id ?? "shadow-preview",
+    id: raw.shadowDecisionId ?? raw.shadow_decision_id ?? "untracked-shadow-decision",
     policyId: raw.policyId ?? raw.policy_id ?? null,
     inferenceEventId: raw.inferenceEventId ?? raw.inference_event_id ?? null,
     datasetId: raw.datasetId ?? raw.dataset_id ?? null,

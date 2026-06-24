@@ -15,15 +15,15 @@ const navItems = [
 ];
 
 const searchItems = [
-  { label: "工作台", hint: "MVP 概览、优先任务、低置信样本", to: "/" },
+  { label: "工作台", hint: "运营概览、优先任务、低置信样本", to: "/" },
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
   { label: "权重管理", hint: "DINOv3 ViT-S/B/L 缓存状态和删除", to: "/weights" },
   { label: "人工复核", hint: "待复核、历史、人工提交", to: "/review?status=pending" },
-  { label: "复核历史", hint: "feedbacked review items", to: "/review?status=feedbacked" },
-  { label: "反馈池", hint: "training_candidate、OOD、坏图、争议", to: "/feedback" },
+  { label: "复核历史", hint: "已进入反馈池的复核记录", to: "/review?status=feedbacked" },
+  { label: "反馈池", hint: "训练候选、OOD、坏图、争议", to: "/feedback" },
   { label: "模型版本", hint: "候选模型、发布门禁", to: "/models" },
   { label: "流水线", hint: "任务节点、worker 边界", to: "/pipelines" },
 ];
@@ -77,10 +77,10 @@ export function AppShell({ title, crumb, children, onToast }) {
           </div>
           <div>
             <strong>FineVision</strong>
-            <span className="small">classification workbench</span>
+            <span className="small">视觉分类工作台</span>
           </div>
         </div>
-        <div className="nav-caption">Main</div>
+        <div className="nav-caption">导航</div>
         <nav className="nav-section">
           {navItems.map((item) => (
             <NavLink className={`nav-button ${active === item.id ? "active" : ""}`} key={item.id} to={item.to}>
@@ -91,12 +91,12 @@ export function AppShell({ title, crumb, children, onToast }) {
         </nav>
         <div className="sidebar-card">
           <Icon name="ShieldCheck" size={18} />
-          <h3>MVP 边界</h3>
-          <p className="small">聚焦 CLS 训练、推理、复核和权重管理；暂不做 LoRA/发布</p>
+          <h3>当前能力</h3>
+          <p className="small">聚焦 CLS 训练、推理、复核和权重管理；生产发布需完成门禁后再操作</p>
           <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
             <i />
           </div>
-          <div className="row-meta">MVP baseline hardening</div>
+          <div className="row-meta">候选模型评估流程</div>
         </div>
       </aside>
       <main className="main">

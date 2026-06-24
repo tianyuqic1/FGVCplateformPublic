@@ -119,6 +119,21 @@ class DatabaseReviewStore:
             )
         return run_key
 
+    def validate_inference_run_append(
+        self,
+        *,
+        inference_run_id: str,
+        dataset_version_id: str,
+        model_version_id: str,
+    ) -> None:
+        with self.engine.begin() as conn:
+            _lookup_appendable_inference_run_id(
+                conn,
+                inference_run_id,
+                dataset_version_id=dataset_version_id,
+                model_version_id=model_version_id,
+            )
+
     def finish_inference_run(
         self,
         run_id: str | None,
@@ -197,7 +212,16 @@ class DatabaseReviewStore:
             ).mappings().first()
             if context_row is None:
                 raise ValueError(f"Model version not found for dataset version: {model_key}")
-            inference_run_db_id = _lookup_inference_run_id(conn, str(inference_run_key)) if inference_run_key else None
+            inference_run_db_id = (
+                _lookup_appendable_inference_run_id(
+                    conn,
+                    str(inference_run_key),
+                    dataset_version_id=dataset_version_key,
+                    model_version_id=model_key,
+                )
+                if inference_run_key
+                else None
+            )
 
             event_db_id = uuid4()
             event_key = f"inference-{uuid4().hex[:12]}"
@@ -548,11 +572,36 @@ def _review_context_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _lookup_inference_run_id(conn: sa.Connection, run_key: str) -> UUID | None:
+def _lookup_appendable_inference_run_id(
+    conn: sa.Connection,
+    run_key: str,
+    *,
+    dataset_version_id: str,
+    model_version_id: str,
+) -> UUID:
     if not run_key:
-        return None
-    value = conn.execute(sa.select(inference_runs.c.id).where(inference_runs.c.run_key == run_key)).scalar_one_or_none()
-    return value
+        raise ValueError("inference_run_id is required")
+    row = conn.execute(
+        sa.select(
+            inference_runs.c.id,
+            inference_runs.c.status,
+            dataset_versions.c.version_key,
+            model_versions.c.model_key,
+        )
+        .select_from(
+            inference_runs.join(dataset_versions, dataset_versions.c.id == inference_runs.c.dataset_version_id)
+            .join(model_versions, model_versions.c.id == inference_runs.c.model_version_id)
+        )
+        .where(inference_runs.c.run_key == run_key)
+        .with_for_update()
+    ).mappings().first()
+    if row is None:
+        raise ValueError(f"Inference run not found: {run_key}")
+    if row["version_key"] != dataset_version_id or row["model_key"] != model_version_id:
+        raise ValueError("inference_run_id does not match request dataset_version_id/model_version_id")
+    if row["status"] != "running":
+        raise RuntimeError(f"Inference run is not appendable: {run_key} has status {row['status']}")
+    return row["id"]
 
 
 def _threshold_snapshot(response_payload: dict[str, Any]) -> dict[str, Any]:

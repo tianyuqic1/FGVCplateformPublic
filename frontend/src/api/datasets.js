@@ -98,10 +98,10 @@ export function normalizeDataset(raw) {
     raw?.dataset_version_id ??
     raw?.latest_version_id ??
     raw?.current_version_id ??
-    "dataset@draft";
+    null;
 
   return {
-    id: raw?.id ?? raw?.dataset_id ?? raw?.slug ?? latestVersion,
+    id: raw?.id ?? raw?.dataset_id ?? raw?.slug ?? latestVersion ?? "untracked-dataset",
     name: raw?.name ?? raw?.display_name ?? raw?.dataset_id ?? "未命名数据集",
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? latestVersion,
     latestVersionId: raw?.latestVersionId ?? raw?.latest_version_id ?? latestVersion,
@@ -109,7 +109,7 @@ export function normalizeDataset(raw) {
     classes: classCount,
     images: imageCount,
     version: latestVersion,
-    modelVersion: raw?.modelVersion ?? raw?.model_version ?? raw?.production_model_version_id ?? "unreleased",
+    modelVersion: raw?.modelVersion ?? raw?.model_version ?? raw?.production_model_version_id ?? null,
     productionModelVersionId: raw?.productionModelVersionId ?? raw?.production_model_version_id ?? null,
     featureArtifactId: raw?.featureArtifactId ?? raw?.feature_artifact_id ?? null,
     thresholdStrategyId: raw?.thresholdStrategyId ?? raw?.threshold_strategy_id ?? null,
@@ -123,7 +123,7 @@ export function normalizeDataset(raw) {
     datasetCard: raw?.datasetCard ? normalizeDatasetCard(raw.datasetCard) : raw?.dataset_card ? normalizeDatasetCard(raw.dataset_card) : null,
     previewSamples: normalizeSamplePreviews(raw?.previewSamples ?? raw?.preview_samples ?? raw?.sample_previews ?? []),
     versions: Array.isArray(raw?.versions) ? raw.versions : [],
-    description: raw?.description ?? raw?.summary ?? "Control-plane API 已返回该数据集，详细描述待补充。",
+    description: raw?.description ?? raw?.summary ?? "数据集已同步，详细描述待补充。",
   };
 }
 

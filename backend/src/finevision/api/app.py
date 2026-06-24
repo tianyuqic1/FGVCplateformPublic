@@ -495,8 +495,12 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
 
     @api.post("/api/inference")
     def run_scoped_inference(request: RunInferenceRequest) -> dict[str, object]:
+        inference_run_id: str | None = None
+        if request.inference_run_id:
+            _validate_inference_run_append(api, request)
+            inference_run_id = request.inference_run_id
         payload = _run_scoped_inference_payload(api, request)
-        inference_run_id = request.inference_run_id or _create_inference_run(api, request, run_type="single")
+        inference_run_id = inference_run_id or _create_inference_run(api, request, run_type="single")
         _attach_inference_run_payload(payload, inference_run_id)
         _record_review_route(api, request, payload, inference_run_id=inference_run_id)
         _finish_inference_run(api, inference_run_id, summary={"total": 1, "succeeded": 1, "failed": 0}, first_result_payload=payload)
@@ -1296,6 +1300,22 @@ def _create_inference_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+def _validate_inference_run_append(api: FastAPI, request: RunInferenceRequest) -> None:
+    review_store: DatabaseReviewStore | None = api.state.review_store
+    if review_store is None or request.inference_run_id is None:
+        return
+    try:
+        review_store.validate_inference_run_append(
+            inference_run_id=request.inference_run_id,
+            dataset_version_id=request.dataset_version_id,
+            model_version_id=request.model_version_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
 def _attach_inference_run_payload(payload: dict[str, Any], inference_run_id: str | None) -> None:
     if not inference_run_id:
         return
@@ -1331,10 +1351,15 @@ def _record_review_route(
     review_store: DatabaseReviewStore | None = api.state.review_store
     if review_store is None:
         return
-    event, review_item = review_store.record_inference_result(
-        request_payload={**request.model_dump(), "force_review": force_review, "inference_run_id": inference_run_id or payload.get("inference_run_id")},
-        response_payload=payload,
-    )
+    try:
+        event, review_item = review_store.record_inference_result(
+            request_payload={**request.model_dump(), "force_review": force_review, "inference_run_id": inference_run_id or payload.get("inference_run_id")},
+            response_payload=payload,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     payload["inference_event_id"] = event.inference_event_id
     payload["inference_run_id"] = event.inference_run_id
     payload["batch_id"] = event.inference_run_id

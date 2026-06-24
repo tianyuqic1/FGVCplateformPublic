@@ -3,20 +3,20 @@ import { spawn } from "node:child_process";
 const routes = [
   "/",
   "/datasets",
-  "/datasets/bird?tab=overview",
-  "/datasets/bird?tab=classes",
-  "/datasets/bird?tab=samples",
-  "/datasets/bird?tab=features",
-  "/datasets/bird?tab=ood",
+  "/datasets/route-availability-dataset?tab=overview",
+  "/datasets/route-availability-dataset?tab=classes",
+  "/datasets/route-availability-dataset?tab=samples",
+  "/datasets/route-availability-dataset?tab=features",
+  "/datasets/route-availability-dataset?tab=ood",
   "/training",
-  "/training/run-042",
+  "/training/route-availability-run",
   "/inference",
   "/weights",
   "/review",
   "/feedback",
   "/models",
   "/pipelines",
-  "/pipelines?job_id=__smoke__",
+  "/pipelines?job_id=route-availability-job",
 ];
 
 const port = process.env.SMOKE_PORT ?? "4173";
@@ -53,6 +53,7 @@ async function waitForServer() {
 
 try {
   await waitForServer();
+  console.log("Route availability smoke only: verifies Vite preview returns HTTP 200 for SPA routes.");
   for (const route of routes) {
     const response = await fetch(`${baseUrl}${route}`);
     if (!response.ok) {

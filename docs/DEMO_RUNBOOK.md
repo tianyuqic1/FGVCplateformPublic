@@ -32,8 +32,9 @@ What happens:
 2. PostgreSQL starts and waits until healthy.
 3. The one-shot `migrate` service runs `alembic upgrade head`.
 4. `api`, `ml-worker`, `frontend`, and `adminer` start.
-5. `scripts/smoke-demo.sh` checks API/frontend availability, frontend API-client contracts, and the
-   online abstention contract smoke when a dedicated test database is available.
+5. `scripts/smoke-demo.sh` runs the lightweight demo gate: API/frontend availability, frontend
+   API-client contracts, and the online abstention contract smoke when a dedicated test database is
+   available. This default gate is not a complete browser E2E suite.
 
 Services:
 
@@ -61,11 +62,21 @@ dependency of `docker compose up`, inspect it with `docker compose logs migrate`
 
 ## Smoke Checks
 
-Run the lightweight smoke framework against an already running stack:
+Run the lightweight smoke framework against an already running stack. This is a contract and service
+availability gate, not full browser E2E coverage:
 
 ```bash
 scripts/smoke-demo.sh
 ```
+
+Run the stronger MVP release gate before publishing a demo build:
+
+```bash
+scripts/smoke-demo.sh --release-acceptance
+```
+
+The release gate includes API/frontend probes, frontend API-client contracts, online abstention plus
+manual activation contracts, frontend production build, and route availability smoke.
 
 Run only contract checks without probing API/frontend HTTP services:
 
@@ -83,11 +94,14 @@ This smoke defaults to `finevision_test`, prepares that database through the run
 PostgreSQL service when possible, and runs only toy-data policy tests. It does not start DINOv3
 training or download DINO weights.
 
-Include frontend build and route preview checks when needed:
+Include frontend build and route availability checks without the full release gate when needed:
 
 ```bash
 RUN_FRONTEND_ROUTE_SMOKE=1 scripts/smoke-demo.sh
 ```
+
+Route availability smoke verifies that Vite preview returns HTTP 200 for SPA routes only. It does
+not execute browser interactions or prove dataset/import/training/review workflows end to end.
 
 Backend toolkit smoke remains separate and CPU-safe:
 

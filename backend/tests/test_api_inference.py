@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -211,6 +213,114 @@ def test_routed_inference_creates_review_item_and_feedback(
         dataset_count = conn.execute(sa.select(sa.func.count()).select_from(dataset_versions)).scalar_one()
     assert feedback_count == 1
     assert dataset_count == 1
+
+
+def test_scoped_inference_rejects_inference_run_from_other_model(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    other_model_version_id = _clone_model_version(
+        database_url,
+        source_model_version_id=model_version_id,
+        new_model_version_id="model@other-scope",
+    )
+    wrong_run_id = _insert_inference_run(
+        database_url,
+        dataset_version_id="dataset@infer-toy-001",
+        model_version_id=other_model_version_id,
+        status="running",
+    )
+
+    response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "inference_run_id": wrong_run_id,
+            "sample_id": sample_id,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "does not match" in response.json()["detail"]
+    _assert_no_inference_events_or_reviews(database_url)
+
+
+def test_scoped_inference_rejects_inference_run_from_other_dataset(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    _insert_dataset_version(database_url, dataset_id="other-toy", dataset_version_id="dataset@other-toy-001", root=tmp_path)
+    other_model_version_id = _clone_model_version(
+        database_url,
+        source_model_version_id=model_version_id,
+        new_model_version_id="model@other-dataset",
+        dataset_version_id="dataset@other-toy-001",
+    )
+    wrong_run_id = _insert_inference_run(
+        database_url,
+        dataset_version_id="dataset@other-toy-001",
+        model_version_id=other_model_version_id,
+        status="running",
+    )
+
+    response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "inference_run_id": wrong_run_id,
+            "sample_id": sample_id,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "does not match" in response.json()["detail"]
+    _assert_no_inference_events_or_reviews(database_url)
+
+
+def test_scoped_inference_rejects_completed_inference_run_id(
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, model_version_id, sample_id = _trained_toy_context(database_url, tmp_path, monkeypatch)
+    first_response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "sample_id": sample_id,
+        },
+    )
+    assert first_response.status_code == 200
+    completed_run_id = first_response.json()["inference_result"]["inference_run_id"]
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        inference_count_before = conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one()
+        review_count_before = conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one()
+
+    second_response = client.post(
+        "/api/inference",
+        json={
+            "dataset_version_id": "dataset@infer-toy-001",
+            "model_version_id": model_version_id,
+            "inference_run_id": completed_run_id,
+            "sample_id": sample_id,
+        },
+    )
+
+    assert second_response.status_code == 409
+    assert "not appendable" in second_response.json()["detail"]
+    with engine.begin() as conn:
+        inference_count_after = conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one()
+        review_count_after = conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one()
+    assert inference_count_after == inference_count_before
+    assert review_count_after == review_count_before
 
 
 def test_review_item_payload_exposes_sample_image_url_in_context() -> None:
@@ -637,6 +747,141 @@ def _run_forced_ood_inference(client: TestClient, model_version_id: str, tmp_pat
             "ood_distance_threshold": 0.0,
         },
     )
+
+
+def _insert_dataset_version(database_url: str, *, dataset_id: str, dataset_version_id: str, root: Path) -> None:
+    now = datetime.now(UTC)
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        dataset_db_id = uuid4()
+        dataset_version_db_id = uuid4()
+        conn.execute(
+            datasets.insert().values(
+                id=dataset_db_id,
+                dataset_key=dataset_id,
+                name=dataset_id,
+                description=None,
+                domain=None,
+                status="ready",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        conn.execute(
+            dataset_versions.insert().values(
+                id=dataset_version_db_id,
+                dataset_id=dataset_db_id,
+                version_key=dataset_version_id,
+                root_uri=str(root),
+                sample_count=0,
+                class_count=0,
+                split_summary={},
+                readiness_status="ready",
+                readiness_report={"ready": True},
+                manifest_artifact_id=None,
+                created_by_job_id=None,
+                created_at=now,
+            )
+        )
+
+
+def _clone_model_version(
+    database_url: str,
+    *,
+    source_model_version_id: str,
+    new_model_version_id: str,
+    dataset_version_id: str | None = None,
+) -> str:
+    now = datetime.now(UTC)
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        source = conn.execute(
+            sa.select(
+                model_versions.c.dataset_id,
+                model_versions.c.dataset_version_id,
+                model_versions.c.training_run_id,
+                model_versions.c.status,
+                model_versions.c.model_artifact_id,
+                model_versions.c.calibration_artifact_id,
+                model_versions.c.threshold_strategy_artifact_id,
+                model_versions.c.metrics,
+            ).where(model_versions.c.model_key == source_model_version_id)
+        ).mappings().one()
+        dataset_db_id = source["dataset_id"]
+        dataset_version_db_id = source["dataset_version_id"]
+        if dataset_version_id is not None:
+            target_dataset = conn.execute(
+                sa.select(dataset_versions.c.id, dataset_versions.c.dataset_id).where(
+                    dataset_versions.c.version_key == dataset_version_id
+                )
+            ).mappings().one()
+            dataset_db_id = target_dataset["dataset_id"]
+            dataset_version_db_id = target_dataset["id"]
+        conn.execute(
+            model_versions.insert().values(
+                id=uuid4(),
+                model_key=new_model_version_id,
+                dataset_id=dataset_db_id,
+                dataset_version_id=dataset_version_db_id,
+                training_run_id=source["training_run_id"],
+                status=source["status"],
+                model_artifact_id=source["model_artifact_id"],
+                calibration_artifact_id=source["calibration_artifact_id"],
+                threshold_strategy_artifact_id=source["threshold_strategy_artifact_id"],
+                metrics=source["metrics"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    return new_model_version_id
+
+
+def _insert_inference_run(
+    database_url: str,
+    *,
+    dataset_version_id: str,
+    model_version_id: str,
+    status: str,
+) -> str:
+    now = datetime.now(UTC)
+    run_key = f"infer-run-test-{uuid4().hex[:8]}"
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        dataset_version = conn.execute(
+            sa.select(dataset_versions.c.id, dataset_versions.c.dataset_id).where(
+                dataset_versions.c.version_key == dataset_version_id
+            )
+        ).mappings().one()
+        model_version_db_id = conn.execute(
+            sa.select(model_versions.c.id).where(model_versions.c.model_key == model_version_id)
+        ).scalar_one()
+        conn.execute(
+            inference_runs.insert().values(
+                id=uuid4(),
+                run_key=run_key,
+                dataset_id=dataset_version["dataset_id"],
+                dataset_version_id=dataset_version["id"],
+                model_version_id=model_version_db_id,
+                run_type="single",
+                status=status,
+                item_count=0,
+                review_item_count=0,
+                request_payload={},
+                summary={},
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    return run_key
+
+
+def _assert_no_inference_events_or_reviews(database_url: str) -> None:
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        inference_count = conn.execute(sa.select(sa.func.count()).select_from(inference_events)).scalar_one()
+        review_count = conn.execute(sa.select(sa.func.count()).select_from(review_items)).scalar_one()
+    assert inference_count == 0
+    assert review_count == 0
 
 
 def _reset_database(database_url: str) -> None:

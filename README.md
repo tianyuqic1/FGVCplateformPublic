@@ -1,38 +1,80 @@
 # FineVision
 
-FineVision is the intended workspace for the fine-grained image classification platform discussed in the migrated conversation.
+FineVision is the MVP workspace for a fine-grained image classification control plane. The current
+release surface is a local Compose demo with a React workbench, FastAPI control plane, PostgreSQL
+metadata store, worker process, artifact-backed dataset cards, review/feedback capture, and guarded
+online-abstention policy activation.
 
-## Current Artifacts
+## Start
 
-- `frontend/prototypes/fine-grained-vision-platform.html`: clickable workbench HTML prototype.
-- `frontend/prototypes/NOTES.md`: prototype notes and product direction.
-- `openspec/changes/build-fine-grained-vision-platform-mvp/`: OpenSpec proposal, design, specs, and task list for the MVP.
-- `docs/ITERATION_PLAN.md`: staged implementation plan with checkpoint-based git push guidance.
-- `HANDOFF.md`: concise context for continuing this work in a fresh thread.
+Start the local demo stack, apply migrations, and run lightweight smoke checks:
 
-## Prototype
-
-Open this file directly in a browser:
-
-```text
-frontend/prototypes/fine-grained-vision-platform.html
+```bash
+scripts/demo-up.sh
 ```
 
-Useful routes:
+Services:
 
 ```text
-?page=dashboard
-?page=datasets
-?page=dataset-detail&id=bird&tab=classes
-?page=inference
-?page=review
-?page=models
-?page=pipelines
+frontend  http://localhost:5173
+api       http://localhost:8001
+adminer   http://localhost:8081
+postgres  localhost:5432
 ```
+
+For a focused fresh-database migration check:
+
+```bash
+docker compose up -d postgres
+docker compose run --rm migrate
+```
+
+## Acceptance
+
+Default demo smoke is intentionally lightweight. It validates Compose config, API/frontend
+availability, frontend API-client contracts, and online-abstention contracts when a dedicated test
+database is available. It is not a full browser E2E suite.
+
+```bash
+scripts/smoke-demo.sh
+```
+
+Use the stronger MVP release gate before publishing a demo build:
+
+```bash
+scripts/smoke-demo.sh --release-acceptance
+```
+
+The release gate includes API/frontend probes, frontend API-client contracts, online abstention plus
+manual activation contracts, frontend production build, and route availability smoke. The route smoke
+only checks that Vite preview returns HTTP 200 for SPA routes; it does not prove user workflows,
+backend data mutations, or browser interactions.
+
+Run backend toolkit validation separately when ML artifact flow changes:
+
+```bash
+uv run --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-smoke
+uv run --group dev pytest
+```
+
+## Current MVP Boundaries
+
+- Dataset cards are active, version-level, artifact-backed MVP documents. They are drafted during
+  import, editable through `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`, and injected
+  as advisory LLM context.
+- LLM assistance is advisory-only. It cannot set labels, submit reviews, tune thresholds, activate
+  policies, or mutate dataset/model versions.
+- Online abstention supports shadow evaluation and manual activation gates. Active policies can
+  affect live inference thresholds only for their exact dataset/model scope after feedback and risk
+  checks pass.
+- DINOv3 extractors are available through `timm`, but default smoke paths use toy data and lightweight
+  extractors to avoid large weight downloads.
+- `POST /api/inference/upload` is a synchronous single-image MVP bridge. High-throughput batch
+  inference should move behind worker jobs before production hardening.
 
 ## Workbench App
 
-The Iteration 0 React/Vite workbench lives under `frontend/`.
+The React/Vite workbench lives under `frontend/`.
 
 Run locally:
 
@@ -54,30 +96,23 @@ Main routes:
 ```text
 /
 /datasets
-/datasets/bird?tab=classes
+/datasets/{dataset_id}?tab=classes
 /training
-/training/run-042
+/training/{run_id}
 /inference
 /review
 /feedback
 /models
 /weights
 /pipelines
-/pipelines?job_id=<job_id>
+/pipelines?job_id={job_id}
 ```
 
 ## ML/Data Toolkit
 
-Iteration 0.5 starts the backend toolkit under `backend/src/finevision/ml_toolkit/`.
+The backend toolkit lives under `backend/src/finevision/ml_toolkit/`.
 
-Run the lightweight smoke flow:
-
-```text
-uv run --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-smoke
-uv run --group dev pytest
-```
-
-The smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
+The lightweight smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
 
 ```text
 DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> CalibrationReport -> ThresholdStrategy -> InferenceResult
@@ -287,10 +322,16 @@ Re-apply migrations after schema changes:
 docker compose run --rm migrate
 ```
 
-Start the demo stack and run lightweight checks:
+Start the demo stack and run lightweight smoke checks:
 
 ```text
 scripts/demo-up.sh
+```
+
+Run the stronger MVP release gate against an already running stack:
+
+```text
+scripts/smoke-demo.sh --release-acceptance
 ```
 
 Run PostgreSQL-backed repository tests:
@@ -314,7 +355,7 @@ scripts/smoke-online-abstention-contract.sh --with-activation-contracts
 RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
 ```
 
-Run frontend API client smoke checks:
+Run frontend API client contract smoke checks:
 
 ```text
 cd frontend
@@ -325,9 +366,19 @@ npm run smoke:inference-client
 npm run smoke:abstention-client
 npm run smoke:review-client
 npm run smoke:llm-client
-npm run smoke:routes
 npm run build
 ```
+
+Run route availability smoke only after a frontend production build:
+
+```text
+cd frontend
+npm run build
+npm run smoke:routes
+```
+
+`smoke:routes` verifies preview HTTP availability for SPA routes only; it is not browser interaction
+or end-to-end workflow coverage.
 
 More detail:
 

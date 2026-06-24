@@ -11,13 +11,22 @@ RUN_FRONTEND_ROUTE_SMOKE="${RUN_FRONTEND_ROUTE_SMOKE:-0}"
 RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE="${RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE:-1}"
 RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE="${RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE:-0}"
 contracts_only=0
+release_acceptance=0
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/smoke-demo.sh [--contracts-only]
+Usage: scripts/smoke-demo.sh [--contracts-only] [--release-acceptance]
 
-Checks a running demo stack by default. Use --contracts-only to run the
-frontend API-client contract smokes without probing API/frontend HTTP services.
+Default checks are lightweight contract and service-availability smoke checks,
+not a complete browser E2E suite.
+
+Use --contracts-only to run frontend API-client contract smokes without probing
+API/frontend HTTP services.
+
+Use --release-acceptance against a running demo stack to include the stricter
+MVP release gate: API/frontend probes, frontend API-client contracts, online
+abstention plus activation contracts, frontend production build, and route
+availability smoke.
 USAGE
 }
 
@@ -25,6 +34,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --contracts-only)
       contracts_only=1
+      ;;
+    --release-acceptance)
+      release_acceptance=1
       ;;
     -h|--help)
       usage
@@ -38,6 +50,18 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "$contracts_only" -eq 1 && "$release_acceptance" -eq 1 ]]; then
+  echo "--contracts-only and --release-acceptance cannot be combined." >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ "$release_acceptance" -eq 1 ]]; then
+  RUN_FRONTEND_ROUTE_SMOKE=1
+  RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE=1
+  RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1
+fi
 
 wait_for_url() {
   local name="$1"
@@ -69,6 +93,12 @@ else
   echo "Skipping HTTP probes in contracts-only mode."
 fi
 
+if [[ "$release_acceptance" -eq 1 ]]; then
+  echo "Running MVP release acceptance smoke gate."
+else
+  echo "Running lightweight demo smoke gate; this is not a complete browser E2E suite."
+fi
+
 echo "Running frontend client contract smoke checks..."
 npm --prefix frontend run smoke:api-client
 npm --prefix frontend run smoke:jobs-client
@@ -90,13 +120,13 @@ else
 fi
 
 if [[ "$contracts_only" -eq 0 && "$RUN_FRONTEND_ROUTE_SMOKE" == "1" ]]; then
-  echo "Running optional frontend route smoke..."
+  echo "Running frontend build and route availability smoke..."
   npm --prefix frontend run build
   npm --prefix frontend run smoke:routes
 elif [[ "$contracts_only" -eq 1 ]]; then
-  echo "Skipping route preview smoke in contracts-only mode."
+  echo "Skipping route availability smoke in contracts-only mode."
 else
-  echo "Skipping route preview smoke; set RUN_FRONTEND_ROUTE_SMOKE=1 to include it."
+  echo "Skipping route availability smoke; set RUN_FRONTEND_ROUTE_SMOKE=1 or use --release-acceptance to include it."
 fi
 
 echo "FineVision demo smoke passed."

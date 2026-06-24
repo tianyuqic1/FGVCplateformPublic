@@ -74,7 +74,7 @@ function crumbForPath(pathname) {
   if (pathname === "/models") return "模型注册表";
   if (pathname.startsWith("/pipelines/")) return "流水线 / 运行详情";
   if (pathname === "/pipelines") return "编排";
-  return "首页 / MVP 概览";
+  return "首页 / 工作台";
 }
 
 function LegacyRouteBridge() {

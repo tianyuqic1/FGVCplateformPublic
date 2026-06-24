@@ -79,12 +79,12 @@ created_at timestamptz not null
 
 Important rule: model versions, feature artifacts, inference events, and review items should reference a dataset version.
 
-Planned Dataset Card extension: a future migration may add `dataset_card jsonb not null default '{}'`
-to store a compact, editable, version-level context document for advisory LLM workflows. The active
-schema does not include this column yet. When implemented, the card should describe task, domain,
-class scope, known confusions, OOD policy, and review guidance. It is not training data and should
-not be used as a final-label source. Keeping it on `dataset_versions` would prevent historical
-review and inference explanations from drifting when dataset-level descriptions change.
+Dataset Card MVP: the active implementation stores compact, editable, version-level dataset cards as
+`dataset_card` artifacts rather than as a `dataset_versions` column. The card describes task, domain,
+class scope, known confusions, OOD policy, and review guidance for advisory LLM workflows. It is not
+training data and must not be used as a final-label source. A future migration may move card content
+to `dataset_versions.dataset_card` JSONB only if querying, diffing, or governance needs justify the
+schema change.
 
 ### dataset_classes
 

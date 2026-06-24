@@ -105,7 +105,7 @@ export function extractTrainingRun(payload) {
 export function normalizeTrainingRun(raw) {
   const status = normalizeStatus(raw?.status);
   const metrics = raw?.metrics ?? {};
-  const id = raw?.id ?? raw?.run_id ?? "run-preview";
+  const id = raw?.id ?? raw?.run_id ?? raw?.model_version_id ?? raw?.job_id ?? "untracked-training-run";
   const datasetVersionId = raw?.datasetVersionId ?? raw?.dataset_version_id ?? null;
   const trainingProgress = normalizeTrainingProgress(metrics, status);
   const extractorConfig = raw?.extractorConfig ?? raw?.extractor_config ?? {};
@@ -113,7 +113,7 @@ export function normalizeTrainingRun(raw) {
 
   return {
     id,
-    name: raw?.name ?? `${datasetVersionId ?? "dataset"} candidate`,
+    name: raw?.name ?? `${datasetVersionId ?? "数据集"} 候选训练`,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? null,
     datasetVersionId,
     datasetName: raw?.datasetName ?? raw?.dataset_name ?? raw?.dataset_id ?? "数据集版本",

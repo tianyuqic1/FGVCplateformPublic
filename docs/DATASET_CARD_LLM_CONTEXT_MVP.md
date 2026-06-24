@@ -70,9 +70,10 @@ domain-aware summary.
 
 ## Data Model
 
-MVP storage: `dataset_card` artifact metadata. A future migration may move this to
-`dataset_versions.dataset_card` JSONB if card querying, version diffing, or governance becomes
-important.
+MVP storage: `dataset_card` artifact metadata. This is the active release shape: cards are versioned
+artifacts associated with dataset versions, not a `dataset_versions` JSONB column. A future migration
+may move card content to `dataset_versions.dataset_card` JSONB only if card querying, version
+diffing, or governance becomes important enough to justify the schema change.
 
 Why version-level:
 
@@ -184,16 +185,17 @@ When a dataset card exists, LLM assistance should:
   dataset versions, or model versions.
 - Tests cover import, GET/PUT card, LLM context injection, and frontend client normalization.
 
-## Implementation Order
+## Implementation Status
 
-1. Add `dataset_versions.dataset_card` and migration.
-2. Generate an initial card during dataset import.
-3. Add store methods for read/update card in DB-backed and file-backed modes.
-4. Add card API endpoints.
-5. Inject cards into LLM assistance contexts.
-6. Add dataset detail `Dataset Card` tab.
-7. Update tests and smoke checks.
-8. Re-run backend tests, frontend smoke/build, and `docker compose config`.
+1. Done: store cards as `dataset_card` artifacts for DB-backed and file-backed modes.
+2. Done: generate an initial card during dataset import.
+3. Done: add store methods for read/update card.
+4. Done: add card API endpoints.
+5. Done: inject cards into LLM assistance contexts.
+6. Done: add dataset detail `Dataset Card` tab.
+7. Done: update tests and smoke checks.
+8. Release check: re-run backend tests, frontend contract smoke/build, route availability smoke, and
+   `docker compose config` when changing this surface.
 
 ## Risks
 

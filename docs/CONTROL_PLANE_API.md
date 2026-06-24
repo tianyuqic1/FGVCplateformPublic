@@ -584,6 +584,9 @@ should move behind worker jobs before production hardening.
 
 ## Verification
 
+Default demo smoke is a contract and availability gate, not a complete browser E2E suite. For MVP
+release acceptance, run `scripts/smoke-demo.sh --release-acceptance` against a running stack.
+
 ```bash
 uv run --group dev pytest
 cd frontend && npm run smoke:api-client
@@ -598,6 +601,9 @@ cd frontend && npm run build
 cd frontend && npm run smoke:routes
 docker compose config
 ```
+
+`npm run smoke:routes` verifies preview HTTP availability for SPA routes only. It does not execute
+browser interactions or prove backend workflow behavior.
 
 Current verified result from the targeted docs/demo smoke update on 2026-06-23:
 
@@ -618,7 +624,7 @@ frontend review client: passed
 frontend llm client: passed
 frontend abstention client: passed
 frontend build: passed
-frontend routes: 16 x 200
+frontend route availability: 16 x 200
 ```
 
 ## Review Workflow Status

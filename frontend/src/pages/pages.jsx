@@ -30,7 +30,7 @@ const pipelineNodes = [
   { id: "import", title: "数据导入", description: "生成不可变 dataset version", icon: "FolderInput" },
   { id: "audit", title: "数据审计", description: "质量、类别、样本清单检查", icon: "BadgeCheck" },
   { id: "features", title: "特征提取", description: "生成 feature artifact", icon: "Cpu" },
-  { id: "training", title: "分类头训练", description: "生成 candidate model", icon: "FlaskConical" },
+  { id: "training", title: "分类头训练", description: "生成候选模型", icon: "FlaskConical" },
   { id: "calibration", title: "校准弃权", description: "生成 calibration / threshold artifact", icon: "CircleGauge" },
   { id: "handoff", title: "候选评估", description: "汇总人工评估和风险材料", icon: "ClipboardCheck" },
 ];
@@ -235,6 +235,19 @@ function uiStateLabel(status) {
     clear: "清空",
   };
   return labels[status] ?? status;
+}
+
+function displayValue(value, fallback = "未返回") {
+  return value === null || value === undefined || value === "" ? fallback : value;
+}
+
+function TechnicalDetails({ summary = "技术详情", children }) {
+  return (
+    <details className="advanced-fields section-gap-small">
+      <summary>{summary}</summary>
+      <div className="code-panel section-gap-small">{children}</div>
+    </details>
+  );
 }
 
 function imageFolderRelativePath(file) {
@@ -493,10 +506,10 @@ function ApiReviewCard({ item, queryString = "" }) {
         </div>
         <h3>{item.sampleId || item.id}</h3>
         <p className="small">{item.datasetVersionId} · {item.modelVersionId}</p>
-        <p className="small">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</p>
+        <p className="small">运行 {displayValue(item.inferenceRunId)} · 事件 {displayValue(item.inferenceEventId)}</p>
         <p className="small">
           {topCandidate ? `${topCandidate.label} ${topCandidate.score.toFixed(2)}` : "无候选"} ·{" "}
-          {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无 second"}
+          {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无第二候选"}
         </p>
         <p className="small review-reason">{item.reason}</p>
       </div>
@@ -509,8 +522,8 @@ function DatasetTable({ items = [] }) {
     return (
       <div className="empty-state">
         <Icon name="Database" size={24} />
-        <strong>暂无真实数据集</strong>
-        <span>导入 ImageFolder 后，Control-plane API 会在这里返回 dataset version。</span>
+        <strong>暂无数据集</strong>
+        <span>导入 ImageFolder 后，新的数据版本会显示在这里。</span>
       </div>
     );
   }
@@ -604,22 +617,22 @@ function JobRow({ job, selected = false }) {
 
 function RecentJobsPanel({ limit = 5, selectedJobId = "" }) {
   const { jobs, source, loading } = useRecentJobs(limit);
-  const sourceLabel = loading ? "正在连接 Control-plane API" : source === "api" ? "Control-plane API" : "Control-plane API 暂不可用";
+  const sourceLabel = loading ? "正在读取任务状态" : source === "api" ? "任务状态已同步" : "任务状态暂不可用";
   const selectedJob = selectedJobId ? jobs.find((job) => job.id === selectedJobId) : null;
 
   return (
-    <Panel title="真实任务状态" caption={`${sourceLabel} · queued / running / succeeded / failed / cancelled。`}>
+    <Panel title="任务状态" caption={`${sourceLabel} · 覆盖排队、运行、完成、失败和取消。`}>
       {selectedJobId && !selectedJob && (
         <div className="timeline-item">
           <div className="timeline-icon"><Icon name="Search" size={18} /></div>
-          <div><strong>当前列表没有这个 job</strong><div className="row-meta">{selectedJobId} · 请刷新或扩大任务查询范围。</div></div>
+          <div><strong>当前列表没有这个任务</strong><div className="row-meta">{selectedJobId} · 请刷新或扩大任务查询范围。</div></div>
           <StatusChip tone="warn">{compactStatusLabel("missing")}</StatusChip>
         </div>
       )}
       {jobs.length > 0 ? (
         <div className="timeline">{jobs.map((job) => <JobRow job={job} selected={job.id === selectedJobId} key={job.id} />)}</div>
       ) : (
-        <div className="empty-state"><Icon name="ListChecks" size={24} /><strong>{loading ? "正在读取任务" : "没有可展示的真实 job"}</strong><span>{loading ? "任务列表加载完成后会显示真实进度。" : "不会用静态模板补假运行记录；启动训练或导入任务后再看这里。"}</span></div>
+        <div className="empty-state"><Icon name="ListChecks" size={24} /><strong>{loading ? "正在读取任务" : "暂无任务记录"}</strong><span>{loading ? "任务列表加载完成后会显示最新进度。" : "启动训练或导入任务后再看这里。"}</span></div>
       )}
     </Panel>
   );
@@ -634,7 +647,7 @@ function CandidateOnlyGuard({ title = "实验候选，不是生产发布", descr
       <div>
         <strong>{title}</strong>
         <div className="row-meta">
-          {description ?? "当前页面只展示 Training API 派生的候选版本；promote / rollback / production registry 尚未接入。"}
+          {description ?? "当前页面只展示训练产出的候选版本；生产发布和回滚能力将在发布门禁中管理。"}
         </div>
       </div>
       {action ?? <StatusChip tone="warn">仅候选</StatusChip>}
@@ -670,7 +683,7 @@ function modelRecordFromRun(run) {
     id: run.modelVersionId,
     state: run.status === "succeeded" ? "candidate" : run.status,
     source: "training",
-    description: `${run.datasetVersionId ?? "dataset version unknown"} · ${run.metric ?? "metrics pending"}`,
+    description: `${run.datasetVersionId ?? "数据版本未知"} · ${run.metric ?? "指标待生成"}`,
     datasetId: run.datasetId,
     datasetVersionId: run.datasetVersionId,
     featureArtifactId: run.featureArtifactId,
@@ -717,7 +730,7 @@ export function DashboardPage({ showToast }) {
   const trainingCaption =
     trainingSource === "api"
       ? `${candidateRuns.length} 个候选版本 · 失败 ${failedRuns.length}`
-      : "Training API 不可用，未展示本地 mock 训练数据";
+      : "训练服务暂不可用";
 
   return (
     <>
@@ -728,7 +741,7 @@ export function DashboardPage({ showToast }) {
           <>
             <button className="ghost-button" disabled>
               <Icon name="RefreshCw" size={16} />
-              刷新待接入
+              自动刷新稍后开放
             </button>
             <Link className="primary-button" to="/review">
               <Icon name="UserCheck" size={16} />
@@ -738,9 +751,9 @@ export function DashboardPage({ showToast }) {
         }
       />
       <div className="grid metrics">
-        <MetricCard title="待复核样本" value={reviewCountLabel} caption="Review API · abstain/OOD" fill="#a15c07" percent={Math.min(100, pendingReviewItems.length * 18)} icon="UserCheck" to="/review" />
+        <MetricCard title="待复核样本" value={reviewCountLabel} caption="模型弃权 / OOD 候选" fill="#a15c07" percent={Math.min(100, pendingReviewItems.length * 18)} icon="UserCheck" to="/review" />
         <MetricCard title="运行中训练" value={activeRunLabel} caption={trainingCaption} fill="#315fbd" percent={Math.min(100, activeRuns.length * 36)} icon="FlaskConical" to="/training" />
-        <MetricCard title="生产覆盖率" value="--" caption="Model Registry API 待接入" fill="#0f766e" percent={0} icon="Gauge" to="/models" />
+        <MetricCard title="生产覆盖率" value="--" caption="发布门禁通过后显示" fill="#0f766e" percent={0} icon="Gauge" to="/models" />
         <MetricCard title="OOD 告警" value={reviewLoading ? "..." : String(oodReviewCount)} caption="来自待复核 OOD 候选" fill="#b4233c" percent={Math.min(100, oodReviewCount * 34)} icon="ShieldAlert" to="/review" />
       </div>
       <div className="grid two section-gap">
@@ -762,7 +775,7 @@ export function DashboardPage({ showToast }) {
         </Panel>
         <Panel
           title="最近低置信样本"
-          caption="来自真实 Review API；没有样本时不会跳转到 mock 详情。"
+          caption="来自复核队列；没有样本时保持当前页面。"
           action={
             <Link className="ghost-button" to="/review">
               <Icon name="ListFilter" size={16} />
@@ -787,10 +800,10 @@ export function DashboardPage({ showToast }) {
         </Panel>
         <Panel title="模型发布门禁" caption="上线前必须通过的检查。">
           <div className="grid">
-            <GateRow title="候选模型" description={`${candidateRuns.length} 个训练完成的 candidate model`} result={candidateRuns.length > 0 ? "pass" : "pending"} />
+            <GateRow title="候选模型" description={`${candidateRuns.length} 个训练完成的候选模型`} result={candidateRuns.length > 0 ? "pass" : "pending"} />
             <GateRow title="反馈池检查" description="需要消费 OOD / 坏图 / 类别争议后才能发布" result="pending" />
             <GateRow title="人工抽检" description={`${pendingReviewItems.length} 条待复核会影响发布判断`} result={pendingReviewItems.length === 0 ? "pass" : "pending"} />
-            <GateRow title="回滚配置" description="Model Registry API 尚未接入 production/rollback 状态" result="pending" />
+            <GateRow title="回滚配置" description="发布门禁完成后维护生产与回滚状态" result="pending" />
           </div>
         </Panel>
       </div>
@@ -814,7 +827,7 @@ export function DatasetsPage({ showToast }) {
     rootName: "",
   });
   const [importState, setImportState] = useState({ status: "idle", result: null, error: null });
-  const sourceLabel = source === "api" ? "Control-plane API" : "Control-plane API 暂不可用";
+  const sourceLabel = source === "api" ? "数据资产已同步" : "数据资产暂不可用";
   const visibleDatasets = datasetItems.filter((dataset) => datasetFilterMatch(dataset, datasetFilter));
   const canImport =
     importState.status !== "running" &&
@@ -952,10 +965,10 @@ export function DatasetsPage({ showToast }) {
                 </div>
                 <strong>导入成功，下一步选择数据资产或训练任务</strong>
                 <div className="row-meta">
-                  数据集已写入 Control-plane；训练会使用这个不可变 dataset version，不会直接读取本地文件夹。
+                  数据集已生成不可变版本；训练会使用该版本，不会直接读取本地文件夹。
                 </div>
                 {importState.result.upload?.stored_path && (
-                  <div className="row-meta">stored_path: {importState.result.upload.stored_path}</div>
+                  <div className="row-meta">存储路径：{importState.result.upload.stored_path}</div>
                 )}
               </div>
               <div className="next-step-actions">
@@ -981,7 +994,7 @@ export function DatasetsPage({ showToast }) {
       )}
       <Panel
         title="数据集列表"
-        caption={`${loading ? "正在连接 Control-plane API" : sourceLabel} · ${visibleDatasets.length}/${datasetItems.length} 个显示 · 点击行进入数据集详情。`}
+        caption={`${loading ? "正在读取数据资产" : sourceLabel} · ${visibleDatasets.length}/${datasetItems.length} 个显示 · 点击行进入数据集详情。`}
         action={
           <div className="tabs">
             {[
@@ -1020,10 +1033,10 @@ export function DatasetDetailPage({ showToast }) {
       <>
         <PageHero
           title={loading ? "正在加载数据集" : "数据集不存在"}
-          description={loading ? "正在连接 Control-plane API。" : `${datasetId} 没有在 Control-plane API 中找到；本页不再回退到本地 mock 数据。`}
+          description={loading ? "正在读取数据集。" : `${datasetId} 没有找到匹配的数据集。`}
           actions={<Link className="ghost-button" to="/datasets"><Icon name="ArrowLeft" size={16} />返回数据集</Link>}
         />
-        <Panel title="下一步" caption={source === "api" ? "API 已连接，但没有找到该 dataset_id。" : "Control-plane API 暂不可用。"}>
+        <Panel title="下一步" caption={source === "api" ? "可以导入新的数据集，或从列表中选择已有版本。" : "数据资产暂不可用。"}>
           <div className="timeline">
             <GateRow title="导入数据集" description="使用 ImageFolder 导入真实 dataset version。" result="pending" />
             <GateRow title="训练分类头" description="数据 ready 后再创建训练任务。" result="pending" />
@@ -1038,7 +1051,7 @@ export function DatasetDetailPage({ showToast }) {
     <>
       <PageHero
         title={dataset.name}
-        description={`${dataset.description} · ${loading ? "正在连接 Control-plane API" : source === "api" ? "来自 Control-plane API" : "Control-plane API 暂不可用"}`}
+        description={`${dataset.description} · ${loading ? "正在读取数据资产" : source === "api" ? "数据资产已同步" : "数据资产暂不可用"}`}
         actions={
           <>
             <Link className="ghost-button" to="/datasets">
@@ -1096,14 +1109,14 @@ function DatasetTab({ dataset, tab, showToast }) {
   if (tab === "classes") {
     return (
       <div className="grid two section-gap">
-        <Panel title="类别清单" caption="只展示当前 Dataset API 返回的类别；混淆对、长尾风险和争议池不在前端推断。">
+        <Panel title="类别清单" caption="只展示当前数据服务返回的类别；混淆对、长尾风险和争议池不在前端推断。">
           {visibleClassNames.length > 0 ? (
             <div className="timeline">
               {visibleClassNames.map((name) => (
-                <ClassRow title={name} description={`${dataset.datasetVersionId ?? "dataset version unknown"} · 类别定义来自数据集元数据`} label="已接入" key={name} />
+                <ClassRow title={name} description={`${dataset.datasetVersionId ?? "数据版本未知"} · 类别定义来自数据集元数据`} label="已接入" key={name} />
               ))}
               {hiddenClassCount > 0 && (
-                <ClassRow title={`还有 ${hiddenClassCount} 个类别`} description="类别过多时只预览前 10 个；完整治理视图等待类别统计 API。" label="more" tone="neutral" />
+                <ClassRow title={`还有 ${hiddenClassCount} 个类别`} description="类别过多时只预览前 10 个；完整治理视图等待类别统计能力。" label="更多" tone="neutral" />
               )}
             </div>
           ) : (
@@ -1111,7 +1124,19 @@ function DatasetTab({ dataset, tab, showToast }) {
           )}
         </Panel>
         <Panel title="类别治理状态" caption="这里保留治理上下文，但不展示可编辑的静态判别规则。">
-          <div className="code-panel">dataset: {dataset.id ?? "n/a"}<br />dataset_version: {dataset.datasetVersionId ?? "n/a"}<br />class_count: {dataset.classes ?? "n/a"}<br />class_names: {classNames.length > 0 ? "api" : "not returned"}<br />confusion_pairs: not connected<br />taxonomy_notes: not connected</div>
+          <div className="timeline">
+            <GateRow title="类别清单" description={classNames.length > 0 ? "已读取类别名称" : "暂未返回类别名称"} result={classNames.length > 0 ? "pass" : "pending"} />
+            <GateRow title="易混类别" description="等待类别统计和混淆分析完成后展示" result="pending" />
+            <GateRow title="标注说明" description="等待数据集说明卡补充" result="pending" />
+          </div>
+          <TechnicalDetails>
+            dataset: {displayValue(dataset.id)}<br />
+            dataset_version: {displayValue(dataset.datasetVersionId)}<br />
+            class_count: {displayValue(dataset.classes)}<br />
+            class_names: {classNames.length > 0 ? "已返回" : "未返回"}<br />
+            confusion_pairs: 待分析<br />
+            taxonomy_notes: 待补充
+          </TechnicalDetails>
         </Panel>
       </div>
     );
@@ -1142,7 +1167,13 @@ function DatasetTab({ dataset, tab, showToast }) {
       <div className="grid two section-gap">
         <Panel title="特征索引" caption="DINOv3 embedding、类别原型和近邻索引。">
           <MetricCard title="特征向量" value={dataset.images.toLocaleString()} caption={dataset.featureArtifactId ?? "feature artifact 待生成"} fill="#0891b2" percent={dataset.featureArtifactId ? 100 : 0} icon="DatabaseZap" />
-          <div className="code-panel section-gap-small">feature_artifact: {dataset.featureArtifactId ?? "n/a"}<br />dataset_version: {dataset.datasetVersionId ?? "n/a"}<br />index: feature index API 待接入<br />backbone: selected training extractor<br />prototype_strategy: class_centroid + hard_negative_bank</div>
+          <TechnicalDetails>
+            feature_artifact: {displayValue(dataset.featureArtifactId)}<br />
+            dataset_version: {displayValue(dataset.datasetVersionId)}<br />
+            index: 待生成<br />
+            backbone: 跟随训练选择<br />
+            prototype_strategy: class_centroid + hard_negative_bank
+          </TechnicalDetails>
         </Panel>
         <Panel title="最近邻检查" caption="当前展示真实样本预览；近邻证据会在特征索引 API 完成后接入。">
           <DatasetSamplePreviewGrid samples={previewSamples} loading={previewLoading} error={previewError} compact />
@@ -1160,7 +1191,12 @@ function DatasetTab({ dataset, tab, showToast }) {
             <GateRow title="OOD 压力集" description={dataset.oodStressAssetId ?? "未绑定 OOD stress asset"} result={hasOodStressAsset ? "pass" : "pending"} />
             <GateRow title="人工复核回流" description="OOD 候选需要人工确认后才进入反馈池或压力集材料。" result="pending" />
           </div>
-          <div className="code-panel section-gap-small">threshold_strategy: {dataset.thresholdStrategyId ?? "n/a"}<br />ood_stress_asset: {dataset.oodStressAssetId ?? "n/a"}<br />coverage: {hasThresholdStrategy ? `${dataset.coverage ?? 0}%` : "not available"}<br />editable_thresholds: disabled</div>
+          <TechnicalDetails>
+            threshold_strategy: {displayValue(dataset.thresholdStrategyId)}<br />
+            ood_stress_asset: {displayValue(dataset.oodStressAssetId)}<br />
+            coverage: {hasThresholdStrategy ? `${dataset.coverage ?? 0}%` : "未生成"}<br />
+            editable_thresholds: 只读
+          </TechnicalDetails>
         </Panel>
         <Panel title="Coverage / Risk" caption="有校准产物时才展示覆盖率；缺失时不补静态风险曲线。">
           <CurveRow label="current coverage" value={hasThresholdStrategy ? `${dataset.coverage ?? 0}%` : "未绑定阈值策略"} percent={hasThresholdStrategy ? dataset.coverage ?? 0 : 0} fill="#0f766e" />
@@ -1362,8 +1398,8 @@ function extractorShortLabel(extractor) {
 
 function featurePoolLabel(featurePool) {
   if (featurePool === "cls") return "CLS token";
-  if (featurePool === "model") return "legacy model output";
-  return "legacy/unknown";
+  if (featurePool === "model") return "旧版模型输出";
+  return "旧版特征";
 }
 
 function metricNumber(run, key) {
@@ -1378,7 +1414,7 @@ function metricPercent(run, key) {
 
 function formatRunMetricPercent(run, key, digits = 1) {
   const value = metricPercent(run, key);
-  return value === null ? "n/a" : `${value.toFixed(digits)}%`;
+  return value === null ? "待生成" : `${value.toFixed(digits)}%`;
 }
 
 function isSucceededModelRun(run) {
@@ -1421,7 +1457,7 @@ function selectRecommendedClsRun(runs, datasetVersionId = "") {
 }
 
 function weightUsageLabel(extractor) {
-  if (extractor === "dinov3_vits") return "当前 MVP 推荐默认，用于快速 CLS 特征训练和日常验证。";
+  if (extractor === "dinov3_vits") return "推荐默认，用于快速 CLS 特征训练和日常验证。";
   if (extractor === "dinov3_vitb") return "中等规模对照模型，适合后续做速度/精度折中评估。";
   if (extractor === "dinov3_vitl") return "重型精度优先模型，适合 GPU 资源充足时跑更强基线。";
   return "仅支持 FineVision 已登记的 DINOv3 权重。";
@@ -1473,9 +1509,9 @@ function trainingRunNextActions(run, missingOutputs) {
   }
 
   if (run.status === "failed" || run.error) {
-    const actions = ["查看 Training worker 日志，优先用 jobId 对齐后端任务。"];
-    if (!run.jobId) actions.push("确认 Training API 是否返回 job_id，避免前端无法跳转到任务日志。");
-    if (!run.datasetVersionId) actions.push("补齐 datasetVersionId；没有数据快照无法判断训练输入。");
+    const actions = ["查看后台训练日志，优先用任务 ID 对齐运行记录。"];
+    if (!run.jobId) actions.push("确认训练服务是否返回任务 ID，避免无法跳转到任务日志。");
+    if (!run.datasetVersionId) actions.push("补齐数据版本；没有数据快照无法判断训练输入。");
     if (missingOutputs.some((item) => item.field === "featureArtifactId")) actions.push("先确认特征抽取是否完成，必要时重跑 feature cache。");
     if (missingOutputs.some((item) => item.field === "modelArtifactId")) actions.push("定位分类头训练阶段失败原因，再决定是否调整 head_config 后重跑。");
     if (missingOutputs.some((item) => ["calibrationArtifactId", "thresholdStrategyArtifactId"].includes(item.field))) actions.push("若模型权重已生成，补跑校准和阈值扫描以恢复发布判断。");
@@ -1499,7 +1535,7 @@ export function WeightManagementPage({ showToast }) {
   const totalCachedBytes = weights.reduce((sum, weight) => sum + (weight.state === "cached" ? weight.cacheBytes : 0), 0);
   const cachedCount = weights.filter((weight) => weight.state === "cached").length;
   const partialCount = weights.filter((weight) => weight.state === "partial").length;
-  const sourceLabel = loading ? "正在读取权重缓存" : source === "api" ? "Model weight API" : "权重 API 暂不可用";
+  const sourceLabel = loading ? "正在读取权重缓存" : source === "api" ? "权重缓存已同步" : "权重缓存暂不可用";
 
   async function handleDelete(weight) {
     if (!weight?.extractor || deleteState.status === "running") return;
@@ -1532,7 +1568,7 @@ export function WeightManagementPage({ showToast }) {
       </div>
       <div className="grid two section-gap">
         <Panel title="DINOv3 权重缓存" caption="只管理预训练 backbone 权重；分类头和训练报告仍在 artifact store。">
-          {error && <div className="route-box"><strong>权重 API 不可用</strong><div className="row-meta">{error.message}</div></div>}
+          {error && <div className="route-box"><strong>权重服务不可用</strong><div className="row-meta">{error.message}</div></div>}
           <div className="timeline">
             {weights.map((weight) => {
               const state = weight.state ?? "missing";
@@ -1571,17 +1607,17 @@ export function WeightManagementPage({ showToast }) {
             <GateRow title="特征缓存" description="某个 dataset version 经过 DINOv3 CLS 提取后的 features.npz；删除权重不会删除它。" result="pending" />
             <GateRow title="分类头产物" description="FineVision 训练出的 linear head、校准报告和阈值策略；不在本页删除。" result="pending" />
           </div>
-          <div className="code-panel section-gap-small">
+          <TechnicalDetails>
             feature_pool: cls<br />
             image_size_default: 448<br />
             managed_presets: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
             delete_scope: local Hugging Face repo cache only<br />
             cache_recovery: next training downloads again
-          </div>
+          </TechnicalDetails>
           {weights[0]?.cacheDir && (
-            <div className="code-panel section-gap-small">
+            <TechnicalDetails summary="缓存路径">
               cache_root_hint: {weights[0].cacheDir.replace(/\/models--timm--.*/, "")}
-            </div>
+            </TechnicalDetails>
           )}
         </Panel>
       </div>
@@ -1599,8 +1635,8 @@ function TrainingRunDiagnostics({ run }) {
   const actions = trainingRunNextActions(run, missingOutputs);
   const summary = hasStoppedSignal
     ? run.status === "cancelled"
-      ? "Training API 标记该 run 为 cancelled，产物缺失不代表训练失败。"
-      : run.error || "Training API 标记该 run 为 failed，但没有返回 error 文本。"
+      ? "训练服务标记该运行已取消，产物缺失不代表训练失败。"
+      : run.error || "训练服务标记该运行失败，但没有返回错误文本。"
     : ["queued", "running"].includes(run.status)
       ? "训练仍在进行，产物缺失通常表示该阶段尚未完成。"
       : missingOutputs.length > 0
@@ -1640,19 +1676,19 @@ function TrainingRunDiagnostics({ run }) {
       </div>
       <div className="lineage-grid section-gap-small">
         <div>
-          <span>jobId</span>
+          <span>任务 ID</span>
           <strong>{run.jobId ?? "未返回"}</strong>
         </div>
         <div>
-          <span>datasetVersionId</span>
+          <span>数据版本</span>
           <strong>{run.datasetVersionId ?? "未绑定"}</strong>
         </div>
         <div>
-          <span>modelVersionId</span>
+          <span>模型版本</span>
           <strong>{run.modelVersionId ?? "未生成"}</strong>
         </div>
         <div>
-          <span>error</span>
+          <span>错误信息</span>
           <strong>{run.error ?? "无"}</strong>
         </div>
       </div>
@@ -1712,7 +1748,7 @@ function TrainingStageProgress({ run }) {
   return (
     <Panel
       title="阶段进度"
-      caption={`当前阶段：${run.trainingProgress?.currentStage ?? "n/a"} · ${run.trainingProgress?.updatedAt ?? "等待更新"}`}
+      caption={`当前阶段：${displayValue(run.trainingProgress?.currentStage, "等待更新")} · ${run.trainingProgress?.updatedAt ?? "等待更新"}`}
     >
       <div className="stage-progress-list">
         {stages.map((stage) => {
@@ -1757,7 +1793,7 @@ export function TrainingPage({ showToast }) {
   });
   const [createState, setCreateState] = useState({ status: "idle", run: null, error: null });
   const [queueActionState, setQueueActionState] = useState({ status: "idle", runId: null, error: null });
-  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
+  const sourceLabel = loading ? "正在读取训练任务" : source === "api" ? "训练任务已同步" : "训练服务暂不可用";
   const readyDatasetOptions = datasetOptions.filter((dataset) => dataset.datasetVersionId && dataset.status === "ready");
   const blockedDatasetCount = datasetOptions.filter((dataset) => dataset.datasetVersionId && dataset.status !== "ready").length;
   const trainingDatasetOptions = readyDatasetOptions;
@@ -1785,7 +1821,7 @@ export function TrainingPage({ showToast }) {
       ? blockedDatasetCount > 0
         ? "当前没有 ready dataset version 可用于训练；列表中的非 ready 数据集不会出现在训练表单。"
         : "当前没有真实 dataset version 可用于训练。"
-      : "Control-plane API 暂不可用，不能提交真实训练任务。";
+      : "数据资产暂不可用，不能提交训练任务。";
 
   useEffect(() => {
     if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
@@ -1864,7 +1900,7 @@ export function TrainingPage({ showToast }) {
       {showCreate && (
         <Panel
           title="创建训练运行"
-          caption="只允许 ready 的 dataset version 进入训练，训练任务会由 ml-worker 执行。"
+          caption="只允许可训练的数据版本进入训练，任务会在后台执行。"
           action={<StatusChip tone={createState.status === "failed" ? "risk" : createState.status === "succeeded" ? "default" : "info"}>{uiStateLabel(createState.status)}</StatusChip>}
         >
           <div className="field-grid">
@@ -1881,14 +1917,12 @@ export function TrainingPage({ showToast }) {
             <div className="field">
               <label>特征提取器</label>
               <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
-                <optgroup label="DINOv3 真实训练">
+                <optgroup label="DINOv3 训练">
                   <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
                   <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
                   <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
                 </optgroup>
-                <optgroup label="开发诊断">
-                  <option value="color_stats">color_stats · 开发 smoke，不用于真实模型</option>
-                </optgroup>
+                {trainingForm.extractor === "color_stats" && <option value="color_stats">旧版诊断配置</option>}
               </select>
             </div>
             <div className="field">
@@ -1988,7 +2022,7 @@ export function TrainingPage({ showToast }) {
               刷新权重状态
             </button>
             <StatusChip tone={datasetSource === "api" ? "default" : "warn"}>
-              {datasetSource === "api" ? `${trainingDatasetOptions.length} 个 ready 版本可选` : "数据集 API 不可用"}
+              {datasetSource === "api" ? `${trainingDatasetOptions.length} 个就绪版本可选` : "数据集服务不可用"}
             </StatusChip>
             <StatusChip tone={weightSource === "api" ? "default" : "warn"}>
               {weightSource === "api" ? "权重缓存可见" : "权重缓存不可用"}
@@ -1997,7 +2031,7 @@ export function TrainingPage({ showToast }) {
           {createBlockReason && (
             <div className="route-box section-gap-small">
               <div><strong>创建训练已暂停</strong><div className="row-meta">{createBlockReason}</div></div>
-              <StatusChip tone="warn">需要 API</StatusChip>
+              <StatusChip tone="warn">需要服务</StatusChip>
             </div>
           )}
           {createState.run && (
@@ -2053,7 +2087,7 @@ export function TrainingPage({ showToast }) {
             <div>
               <strong>{recommendedBaseline.modelVersionId}</strong>
               <div className="row-meta">
-                {recommendedBaseline.datasetVersionId} · {extractorShortLabel(recommendedBaseline.backboneId)} · {featurePoolLabel(recommendedBaseline.featurePool)} · image {recommendedBaseline.imageSize ?? "n/a"}
+                {recommendedBaseline.datasetVersionId} · {extractorShortLabel(recommendedBaseline.backboneId)} · {featurePoolLabel(recommendedBaseline.featurePool)} · 输入尺寸 {displayValue(recommendedBaseline.imageSize)}
               </div>
             </div>
             <div className="baseline-metrics">
@@ -2131,8 +2165,24 @@ export function TrainingPage({ showToast }) {
             </div>
           )}
         </Panel>
-        <Panel title="训练配置模板" caption="MVP 先支持 frozen backbone + 分类头。">
-          <div className="code-panel">backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />feature_pool: cls<br />image_size: 448<br />feature_batch_size: 8<br />feature_cache: true<br />head: torch_linear_adam<br />head_training: cross_entropy + Adam<br />calibration: temperature_scaling<br />abstention: top1_margin + embedding_distance<br />report: accuracy, macro_f1, coverage_risk</div>
+        <Panel title="训练配置模板" caption="默认采用 frozen backbone + 分类头。">
+          <div className="timeline">
+            <GateRow title="视觉基座" description="DINOv3 ViT-S/B/L，默认使用 CLS token 特征" result="pass" />
+            <GateRow title="分类头" description="torch_linear_adam，使用交叉熵和 Adam 优化" result="pass" />
+            <GateRow title="校准与弃权" description="生成校准报告和风险覆盖材料" result="pending" />
+          </div>
+          <TechnicalDetails>
+            backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
+            feature_pool: cls<br />
+            image_size: 448<br />
+            feature_batch_size: 8<br />
+            feature_cache: true<br />
+            head: torch_linear_adam<br />
+            head_training: cross_entropy + Adam<br />
+            calibration: temperature_scaling<br />
+            abstention: top1_margin + embedding_distance<br />
+            report: accuracy, macro_f1, coverage_risk
+          </TechnicalDetails>
         </Panel>
       </div>
     </>
@@ -2145,8 +2195,8 @@ export function TrainingDetailPage({ showToast }) {
   if (loading && !run) {
     return (
       <>
-        <PageHero title="正在加载训练运行" description="正在连接 Training API。" actions={<Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回训练队列</Link>} />
-        <Panel title="运行详情" caption="等待 API 返回。"><div className="empty-state"><Icon name="LoaderCircle" size={24} /><strong>加载中</strong><span>不会显示本地 mock 训练详情。</span></div></Panel>
+        <PageHero title="正在加载训练运行" description="正在读取训练详情。" actions={<Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回训练队列</Link>} />
+        <Panel title="运行详情" caption="正在读取训练详情。"><div className="empty-state"><Icon name="LoaderCircle" size={24} /><strong>加载中</strong><span>训练详情准备好后会显示在这里。</span></div></Panel>
       </>
     );
   }
@@ -2155,13 +2205,13 @@ export function TrainingDetailPage({ showToast }) {
       <>
         <PageHero
           title="训练运行不存在"
-          description={`${runId} 没有在 Training API 中找到。请从训练队列打开真实运行，或先创建一条训练。`}
+          description={`${runId} 没有找到匹配的训练运行。请从训练队列打开，或先创建一条训练。`}
           actions={<Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回训练队列</Link>}
         />
-        <Panel title="未找到运行" caption="旧的 mock run id 不会再伪装成真实训练结果。">
+        <Panel title="未找到运行" caption="请确认运行 ID 是否来自当前训练队列。">
           <div className="timeline-item">
             <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
-            <div><strong>{runId}</strong><div className="row-meta">Training API 返回 404。</div></div>
+            <div><strong>{runId}</strong><div className="row-meta">训练详情未返回该记录。</div></div>
             <StatusChip tone="risk">{compactStatusLabel("not found")}</StatusChip>
           </div>
         </Panel>
@@ -2174,7 +2224,7 @@ export function TrainingDetailPage({ showToast }) {
   const macroF1 = Number.isFinite(Number(metrics.macro_f1)) ? Math.round(Number(metrics.macro_f1) * 1000) / 10 : null;
   const coverage = Number.isFinite(Number(metrics.expected_coverage)) ? Math.round(Number(metrics.expected_coverage) * 100) : null;
   const reviewCost = Number.isFinite(Number(metrics.expected_selective_risk)) ? `${(Number(metrics.expected_selective_risk) * 100).toFixed(2)}% risk` : "待生成";
-  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API" : "Training API 暂不可用";
+  const sourceLabel = loading ? "正在读取训练运行" : source === "api" ? "训练运行已同步" : "训练服务暂不可用";
   const hasCandidateModel = run.status === "succeeded" && Boolean(run.modelVersionId);
   const inferencePath = pathWithSearch("/inference", [
     ["dataset_version_id", run.datasetVersionId],
@@ -2182,16 +2232,16 @@ export function TrainingDetailPage({ showToast }) {
   ]);
   return (
     <>
-      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · ${featurePoolLabel(run.featurePool)} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link>{hasCandidateModel ? <Link className="primary-button" to={inferencePath}><Icon name="ImageUp" size={16} />去推理</Link> : <button className="primary-button" disabled><Icon name="ExternalLink" size={16} />产物 API 待接入</button>}</>} />
+      <PageHero title={run.name} description={`${run.datasetName} · ${sourceLabel} · ${featurePoolLabel(run.featurePool)} · 训练分类头、生成校准报告、准备候选模型版本。`} actions={<><Link className="ghost-button" to="/training"><Icon name="ArrowLeft" size={16} />返回</Link>{hasCandidateModel ? <Link className="primary-button" to={inferencePath}><Icon name="ImageUp" size={16} />去推理</Link> : <button className="primary-button" disabled><Icon name="ExternalLink" size={16} />等待产物</button>}</>} />
       <div className="grid metrics">
         <MetricCard title="进度" value={`${run.progress}%`} caption={trainingStatus(run).label} fill="#a15c07" percent={run.progress} icon="LoaderCircle" />
-        <MetricCard title="Val Acc" value={accuracy === null ? "待生成" : `${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy ?? 0} icon="Target" />
+        <MetricCard title="验证准确率" value={accuracy === null ? "待生成" : `${accuracy}%`} caption={run.modelVersionId ?? "候选模型待生成"} fill="#0f766e" percent={accuracy ?? 0} icon="Target" />
         <MetricCard title="Macro F1" value={macroF1 === null ? "待生成" : `${macroF1}%`} caption={run.reportArtifactId ?? "报告待生成"} fill="#315fbd" percent={macroF1 ?? 0} icon="BarChart3" />
-        <MetricCard title="复核压力" value={reviewCost} caption="selective risk / review cost" fill="#b4233c" percent={coverage ?? 0} icon="UserCheck" />
+        <MetricCard title="复核压力" value={reviewCost} caption="风险 / 复核成本" fill="#b4233c" percent={coverage ?? 0} icon="UserCheck" />
       </div>
       <div className="grid two section-gap">
         <Panel title="运行步骤" caption="每一步都应有产物和失败恢复点。">
-          <div className="timeline"><GateRow title="数据快照" description={run.datasetVersionId ? `${run.datasetVersionId} locked` : "等待绑定数据快照"} result={run.datasetVersionId ? "pass" : "pending"} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
+          <div className="timeline"><GateRow title="数据快照" description={run.datasetVersionId ? `${run.datasetVersionId} 已锁定` : "等待绑定数据快照"} result={run.datasetVersionId ? "pass" : "pending"} /><GateRow title="特征缓存" description={run.featureArtifactId ?? "等待特征抽取"} result={run.featureArtifactId ? "pass" : "pending"} /><GateRow title="分类头训练" description={run.modelArtifactId ?? trainingStatus(run).label} result={run.modelArtifactId ? "pass" : "pending"} /><GateRow title="阈值扫描" description={run.thresholdStrategyArtifactId ?? "等待训练完成"} result={run.thresholdStrategyArtifactId ? "pass" : "pending"} /></div>
         </Panel>
         <TrainingRunDiagnostics run={run} />
       </div>
@@ -2229,8 +2279,28 @@ export function TrainingDetailPage({ showToast }) {
           <CurveRow label="coverage" value={coverage === null ? "待生成" : `${coverage}%`} percent={coverage ?? 0} fill="#315fbd" />
           <CurveRow label="review cost" value={reviewCost} percent={coverage ?? 0} fill="#a15c07" />
         </Panel>
-        <Panel title="产物元数据" caption="原始字段便于和 API / artifact store 对账。">
-          <div className="code-panel">run: {run.id}<br />job: {run.jobId ?? "n/a"}<br />dataset: {run.datasetVersionId ?? "n/a"}<br />backbone: {run.backboneId ?? "n/a"}<br />feature_pool: {run.featurePool ?? "legacy/model"}<br />image_size: {run.imageSize ?? "n/a"}<br />feature_batch_size: {run.featureBatchSize ?? "n/a"}<br />model_version: {run.modelVersionId ?? "n/a"}<br />feature: {run.featureArtifactId ?? "n/a"}<br />model_artifact: {run.modelArtifactId ?? "n/a"}<br />report: {run.reportArtifactId ?? "n/a"}<br />calibration: {run.calibrationArtifactId ?? "n/a"}<br />threshold_strategy: {run.thresholdStrategyArtifactId ?? "n/a"}<br />error: {run.error ?? "n/a"}</div>
+        <Panel title="产物状态" caption="默认展示产物完整度，原始字段收在技术详情里。">
+          <div className="timeline">
+            {trainingRunOutputItems(run).map((item) => (
+              <GateRow title={item.label} description={item.value ?? item.description} result={item.value ? "pass" : "pending"} key={item.field} />
+            ))}
+          </div>
+          <TechnicalDetails>
+            run: {run.id}<br />
+            job: {displayValue(run.jobId)}<br />
+            dataset: {displayValue(run.datasetVersionId)}<br />
+            backbone: {displayValue(run.backboneId)}<br />
+            feature_pool: {run.featurePool ?? "旧版特征"}<br />
+            image_size: {displayValue(run.imageSize)}<br />
+            feature_batch_size: {displayValue(run.featureBatchSize)}<br />
+            model_version: {displayValue(run.modelVersionId)}<br />
+            feature: {displayValue(run.featureArtifactId)}<br />
+            model_artifact: {displayValue(run.modelArtifactId)}<br />
+            report: {displayValue(run.reportArtifactId)}<br />
+            calibration: {displayValue(run.calibrationArtifactId)}<br />
+            threshold_strategy: {displayValue(run.thresholdStrategyArtifactId)}<br />
+            error: {displayValue(run.error, "无")}
+          </TechnicalDetails>
         </Panel>
       </div>
     </>
@@ -2280,9 +2350,9 @@ export function InferencePage({ showToast }) {
   const inferenceBlockReason = canUseInferenceInputs
     ? ""
     : datasetSource !== "api"
-      ? "Control-plane API 暂不可用，不能运行真实推理。"
+      ? "数据资产暂不可用，不能运行推理。"
       : trainingSource !== "api"
-        ? "Training API 暂不可用，不能运行真实推理。"
+        ? "训练服务暂不可用，不能运行推理。"
         : modelVersionIds.length === 0
           ? "当前数据版本没有可用模型版本，请先用该 dataset version 完成训练。"
           : "当前没有真实 dataset version 可用于推理。";
@@ -2378,7 +2448,7 @@ export function InferencePage({ showToast }) {
       showToast("推理完成，结果已更新");
     } catch (error) {
       setState({ status: "failed", result: null, error });
-      showToast("Inference API 请求失败");
+      showToast("推理请求失败");
     }
   }
 
@@ -2416,7 +2486,7 @@ export function InferencePage({ showToast }) {
 
   return (
     <>
-      <CandidateOnlyGuard description="推理实验室只验证训练产出的候选模型和阈值策略；accept 也只是记录 inference event，不代表模型已经上线。" />
+      <CandidateOnlyGuard description="推理实验室只验证训练产出的候选模型和阈值策略；自动通过只记录一次推理事件，不代表模型已经上线。" />
       <div className="grid detail section-gap-small">
       <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
         {isBatchFolderMode ? (
@@ -2444,7 +2514,7 @@ export function InferencePage({ showToast }) {
               <option value="">{datasetVersionOptions.length === 0 ? "暂无数据版本" : "选择数据版本"}</option>
               {datasetOptions.map((dataset) => (
                 <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
-                  {dataset.name} · {dataset.datasetVersionId} · {dataset.images} samples · {dataset.status}
+                  {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
                 </option>
               ))}
             </select>
@@ -2460,7 +2530,7 @@ export function InferencePage({ showToast }) {
               <option value="">{modelVersionIds.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
               {modelVersionOptions.map((run) => (
                 <option value={run.modelVersionId} key={run.modelVersionId}>
-                  {run.modelVersionId} · {isRecommendedClsRun(run) ? "推荐 CLS" : isLegacyFeatureRun(run) ? "legacy" : "候选"} · {extractorShortLabel(run.backboneId)} · {run.metric}
+                  {run.modelVersionId} · {isRecommendedClsRun(run) ? "推荐 CLS" : isLegacyFeatureRun(run) ? "旧特征" : "候选"} · {extractorShortLabel(run.backboneId)} · {run.metric}
                 </option>
               ))}
             </select>
@@ -2470,7 +2540,7 @@ export function InferencePage({ showToast }) {
             {selectedModelRun && (
               <div className="chips">
                 <StatusChip tone={isRecommendedClsRun(selectedModelRun) ? "default" : isLegacyFeatureRun(selectedModelRun) ? "warn" : "info"}>
-                  {isRecommendedClsRun(selectedModelRun) ? "推荐 CLS 基线" : isLegacyFeatureRun(selectedModelRun) ? "legacy 模型" : "候选模型"}
+                  {isRecommendedClsRun(selectedModelRun) ? "推荐 CLS 基线" : isLegacyFeatureRun(selectedModelRun) ? "旧特征模型" : "候选模型"}
                 </StatusChip>
                 <StatusChip tone={selectedModelRun.thresholdStrategyArtifactId ? "default" : "warn"}>
                   {selectedModelRun.thresholdStrategyArtifactId ? "已校准阈值" : "阈值待确认"}
@@ -2567,14 +2637,14 @@ export function InferencePage({ showToast }) {
         {state.status === "running" && (
           <div className="timeline-item">
             <div className="timeline-icon"><Icon name="LoaderCircle" size={18} /></div>
-            <div><strong>正在运行推理</strong><div className="row-meta">{form.datasetVersionId} · {form.modelVersionId} · 进度由 API 返回后确认</div><ProgressBar value={35} fill="#315fbd" shimmer /></div>
+            <div><strong>正在运行推理</strong><div className="row-meta">{form.datasetVersionId} · {form.modelVersionId} · 进度由服务返回后确认</div><ProgressBar value={35} fill="#315fbd" shimmer /></div>
             <StatusChip tone="info">运行中</StatusChip>
           </div>
         )}
         {state.status === "failed" && (
           <div className="timeline-item">
             <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
-            <div><strong>推理失败</strong><div className="row-meta">{state.error?.message ?? "Inference API 请求失败"}</div></div>
+            <div><strong>推理失败</strong><div className="row-meta">{state.error?.message ?? "推理请求失败"}</div></div>
             <StatusChip tone="risk">失败</StatusChip>
           </div>
         )}
@@ -2586,9 +2656,9 @@ export function InferencePage({ showToast }) {
                 <div>
                   <strong>批量推理完成</strong>
                   <div className="row-meta">
-                    {result.batch.succeeded}/{result.batch.total} 张完成，{result.batch.review_item_count} 条进入人工复核队列。
+                  {result.batch.succeeded}/{result.batch.total} 张完成，{result.batch.review_item_count} 条进入人工复核队列。
                   </div>
-                  <div className="row-meta">batch: {result.batch.batch_id ?? result.batch.inference_run_id ?? "n/a"}</div>
+                  <div className="row-meta">批次 {displayValue(result.batch.batch_id ?? result.batch.inference_run_id)}</div>
                 </div>
                 <StatusChip tone={result.batch.failed > 0 ? "warn" : "default"}>{result.batch.failed > 0 ? "部分失败" : "完成"}</StatusChip>
               </div>
@@ -2617,7 +2687,7 @@ export function InferencePage({ showToast }) {
                     <div className="row-meta">
                       {item.decision.value} · {item.topK[0]?.label ?? "unknown"} {item.topK[0] ? item.topK[0].score.toFixed(3) : ""}
                     </div>
-                    <div className="row-meta">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</div>
+                    <div className="row-meta">运行 {displayValue(item.inferenceRunId)} · 事件 {displayValue(item.inferenceEventId)}</div>
                   </div>
                   {item.reviewItemId ? <StatusChip tone="info">{item.reviewItemId}</StatusChip> : <StatusChip tone="default">{compactStatusLabel("event")}</StatusChip>}
                 </div>
@@ -2648,7 +2718,7 @@ export function InferencePage({ showToast }) {
               <div className="evidence-metrics">
                 <div><span>confidence</span><strong>{result.decision.confidence.toFixed(4)}</strong></div>
                 <div><span>margin</span><strong>{result.decision.margin.toFixed(4)}</strong></div>
-                <div><span>ood score</span><strong>{result.decision.oodScore?.toFixed?.(4) ?? "n/a"}</strong></div>
+                <div><span>ood score</span><strong>{result.decision.oodScore?.toFixed?.(4) ?? "未返回"}</strong></div>
               </div>
               <div className="reason-box">
                 <strong>触发原因</strong>
@@ -2691,7 +2761,7 @@ export function InferencePage({ showToast }) {
                     <div className="neighbor-row" key={neighbor.sampleId || `${neighbor.label}-${index}`}>
                       <div className="neighbor-rank">{index + 1}</div>
                       <div><strong>{neighbor.label}</strong><div className="row-meta">{neighbor.sampleId || "unknown sample"}</div></div>
-                      <div className="neighbor-distance"><span>distance</span><strong>{neighbor.distance?.toFixed(4) ?? "n/a"}</strong></div>
+                      <div className="neighbor-distance"><span>distance</span><strong>{neighbor.distance?.toFixed(4) ?? "未返回"}</strong></div>
                     </div>
                   ))
                 ) : (
@@ -2710,10 +2780,13 @@ export function InferencePage({ showToast }) {
               error={llm.error}
               onGenerate={handleGenerateInferenceExplanation}
             />
-            <details className="advanced-fields section-gap-small">
-              <summary>调试信息</summary>
-              <div className="code-panel section-gap-small">run: {result.inferenceRunId ?? "n/a"}<br />event: {result.inferenceEventId ?? "n/a"}<br />model: {result.modelVersionId}<br />strategy: {result.thresholdStrategyId}<br />feature: {result.featureArtifactId ?? "n/a"}</div>
-            </details>
+            <TechnicalDetails>
+              run: {displayValue(result.inferenceRunId)}<br />
+              event: {displayValue(result.inferenceEventId)}<br />
+              model: {result.modelVersionId}<br />
+              strategy: {displayValue(result.thresholdStrategyId)}<br />
+              feature: {displayValue(result.featureArtifactId)}
+            </TechnicalDetails>
           </>
         )}
       </Panel>
@@ -2772,7 +2845,7 @@ export function ReviewPage() {
     <>
       <PageHero title="让人工只处理模型真正不确定的样本。" description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。" actions={<button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>} />
       <div className="grid review">
-        <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在连接 Review API。" : `${apiReviewItems.length} 条样本。`}>
+        <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在读取复核队列。" : `${apiReviewItems.length} 条样本。`}>
           <div className="review-filter-bar">
             <div className="tabs">
               {REVIEW_STATUS_TABS.map(([value, label]) => (
@@ -2794,14 +2867,14 @@ export function ReviewPage() {
           {error && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
-              <div><strong>Review API 请求失败</strong><div className="row-meta">{error.message}</div></div>
+              <div><strong>复核队列读取失败</strong><div className="row-meta">{error.message}</div></div>
               <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>
             </div>
           )}
           {!error && apiReviewItems.length === 0 && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="CheckCircle2" size={18} /></div>
-              <div><strong>{loading ? "正在加载队列" : "当前筛选下没有样本"}</strong><div className="row-meta">{loading ? "Review API 正在返回结果。" : statusFilter === "pending" ? "abstain / reject_ood 推理会自动进入这里。" : "可以切回待复核或全部查看其他记录。"}</div></div>
+              <div><strong>{loading ? "正在加载队列" : "当前筛选下没有样本"}</strong><div className="row-meta">{loading ? "复核队列正在返回结果。" : statusFilter === "pending" ? "模型弃权和 OOD 拦截会自动进入这里。" : "可以切回待复核或全部查看其他记录。"}</div></div>
               <StatusChip tone={loading ? "info" : "default"}>{compactStatusLabel(loading ? "loading" : "clear")}</StatusChip>
             </div>
           )}
@@ -2892,7 +2965,7 @@ export function ReviewDetailPage({ showToast }) {
   if (loading) {
     return (
       <>
-        <PageHero title="复核详情" description="正在连接 Review API。" actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
+        <PageHero title="复核详情" description="正在读取复核上下文。" actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
         <Panel title="加载中" caption="正在读取复核上下文。"><ProgressBar value={64} fill="#315fbd" shimmer /></Panel>
       </>
     );
@@ -2901,7 +2974,7 @@ export function ReviewDetailPage({ showToast }) {
   if (!item || error) {
     return (
       <>
-        <PageHero title="复核项不存在" description={error?.message ?? "Review API 没有返回这个复核项。"} actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
+        <PageHero title="复核项不存在" description={error?.message ?? "没有找到这个复核项。"} actions={<Link className="ghost-button" to="/review"><Icon name="ArrowLeft" size={16} />返回队列</Link>} />
         <Panel title="无法打开复核详情" caption="请从真实队列中选择一个待复核样本。"><StatusChip tone="risk">{compactStatusLabel("not found")}</StatusChip></Panel>
       </>
     );
@@ -2943,12 +3016,12 @@ export function ReviewDetailPage({ showToast }) {
             <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
             <StatusChip tone="info">优先级 {item.priority}</StatusChip>
             <StatusChip tone={item.decision.value === "reject_ood" ? "risk" : "warn"}>{decisionValueLabel(item.decision.value)}</StatusChip>
-            <StatusChip tone="neutral">{item.inferenceRunId ? `run ${item.inferenceRunId}` : "历史记录无 run"}</StatusChip>
+            <StatusChip tone="neutral">{item.inferenceRunId ? `运行 ${item.inferenceRunId}` : "历史记录无运行 ID"}</StatusChip>
           </div>
           <div className="evidence-metrics section-gap-small">
             <div><span>confidence</span><strong>{item.decision.confidence.toFixed(4)}</strong></div>
             <div><span>margin</span><strong>{item.decision.margin.toFixed(4)}</strong></div>
-            <div><span>ood score</span><strong>{item.decision.oodScore?.toFixed?.(4) ?? "n/a"}</strong></div>
+            <div><span>ood score</span><strong>{item.decision.oodScore?.toFixed?.(4) ?? "未返回"}</strong></div>
           </div>
           <div className="reason-box section-gap-small">
             <strong>复核原因</strong>
@@ -2979,7 +3052,7 @@ export function ReviewDetailPage({ showToast }) {
                     </div>
                     <div className="neighbor-distance">
                       <span>distance</span>
-                      <strong>{neighbor.distance?.toFixed(4) ?? "n/a"}</strong>
+                      <strong>{neighbor.distance?.toFixed(4) ?? "未返回"}</strong>
                     </div>
                   </div>
                 ))
@@ -2991,10 +3064,13 @@ export function ReviewDetailPage({ showToast }) {
               )}
             </div>
           </details>
-          <details className="advanced-fields section-gap-small">
-            <summary>来源追踪</summary>
-            <div className="code-panel section-gap-small">run: {item.inferenceRunId ?? "n/a"}<br />event: {item.inferenceEventId ?? "n/a"}<br />review: {item.id ?? "n/a"}<br />dataset: {item.datasetVersionId ?? "n/a"}<br />model: {item.modelVersionId ?? "n/a"}</div>
-          </details>
+          <TechnicalDetails summary="来源追踪">
+            run: {displayValue(item.inferenceRunId)}<br />
+            event: {displayValue(item.inferenceEventId)}<br />
+            review: {displayValue(item.id)}<br />
+            dataset: {displayValue(item.datasetVersionId)}<br />
+            model: {displayValue(item.modelVersionId)}
+          </TechnicalDetails>
         </Panel>
         <Panel title="LLM 辅助" caption="只读建议，不是最终结论；不会写入真值、不会提交反馈池。">
           <LLMAssistanceBox
@@ -3014,7 +3090,7 @@ export function ReviewDetailPage({ showToast }) {
                 <div className="feedback-summary">
                   <div><span>最终结论</span><strong>{item.feedback.final_outcome}</strong></div>
                   <div><span>反馈池</span><strong>{item.feedback.destination}</strong></div>
-                  <div><span>最终标签</span><strong>{item.feedback.final_label ?? "n/a"}</strong></div>
+                  <div><span>最终标签</span><strong>{item.feedback.final_label ?? "未填写"}</strong></div>
                   <div><span>备注</span><strong>{item.feedback.reviewer_note ?? "none"}</strong></div>
                 </div>
                 <div className="next-step-card">
@@ -3117,11 +3193,11 @@ function FeedbackCard({ item }) {
           <StatusChip tone="info">{feedbackOutcomeLabel(item.finalOutcome)}</StatusChip>
         </div>
         <h3>{item.finalLabel || item.sampleId || item.id}</h3>
-        <p className="small">{item.datasetVersionId || item.datasetId || "unknown dataset"} · {item.modelVersionId || "unknown model"}</p>
-        <p className="small">run: {item.inferenceRunId ?? "n/a"} · event: {item.inferenceEventId ?? "n/a"}</p>
+        <p className="small">{item.datasetVersionId || item.datasetId || "未知数据集"} · {item.modelVersionId || "未知模型"}</p>
+        <p className="small">运行 {displayValue(item.inferenceRunId)} · 事件 {displayValue(item.inferenceEventId)}</p>
         <p className="small review-reason">{item.reviewerNote || "暂无人工备注。"}</p>
         <div className="toolbar spread section-gap-small">
-          <span className="row-meta">{item.createdBy || "local-reviewer"} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : "unknown time"}</span>
+          <span className="row-meta">{item.createdBy || "本地复核员"} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : "时间未记录"}</span>
           {item.reviewItemId && (
             <Link className="ghost-button" to={`/review/${item.reviewItemId}?status=feedbacked`}>
               <Icon name="ExternalLink" size={16} />
@@ -3602,7 +3678,7 @@ export function FeedbackPage({ showToast }) {
         actions={<><Link className="ghost-button" to="/review?status=feedbacked"><Icon name="UserCheck" size={16} />复核历史</Link><button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button></>}
       />
       <div className="grid detail">
-        <Panel title="反馈池列表" caption={loading ? "正在连接 Feedback API。" : `${feedbackItems.length} 条反馈。`}>
+        <Panel title="反馈池列表" caption={loading ? "正在读取反馈池。" : `${feedbackItems.length} 条反馈。`}>
           <div className="review-filter-bar">
             <div className="tabs">
               {FEEDBACK_DESTINATIONS.map(([value, label]) => (
@@ -3624,7 +3700,7 @@ export function FeedbackPage({ showToast }) {
           {error && (
             <div className="timeline-item">
               <div className="timeline-icon"><Icon name="AlertTriangle" size={18} /></div>
-              <div><strong>Feedback API 请求失败</strong><div className="row-meta">{error.message}</div></div>
+              <div><strong>反馈池读取失败</strong><div className="row-meta">{error.message}</div></div>
               <StatusChip tone="risk">{compactStatusLabel("error")}</StatusChip>
             </div>
           )}
@@ -3640,7 +3716,7 @@ export function FeedbackPage({ showToast }) {
           </div>
         </Panel>
         <AbstentionPolicyPanel feedbackItems={policyScopeFeedbackItems} feedbackLoading={policyScopeLoading} showToast={showToast} />
-        <Panel title="策展门禁" caption="MVP 只做候选池可见，不自动生成新数据集版本。">
+        <Panel title="策展门禁" caption="当前只展示候选池，不会自动生成新数据集版本。">
           <div className="feedback-summary">
             {poolCounts.map(([value, label, count]) => (
               <div key={value}><span>{label}</span><strong>{count}</strong></div>
@@ -3671,25 +3747,25 @@ export function ModelsPage() {
   const apiModels = sortTrainingRunsForSelection(modelRuns.filter((run) => run.modelVersionId)).map(modelRecordFromRun);
   const calibratedModels = apiModels.filter((model) => model.calibrationArtifactId && model.thresholdStrategyId);
   const incompleteModels = apiModels.filter((model) => !model.modelArtifactId || !model.reportArtifactId || !model.calibrationArtifactId || !model.thresholdStrategyId);
-  const sourceLabel = loading ? "正在连接 Training API" : source === "api" ? "Training API 派生候选模型" : "Training API 暂不可用";
+  const sourceLabel = loading ? "正在读取候选模型" : source === "api" ? "候选模型已同步" : "训练服务暂不可用";
   return (
     <>
-      <CandidateOnlyGuard description="这里的模型来自已完成训练运行，只能作为实验候选查看和验证；生产发布仍等待 Model Registry promote / rollback API。" />
+      <CandidateOnlyGuard description="这里的模型来自已完成训练运行，只能作为实验候选查看和验证；生产发布需经过发布门禁。" />
       <div className="grid metrics">
         <MetricCard title="候选版本" value={loading ? "..." : String(apiModels.length)} caption={sourceLabel} fill="#315fbd" percent={Math.min(100, apiModels.length * 28)} icon="GitCompare" to="/training" />
-        <MetricCard title="可评估候选" value={String(calibratedModels.length)} caption="calibration + threshold strategy" fill="#26804f" percent={apiModels.length ? Math.round((calibratedModels.length / apiModels.length) * 100) : 0} icon="Thermometer" to="/training" />
-        <MetricCard title="需补产物" value={String(incompleteModels.length)} caption="model / report / calibration / threshold" fill="#a15c07" percent={apiModels.length ? Math.round((incompleteModels.length / apiModels.length) * 100) : 0} icon="ClipboardList" to="/training" />
-        <MetricCard title="Registry 状态" value="--" caption="本页不展示生产状态" fill="#6b7280" percent={0} icon="Boxes" to="/models" />
+        <MetricCard title="可评估候选" value={String(calibratedModels.length)} caption="校准和阈值材料齐全" fill="#26804f" percent={apiModels.length ? Math.round((calibratedModels.length / apiModels.length) * 100) : 0} icon="Thermometer" to="/training" />
+        <MetricCard title="需补产物" value={String(incompleteModels.length)} caption="模型、报告、校准或阈值缺失" fill="#a15c07" percent={apiModels.length ? Math.round((incompleteModels.length / apiModels.length) * 100) : 0} icon="ClipboardList" to="/training" />
+        <MetricCard title="发布状态" value="--" caption="发布门禁通过后显示" fill="#6b7280" percent={0} icon="Boxes" to="/models" />
       </div>
       <div className="grid two section-gap">
         <Panel title="模型候选" caption={apiModels.length > 0 ? "来自已完成训练运行；不是生产注册表。" : "暂无真实候选模型；完成训练后会出现在这里。"}>
           {apiModels.length > 0 ? (
             <div className="grid three">{apiModels.map((model) => <ModelCard model={model} key={model.id} />)}</div>
           ) : (
-            <div className="empty-state"><Icon name="Boxes" size={24} /><strong>没有可展示的真实模型版本</strong><span>这里不再显示本地 mock 模型。请先在训练页完成一次训练。</span></div>
+            <div className="empty-state"><Icon name="Boxes" size={24} /><strong>没有可展示的模型版本</strong><span>请先在训练页完成一次训练。</span></div>
           )}
         </Panel>
-        <Panel title="候选评估清单" caption="这里只判断候选材料是否齐全，不暗示已经进入生产发布流程。"><div className="timeline"><GateRow title="离线评估报告" description={apiModels.length > 0 ? "读取 training report / metrics" : "等待真实候选模型"} result={apiModels.some((model) => model.reportArtifactId) ? "pass" : "pending"} /><GateRow title="校准和阈值策略" description={calibratedModels.length > 0 ? `${calibratedModels.length} 个候选已具备 calibration / threshold` : "等待校准产物"} result={calibratedModels.length > 0 ? "pass" : "pending"} /><GateRow title="复核反馈材料" description="人工复核和反馈池用于评估候选风险，不在本页伪造状态。" result="pending" /><GateRow title="注册表记录" description="未接入时保持为空；不显示生产假状态。" result="pending" /></div></Panel>
+        <Panel title="候选评估清单" caption="这里只判断候选材料是否齐全，不暗示已经进入生产发布流程。"><div className="timeline"><GateRow title="离线评估报告" description={apiModels.length > 0 ? "读取训练报告和指标" : "等待候选模型"} result={apiModels.some((model) => model.reportArtifactId) ? "pass" : "pending"} /><GateRow title="校准和阈值策略" description={calibratedModels.length > 0 ? `${calibratedModels.length} 个候选已具备校准和阈值材料` : "等待校准产物"} result={calibratedModels.length > 0 ? "pass" : "pending"} /><GateRow title="复核反馈材料" description="人工复核和反馈池用于评估候选风险。" result="pending" /><GateRow title="发布记录" description="发布门禁通过后显示生产状态。" result="pending" /></div></Panel>
       </div>
     </>
   );
@@ -3702,8 +3778,8 @@ export function ModelDetailPage({ showToast }) {
   if (!apiModel) {
     return (
       <>
-        <PageHero title="模型版本不可用" description={loading ? "正在连接 Training API。" : `${modelId || "unknown"} 没有匹配的真实候选模型；本页不再回退到本地 mock 模型。`} actions={<Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link>} />
-        <Panel title="下一步" caption={source === "api" ? "Training API 已连接，但没有找到该 model_version_id。" : "Training API 暂不可用。"}>
+        <PageHero title="模型版本不可用" description={loading ? "正在读取候选模型。" : `${modelId || "unknown"} 没有匹配的候选模型。`} actions={<Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link>} />
+        <Panel title="下一步" caption={source === "api" ? "请从模型候选列表选择已有版本。" : "训练服务暂不可用。"}>
           <div className="timeline">
             <GateRow title="完成训练" description="训练成功后会生成候选 model_version_id。" result="pending" />
             <GateRow title="补齐产物" description="需要 model artifact、calibration report 和 threshold strategy。" result="pending" />
@@ -3717,7 +3793,7 @@ export function ModelDetailPage({ showToast }) {
   const accuracy = Number.isFinite(Number(model.accuracy)) ? `${Number(model.accuracy).toFixed(1)}%` : "待生成";
   const coverage = Number.isFinite(Number(model.coverage)) ? `${Number(model.coverage).toFixed(1)}%` : "待生成";
   const selectiveRisk = Number.isFinite(Number(model.selectiveRisk)) ? `${Number(model.selectiveRisk).toFixed(2)}%` : "待生成";
-  const sourceLabel = loading ? "正在连接 Training API" : "Training API candidate";
+  const sourceLabel = loading ? "正在读取候选模型" : "候选模型";
   const inferencePath = pathWithSearch("/inference", [
     ["dataset_version_id", model.datasetVersionId],
     ["model_version_id", model.id],
@@ -3727,7 +3803,31 @@ export function ModelDetailPage({ showToast }) {
       <PageHero title={model.id} description={`${sourceLabel} · 模型详情页聚焦候选权重、数据版本、阈值策略和评估报告。`} actions={<><Link className="ghost-button" to="/models"><Icon name="ArrowLeft" size={16} />返回</Link><Link className="secondary-button" to={inferencePath}><Icon name="ImageUp" size={16} />推理验证</Link><StatusChip tone="info">候选评估</StatusChip></>} />
       <CandidateOnlyGuard description="该版本仍是训练产出的实验候选；即使指标通过，也必须经过人工复核、反馈池策展、OOD 压力集和发布门禁后才能生产发布。" />
       <div className="grid two section-gap-small">
-        <Panel title="版本元数据" caption="来自训练运行和 artifact metadata。"><div className="code-panel">model: {model.id}<br />run: {model.runId ?? "n/a"}<br />job: {model.jobId ?? "n/a"}<br />dataset: {model.datasetVersionId ?? "n/a"}<br />backbone: {model.backboneId ?? "n/a"}<br />feature_pool: {model.featurePool ?? "legacy/model"}<br />image_size: {model.imageSize ?? "n/a"}<br />feature_batch_size: {model.featureBatchSize ?? "n/a"}<br />head_type: {model.headType ?? "n/a"}<br />features: {model.featureArtifactId ?? "n/a"}<br />model_artifact: {model.modelArtifactId ?? "n/a"}<br />calibration: {model.calibrationArtifactId ?? "n/a"}<br />threshold: {model.thresholdStrategyId ?? "n/a"}<br />report: {model.reportArtifactId ?? "n/a"}<br />source: {model.source}</div></Panel>
+        <Panel title="版本状态" caption="默认展示评估材料状态，原始字段收在技术详情里。">
+          <div className="timeline">
+            <GateRow title="模型权重" description={model.modelArtifactId ?? "等待模型产物"} result={model.modelArtifactId ? "pass" : "pending"} />
+            <GateRow title="评估报告" description={model.reportArtifactId ?? "等待训练报告"} result={model.reportArtifactId ? "pass" : "pending"} />
+            <GateRow title="校准材料" description={model.calibrationArtifactId ?? "等待校准产物"} result={model.calibrationArtifactId ? "pass" : "pending"} />
+            <GateRow title="阈值策略" description={model.thresholdStrategyId ?? "等待阈值策略"} result={model.thresholdStrategyId ? "pass" : "pending"} />
+          </div>
+          <TechnicalDetails>
+            model: {model.id}<br />
+            run: {displayValue(model.runId)}<br />
+            job: {displayValue(model.jobId)}<br />
+            dataset: {displayValue(model.datasetVersionId)}<br />
+            backbone: {displayValue(model.backboneId)}<br />
+            feature_pool: {model.featurePool ?? "旧版特征"}<br />
+            image_size: {displayValue(model.imageSize)}<br />
+            feature_batch_size: {displayValue(model.featureBatchSize)}<br />
+            head_type: {displayValue(model.headType)}<br />
+            features: {displayValue(model.featureArtifactId)}<br />
+            model_artifact: {displayValue(model.modelArtifactId)}<br />
+            calibration: {displayValue(model.calibrationArtifactId)}<br />
+            threshold: {displayValue(model.thresholdStrategyId)}<br />
+            report: {displayValue(model.reportArtifactId)}<br />
+            source: {model.source}
+          </TechnicalDetails>
+        </Panel>
         <Panel title="评估指标" caption="包含自动覆盖和弃权后的准确率；缺失时不填假数。"><CurveRow label="top-1 accuracy" value={accuracy} percent={Number(model.accuracy) || 0} fill="#0f766e" /><CurveRow label="coverage" value={coverage} percent={Number(model.coverage) || 0} fill="#315fbd" /><CurveRow label="selective risk" value={selectiveRisk} percent={Number(model.selectiveRisk) || 0} fill="#a15c07" /></Panel>
       </div>
     </>
@@ -3739,11 +3839,22 @@ export function PipelinesPage() {
   const selectedJobId = searchParams.get("job_id") || "";
   return (
     <>
-      <PageHero title="查看真实 Control-plane jobs。" description="流水线页优先展示 /api/jobs 返回的任务状态；模板只作为流程说明，不代表正在运行。" actions={<StatusChip tone="info">优先真实任务</StatusChip>} />
+      <PageHero title="任务流水线" description="这里优先展示后台任务状态；流程模板只作为说明，不代表正在运行。" actions={<StatusChip tone="info">任务状态</StatusChip>} />
       <div className="grid two section-gap">
         <RecentJobsPanel selectedJobId={selectedJobId} />
-        <Panel title="Worker 边界" caption="MVP 阶段先查询任务状态，不在浏览器里直接触发模型计算。">
-          <div className="code-panel">control-plane: /api/jobs<br />selected_job: {selectedJobId || "none"}<br />worker: feature extraction / train / calibration<br />storage: artifacts + metadata store<br />frontend: poll job status only</div>
+        <Panel title="执行边界" caption="浏览器只查看任务状态，不直接触发模型计算。">
+          <div className="timeline">
+            <GateRow title="任务查询" description="展示导入、特征提取、训练和校准任务状态" result="pass" />
+            <GateRow title="后台执行" description="计算任务由后端 worker 执行" result="pass" />
+            <GateRow title="产物追踪" description="训练和评估页展示产物状态" result="pending" />
+          </div>
+          <TechnicalDetails>
+            control_plane: /api/jobs<br />
+            selected_job: {selectedJobId || "未选择"}<br />
+            worker: feature extraction / train / calibration<br />
+            storage: artifacts + metadata store<br />
+            frontend: poll job status only
+          </TechnicalDetails>
         </Panel>
       </div>
       <Panel className="section-gap" title="流程模板说明" caption="只读参考模板；不展示运行进度、假日志或假节点状态。">
@@ -3757,10 +3868,17 @@ export function PipelineRunPage({ showToast }) {
   const { pipelineRunId = "" } = useParams();
   return (
     <>
-      <PageHero title="流水线运行详情待接入" description={`${pipelineRunId || "unknown"} · 当前请在流水线页通过 job_id 查看真实 Control-plane job 状态。`} actions={<><Link className="ghost-button" to="/pipelines"><Icon name="ArrowLeft" size={16} />返回</Link><StatusChip tone="warn">运行详情 API 待接入</StatusChip></>} />
+      <PageHero title="流水线运行详情" description={`${pipelineRunId || "未选择运行"} · 请先在流水线页通过任务 ID 查看后台任务状态。`} actions={<><Link className="ghost-button" to="/pipelines"><Icon name="ArrowLeft" size={16} />返回</Link><StatusChip tone="warn">只读预览</StatusChip></>} />
       <div className="grid two">
-        <Panel title="运行节点" caption="不展示静态假日志；等待 Pipeline Run API 接入。"><div className="timeline"><GateRow title="解析运行 ID" description={pipelineRunId || "n/a"} result="pending" /><GateRow title="读取 job 状态" description="请使用 /pipelines?job_id=<job_id>" result="pending" /><GateRow title="读取产物链接" description="artifact store API 待接入" result="pending" /><GateRow title="失败重试" description="pipeline orchestration 待接入" result="pending" /></div></Panel>
-        <Panel title="真实状态入口" caption="当前 MVP 已接入 /api/jobs 列表和查询。"><div className="code-panel">pipeline_run_id: {pipelineRunId || "n/a"}<br />source: not connected<br />job_status_route: /pipelines?job_id=&lt;job_id&gt;<br />static_demo_log: disabled</div></Panel>
+        <Panel title="运行节点" caption="当前不展示静态日志；请从任务状态页查看真实进度。"><div className="timeline"><GateRow title="解析运行 ID" description={pipelineRunId || "未选择"} result="pending" /><GateRow title="读取任务状态" description="请使用流水线页的任务 ID 查询" result="pending" /><GateRow title="读取产物链接" description="等待产物追踪完善" result="pending" /><GateRow title="失败重试" description="等待编排能力完善" result="pending" /></div></Panel>
+        <Panel title="状态入口" caption="任务列表支持查看后台任务状态。">
+          <TechnicalDetails>
+            pipeline_run_id: {pipelineRunId || "未选择"}<br />
+            source: 待连接<br />
+            job_status_route: /pipelines?job_id=&lt;job_id&gt;<br />
+            static_demo_log: disabled
+          </TechnicalDetails>
+        </Panel>
       </div>
     </>
   );

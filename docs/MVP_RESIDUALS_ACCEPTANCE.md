@@ -251,6 +251,7 @@ Backend and database:
 docker compose config
 docker compose run --rm migrate
 scripts/smoke-demo.sh
+scripts/smoke-demo.sh --release-acceptance
 python -m compileall -q backend/src/finevision
 uv run --group dev pytest
 FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run --group dev pytest
@@ -264,9 +265,12 @@ npm --prefix frontend run smoke:jobs-client
 npm --prefix frontend run smoke:training-client
 npm --prefix frontend run smoke:inference-client
 npm --prefix frontend run smoke:review-client
-npm --prefix frontend run smoke:routes
 npm --prefix frontend run build
+npm --prefix frontend run smoke:routes
 ```
+
+`smoke:routes` is route availability only. It verifies preview HTTP 200 responses for SPA routes
+after a production build, not browser interactions or complete workflow E2E.
 
 Compose:
 
