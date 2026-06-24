@@ -312,11 +312,13 @@ function analyzeImageFolderFiles(files) {
   }
 
   const usableFiles = [];
+  let ignoredCount = 0;
   for (const file of selectedFiles) {
     const relativePath = imageFolderRelativePath(file);
     if (!relativePath || ignoredFolderPath(relativePath)) continue;
     if (!IMAGE_FOLDER_EXTENSIONS.has(imageFolderExtension(relativePath))) {
-      return { valid: false, error: `不支持的文件类型：${relativePath}`, files: selectedFiles, rootName: "" };
+      ignoredCount += 1;
+      continue;
     }
     usableFiles.push({ file, relativePath });
   }
@@ -346,6 +348,7 @@ function analyzeImageFolderFiles(files) {
     valid: true,
     error: null,
     files: usableFiles.map((item) => item.file),
+    ignoredCount,
     rootName: summary.strippedPrefix.at(-1) ?? prefix[0] ?? "local-imagefolder",
     ...summary,
   };
@@ -924,7 +927,7 @@ export function DatasetsPage({ showToast }) {
               </div>
               <div className={`row-meta ${folderSelection.valid ? "" : "error-text"}`}>
                 {folderSelection.valid
-                  ? `${folderSelection.format} · ${folderSelection.imageCount} images · ${folderSelection.classes.length} classes`
+                  ? `${folderSelection.format} · ${folderSelection.imageCount} images · ${folderSelection.classes.length} classes${folderSelection.ignoredCount ? ` · 已忽略 ${folderSelection.ignoredCount} 个非图片文件` : ""}`
                   : folderSelection.error}
               </div>
             </div>

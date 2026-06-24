@@ -167,6 +167,16 @@ def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch
     for image_path in sorted(dataset_dir.rglob("*.png")):
         relative_name = f"selected-folder/{image_path.relative_to(dataset_dir).as_posix()}"
         multipart_files.append(("files", (relative_name, image_path.read_bytes(), "image/png")))
+    multipart_files.append(
+        (
+            "files",
+            (
+                "selected-folder/SPLIT_SUMMARY.json",
+                b'{"note":"non-image sidecar should be ignored"}',
+                "application/json",
+            ),
+        )
+    )
 
     response = client.post(
         "/api/datasets/upload-imagefolder",
@@ -184,8 +194,10 @@ def test_dataset_asset_api_uploads_local_imagefolder(tmp_path: Path, monkeypatch
     assert payload["version"]["readiness"]["ready"] is True
     assert payload["upload"]["class_count"] == 3
     assert payload["upload"]["image_count"] == 12
+    assert payload["upload"]["ignored_files"] == 1
     assert Path(payload["upload"]["stored_path"]).exists()
     assert (imported_dir / "uploaded-shapes" / "dataset@uploaded-shapes-001").exists()
+    assert not (imported_dir / "uploaded-shapes" / "dataset@uploaded-shapes-001" / "SPLIT_SUMMARY.json").exists()
 
     previews_response = client.get("/api/dataset-versions/dataset@uploaded-shapes-001/sample-previews?limit=2")
     assert previews_response.status_code == 200

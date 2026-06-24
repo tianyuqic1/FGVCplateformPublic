@@ -988,10 +988,8 @@ def _validate_uploaded_imagefolder(files: list[UploadFile]) -> tuple[list[tuple[
             ignored_count += 1
             continue
         if relative_path.suffix.lower() not in IMAGE_EXTENSIONS:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Unsupported file type in dataset folder: {relative_path.as_posix()}",
-            )
+            ignored_count += 1
+            continue
         raw_entries.append((upload_file, relative_path))
 
     if not raw_entries:
