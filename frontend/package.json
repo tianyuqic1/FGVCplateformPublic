@@ -1,0 +1,29 @@
+{
+  "name": "finevision-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "smoke:routes": "node scripts/smoke-routes.mjs",
+    "smoke:api-client": "node scripts/smoke-api-client.mjs",
+    "smoke:jobs-client": "node scripts/smoke-jobs-client.mjs",
+    "smoke:training-client": "node scripts/smoke-training-client.mjs",
+    "smoke:inference-client": "node scripts/smoke-inference-client.mjs",
+    "smoke:abstention-client": "node scripts/smoke-abstention-client.mjs",
+    "smoke:review-client": "node scripts/smoke-review-client.mjs",
+    "smoke:llm-client": "node scripts/smoke-llm-client.mjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^7.2.4",
+    "typescript": "^5.9.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.10.1",
+    "lucide-react": "^0.555.0"
+  },
+  "devDependencies": {}
+}

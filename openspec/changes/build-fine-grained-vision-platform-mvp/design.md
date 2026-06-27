@@ -95,6 +95,22 @@ Alternatives considered:
 - Website-style hero page: visually appealing but inefficient for daily operation.
 - Extremely dense admin table UI: efficient but poor for onboarding and cross-functional review.
 
+### 8. Control Plane API + Compute Worker Before Microservices
+
+FineVision will start as a modular monolith with a separated worker process/container, not as a set of fully independent microservices.
+
+The control-plane API owns ordinary product and metadata operations: dataset metadata, taxonomy governance, review queue, feedback pools, model registry, dashboard summaries, job creation, and job status reads. These operations are CRUD-like, but they should initially live in one cohesive API because they share the same domain model and transaction boundaries.
+
+The compute worker owns long-running ML/data tasks: ImageFolder scanning, split diagnostics, feature extraction, classifier-head training, evaluation, threshold sweeps, nearest-neighbor index builds, and batch inference. The worker should run outside request handlers and can use a heavier Python environment with PyTorch, FAISS, CUDA/GPU dependencies, and artifact-writing permissions.
+
+API and worker should share schemas, artifact contracts, and id/path conventions in the same repository at first. Docker Compose should introduce process and dependency isolation once the job lifecycle is introduced. A later true microservice split is justified only when independent deployment, scaling, ownership, reliability isolation, or online inference latency requires it.
+
+Alternatives considered:
+
+- Put all work in the API service: simpler initially but risks slow requests, dependency bloat, and API instability during training or feature extraction.
+- Split CRUD and model work into fully independent microservices immediately: cleaner on paper but premature while schemas, artifact contracts, and job lifecycle are still changing.
+- Wait until the whole MVP is done before separating API and worker: avoids early infrastructure work but makes later extraction more painful after training/inference code has leaked into request handlers.
+
 ## Risks / Trade-offs
 
 - Dataset taxonomy quality can dominate model quality → Add category governance, disputed-class pools, and class-level diagnostics early.
@@ -104,6 +120,7 @@ Alternatives considered:
 - SAM3 masking can improve or harm fine-grained accuracy → Keep original image inference as baseline and evaluate crop/mask variants before enabling per dataset.
 - Feedback loops can accumulate noisy labels → Type review outcomes and keep bad images/OOD/disputes out of training pools by default.
 - A deep workbench can over-scope MVP → Implement the workbench incrementally, starting with dashboard, dataset detail, inference lab, and review queue.
+- Premature microservices can freeze unstable contracts too early → Start with shared schemas and separate API/worker processes before splitting independent services.
 
 ## Migration Plan
 
@@ -111,8 +128,9 @@ Alternatives considered:
 2. Introduce dataset-version and model-version identifiers across API responses before adding new UI screens.
 3. Add backend endpoints for dataset details, training runs, inference decisions, review items, feedback outcomes, and model registry data.
 4. Implement workbench React routes based on the HTML prototype, initially backed by mock/fallback data where backend endpoints are not ready.
-5. Wire the routes to backend APIs progressively and keep the existing demo pipeline working.
-6. Add release gates and typed feedback pools before allowing a model to be marked production.
+5. Introduce API/worker job boundaries before heavy ML tasks run inside request handlers.
+6. Wire the routes to backend APIs progressively and keep the existing demo pipeline working.
+7. Add release gates and typed feedback pools before allowing a model to be marked production.
 
 Rollback strategy:
 
