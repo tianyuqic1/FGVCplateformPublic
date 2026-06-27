@@ -11,6 +11,7 @@ __pycache__/
 .venv/
 .finevision-*/
 data/downloads/
+data/ood/
 data/test/
 
 frontend/node_modules/
