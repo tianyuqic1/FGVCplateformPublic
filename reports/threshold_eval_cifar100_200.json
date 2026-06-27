@@ -1,0 +1,59 @@
+{
+  "dataset_version_id": "dataset@cifar100-fv-train-upload-001",
+  "model_version_id": "cifar100-fv-train-upload-run-dcea1c94d704-candidate",
+  "image_root": "/tmp/fv_cifar100_eval_200",
+  "sample_count": 200,
+  "class_count": 100,
+  "target_selective_risk": 0.05,
+  "raw_accuracy": 0.895,
+  "results": [
+    {
+      "method": "no_abstention_raw_model",
+      "tau_conf": 0.0,
+      "tau_margin": 0.0,
+      "accepted": 200,
+      "errors": 21,
+      "coverage": 1.0,
+      "review_rate": 0.0,
+      "accepted_accuracy": 0.895,
+      "selective_risk": 0.105
+    },
+    {
+      "method": "current_saved_thresholds",
+      "tau_conf": 0.970871,
+      "tau_margin": 0.2543763518333435,
+      "accepted": 103,
+      "errors": 1,
+      "coverage": 0.515,
+      "review_rate": 0.485,
+      "accepted_accuracy": 0.9902912621359223,
+      "selective_risk": 0.009708737864077669
+    },
+    {
+      "method": "confidence_only_risk_constrained",
+      "tau_conf": 0.516472259759903,
+      "tau_margin": 0.0,
+      "accepted": 182,
+      "errors": 9,
+      "coverage": 0.91,
+      "review_rate": 0.08999999999999997,
+      "accepted_accuracy": 0.9505494505494505,
+      "selective_risk": 0.04945054945054945
+    },
+    {
+      "method": "joint_confidence_margin_risk_constrained",
+      "tau_conf": 0.40292903780937195,
+      "tau_margin": 0.18427006721496583,
+      "accepted": 182,
+      "errors": 9,
+      "coverage": 0.91,
+      "review_rate": 0.08999999999999997,
+      "accepted_accuracy": 0.9505494505494505,
+      "selective_risk": 0.04945054945054945
+    }
+  ],
+  "notes": [
+    "This run uses in-domain CIFAR-100 labels only; OOD precision/recall is not estimated.",
+    "Review rate here means abstention rate on the 200-image replay set."
+  ]
+}
