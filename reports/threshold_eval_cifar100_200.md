@@ -45,3 +45,32 @@ Pilot wording:
 > Built a feedback-replay threshold evaluation pipeline for visual selective classification. On a balanced 200-image CIFAR-100 replay, the optimized risk-constrained policy reduced manual review rate from 48.5% to 26.0% under a <=1% selective-risk target, while maintaining 99.3% accepted accuracy.
 
 For a stronger final resume metric, rerun on a larger test set with an explicit OOD subset and report OOD precision/recall.
+
+## OOD Pilot: CIFAR-100 ID + CUB-200 OOD
+
+OOD set: 200 CUB-200-2011 bird images, sampled as 1 image per bird class.
+
+Total replay set: 200 CIFAR-100 in-domain images + 200 CUB OOD images.
+
+Target selective risk: <= 1%.
+
+Max allowed in-domain OOD false positive rate during threshold search: <= 5%.
+
+| Method | Accepted Acc | Selective Risk | Accept Coverage | Auto Coverage | Review Rate | OOD Precision | OOD Recall | ID OOD FPR | OOD Accept Rate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| No abstention raw model | 44.75% | 55.25% | 100.00% | 100.00% | 0.00% | n/a | 0.00% | 0.00% | 100.00% |
+| Current saved thresholds | 98.08% | 1.92% | 26.00% | 26.00% | 74.00% | n/a | 0.00% | 0.00% | 0.50% |
+| Confidence-only risk constrained | 100.00% | 0.00% | 7.00% | 7.00% | 93.00% | n/a | 0.00% | 0.00% | 0.00% |
+| Joint confidence + margin risk constrained | 100.00% | 0.00% | 8.00% | 8.00% | 92.00% | n/a | 0.00% | 0.00% | 0.00% |
+| Joint confidence + margin + OOD risk constrained | 99.32% | 0.68% | 37.00% | 87.25% | 12.75% | 99.50% | 100.00% | 0.50% | 0.00% |
+
+OOD takeaways:
+
+- Without OOD rejection, the raw model accepts every OOD image as some CIFAR-100 class, so OOD accept rate is 100%.
+- Confidence-only and confidence+margin can avoid accepting OOD by becoming extremely conservative, but this drives review rate above 90%.
+- Adding an OOD distance threshold gives the useful operating point: 99.32% accepted accuracy, 100.00% OOD recall, 99.50% OOD precision, and 12.75% review rate.
+- The OOD-enabled policy automatically handles 87.25% of the mixed replay set by either accepting confident in-domain samples or rejecting OOD samples.
+
+Stronger resume wording after this OOD pilot:
+
+> Built an automated selective-classification replay evaluator with OOD detection. On a 400-image CIFAR-100 + CUB OOD pilot, a joint confidence/margin/OOD threshold policy achieved 99.3% accepted accuracy, 100.0% OOD recall, 99.5% OOD precision, and reduced manual review rate from 74.0% under the saved conservative policy to 12.8%.
