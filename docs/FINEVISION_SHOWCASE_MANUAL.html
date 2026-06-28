@@ -233,8 +233,6 @@ id="toc-为什么这属于在线可弃权">3.18 为什么这属于在线可弃�
 结果</a></li>
 <li><a href="#cifar-100-svhn-ood-结果"
 id="toc-cifar-100-svhn-ood-结果">4.5 CIFAR-100 + SVHN OOD 结果</a></li>
-<li><a href="#项目亮点总结" id="toc-项目亮点总结">4.6
-项目亮点总结</a></li>
 </ul></li>
 <li><a href="#appendix-reference" id="toc-appendix-reference">5.
 附录：工程参考手册</a>
@@ -302,10 +300,6 @@ API 的关系</a></li>
 </nav>
 <section id="finevision-项目展示文档与操作手册" class="level1">
 <h1>FineVision 项目展示文档与操作手册</h1>
-<p>生成日期：2026-06-27<br />
-源文档：<code>docs/FineVision_项目展示文档与操作手册.md</code><br />
-展示入口：<code>docs/FINEVISION_SHOWCASE_MANUAL.html</code><br />
-项目定位：面向细粒度视觉分类任务的模型控制平面原型。</p>
 <blockquote>
 <p>这份文档用于说明 FineVision
 的产品目标、操作流程、工程架构和实验结果。FineVision
@@ -2022,14 +2016,6 @@ accept rate 0%。</li>
 1.70%。</li>
 <li>这说明阈值策略不是为了堆模块，而是能量化降低人工成本，同时控制自动决策风险。</li>
 </ul>
-</section>
-<section id="项目亮点总结" class="level3">
-<h3>4.6 项目亮点总结</h3>
-<pre class="text"><code>实现并评估了一个风险约束 selective classification / OOD rejection 策略。
-基于 CIFAR-100 + SVHN 构建自动化 benchmark，量化 selective risk、auto coverage、
-OOD recall、OOD accept rate 和人工复核成本。DINOv3 ViT-L 在 1% 风险目标下达到
-87.45% 自动处理率、100% OOD recall 和 0% OOD accept rate；在 5% 风险目标下达到
-98.30% 自动处理率，人工复核率降至 1.70%。</code></pre>
 </section>
 </section>
 <section id="appendix-reference" class="level2">

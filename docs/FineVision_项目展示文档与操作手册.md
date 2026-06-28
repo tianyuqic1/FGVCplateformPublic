@@ -1,10 +1,5 @@
 # FineVision 项目展示文档与操作手册
 
-生成日期：2026-06-27  
-源文档：`docs/FineVision_项目展示文档与操作手册.md`  
-展示入口：`docs/FINEVISION_SHOWCASE_MANUAL.html`  
-项目定位：面向细粒度视觉分类任务的模型控制平面原型。
-
 > 这份文档用于说明 FineVision 的产品目标、操作流程、工程架构和实验结果。FineVision 的真实训练和批量推理依赖 GPU，因此本文重点展示系统设计、核心页面、算法链路和可量化评估结果。
 
 ## 0. 展示导航与页面路由
@@ -1177,16 +1172,6 @@ CLS 训练链路稳定
 - ViT-L 在 1% 风险目标下达到 87.45% 自动处理率，OOD recall 100%，OOD accept rate 0%。
 - ViT-L 在 5% 风险目标下达到 98.30% 自动处理率，人工复核率只有 1.70%。
 - 这说明阈值策略不是为了堆模块，而是能量化降低人工成本，同时控制自动决策风险。
-
-### 4.6 项目亮点总结
-
-```text
-实现并评估了一个风险约束 selective classification / OOD rejection 策略。
-基于 CIFAR-100 + SVHN 构建自动化 benchmark，量化 selective risk、auto coverage、
-OOD recall、OOD accept rate 和人工复核成本。DINOv3 ViT-L 在 1% 风险目标下达到
-87.45% 自动处理率、100% OOD recall 和 0% OOD accept rate；在 5% 风险目标下达到
-98.30% 自动处理率，人工复核率降至 1.70%。
-```
 
 ## 5. 附录：工程参考手册 {#appendix-reference}
 
