@@ -25,6 +25,7 @@ import {
   VisualPlaceholder,
 } from "../components/ui.jsx";
 import { PageHero } from "../components/AppShell.jsx";
+import { ReviewAutomationEntry } from "./ReviewAutomationEntry.jsx";
 
 const pipelineNodes = [
   { id: "import", title: "数据导入", description: "生成不可变 dataset version", icon: "FolderInput" },
@@ -2917,13 +2918,16 @@ export function ReviewPage() {
             </div>
           )}
         </Panel>
-        <Panel title="队列摘要" caption="统计当前页样本；历史入口在左侧状态切换中。">
-          <div className="timeline">
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">低置信</StatusChip></div>
-            <div className="timeline-item"><div className="timeline-icon"><Icon name="GitCompare" size={18} /></div><div><strong>{lowMarginCount} 条低间隔</strong><div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div></div><StatusChip tone="info">低间隔</StatusChip></div>
-          </div>
-        </Panel>
+        <div className="review-side-stack">
+          <ReviewAutomationEntry pendingCount={totalItems} />
+          <Panel title="队列摘要" caption="统计当前页样本；历史入口在左侧状态切换中。">
+            <div className="timeline">
+              <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
+              <div className="timeline-item"><div className="timeline-icon"><Icon name="Gauge" size={18} /></div><div><strong>{lowConfidenceCount} 条低置信</strong><div className="row-meta">置信度低于阈值，建议确认最终类别或标记不确定。</div></div><StatusChip tone="warn">低置信</StatusChip></div>
+              <div className="timeline-item"><div className="timeline-icon"><Icon name="GitCompare" size={18} /></div><div><strong>{lowMarginCount} 条低间隔</strong><div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div></div><StatusChip tone="info">低间隔</StatusChip></div>
+            </div>
+          </Panel>
+        </div>
       </div>
     </>
   );

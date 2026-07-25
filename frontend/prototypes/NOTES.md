@@ -23,3 +23,19 @@ Main pages:
 Question being answered:
 
 Which product shape best fits the MVP before writing a formal product/design document?
+
+## LLM-led review entry prototype
+
+Question being answered:
+
+Where should an optional LLM-led, no-manual-touch review mode live without weakening the existing human-review workflow or implying that its backend is already available?
+
+Preview the existing `/review` route with:
+
+- `?variant=A`: a prominent review-mode command bar above the queue.
+- `?variant=B`: manual and LLM modes as tabs inside the queue.
+- `?variant=C`: an automation task entry in the right-hand operational rail.
+
+All automation actions are intentionally disabled. After one placement is selected, remove the other variants and replace the selected prototype with tested production code.
+
+Decision: variant C was selected. The right-hand automation task entry is now the retained placeholder on `/review`; variants A/B and the prototype switcher were removed.
