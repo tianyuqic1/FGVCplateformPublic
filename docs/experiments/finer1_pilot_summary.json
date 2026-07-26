@@ -1,0 +1,62 @@
+{
+  "experiment_date": "2026-07-26",
+  "model": {
+    "id": "StevenHH2000/Fine-R1-3B",
+    "revision": "6da43fdd30df0101bbb81f4ae5ad9e6117bf3619",
+    "architecture": "Qwen2_5_VLForConditionalGeneration",
+    "weight_bytes": 8131575808
+  },
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "gpu_memory_mib": 24564
+  },
+  "runs": {
+    "bf16_cub20_cot": {
+      "samples": 20,
+      "accuracy": 1.0,
+      "format_compliance_rate": 1.0,
+      "model_memory_gib": 6.995859146118164,
+      "inference_peak_memory_gib": 7.054860591888428,
+      "latency_mean_seconds": 11.59653778327629,
+      "latency_p95_seconds": 16.00313820829615,
+      "generated_tokens_mean": 540.8
+    },
+    "nf4_cub20_cot": {
+      "samples": 20,
+      "accuracy": 0.9,
+      "format_compliance_rate": 1.0,
+      "model_memory_gib": 2.2579665184020996,
+      "inference_peak_memory_gib": 2.3515472412109375,
+      "latency_mean_seconds": 13.760963017423638,
+      "latency_p95_seconds": 16.79057200299576,
+      "generated_tokens_mean": 461.95
+    },
+    "bf16_cub20_direct": {
+      "samples": 20,
+      "accuracy": 0.65,
+      "format_compliance_rate": 1.0,
+      "model_memory_gib": 6.995859146118164,
+      "inference_peak_memory_gib": 7.0548601150512695,
+      "latency_mean_seconds": 0.2624589421786368,
+      "latency_p95_seconds": 0.319190202280879,
+      "generated_tokens_mean": 5.75
+    },
+    "bf16_cifar100_ood10_cot": {
+      "samples": 10,
+      "ood_recall": 0.4,
+      "format_compliance_rate": 1.0,
+      "model_memory_gib": 6.995859146118164,
+      "inference_peak_memory_gib": 7.0368828773498535,
+      "latency_mean_seconds": 10.134499852266163,
+      "latency_p95_seconds": 13.747555495239794,
+      "generated_tokens_mean": 451.1
+    }
+  },
+  "decision": {
+    "default_precision": "bf16",
+    "prompt_style": "cot",
+    "max_new_tokens": 1024,
+    "allowed_auto_review_decision": "abstain",
+    "disallowed_auto_review_decision": "reject_ood"
+  }
+}

@@ -758,6 +758,48 @@ Suggested checkpoint pushes:
 - `test: add end-to-end MVP flow coverage`
 - `docs: document MVP workflow`
 
+## Iteration 7: Fine-R1 VLM Review Worker
+
+Status: model feasibility and integration design completed; production implementation pending.
+
+Detailed experiment results and the selected architecture are documented in:
+
+```text
+docs/FINE_R1_VLM_INTEGRATION_PLAN.md
+```
+
+Objective: add an isolated Fine-R1 GPU service and asynchronous VLM review queue without replacing
+the DINOv3 classifier, OOD policy, or the default human source of truth.
+
+Scope:
+
+- Deploy `StevenHH2000/Fine-R1-3B` in BF16 as a model-resident GPU service.
+- Add durable VLM review runs and per-item results.
+- Route `abstain` review items through candidate-constrained visual reasoning.
+- Keep the existing manual review flow as the default.
+- Allow an explicit user-created auto-review mode with deterministic gates and full audit metadata.
+- Route invalid, failed, inconsistent, bad-image, and `reject_ood` results back to humans.
+
+Non-goals:
+
+- Do not replace the DINOv3 CLS classifier.
+- Do not use VLM output to update confidence, margin, or OOD thresholds.
+- Do not let Fine-R1 automatically submit `reject_ood` items.
+- Do not mix VLM-generated feedback with human feedback without a source field.
+- Do not enable NF4 by default; the feasibility experiment showed lower quality and higher latency on
+  the available RTX 4090.
+
+Acceptance:
+
+- The GPU service exposes health, readiness, and candidate-constrained review endpoints.
+- The model revision, prompt version, image hash, candidates, latency, and generated token count are
+  persisted for every result.
+- A failed GPU request cannot block or corrupt the human review queue.
+- Auto-submit is disabled by default and requires an explicit user-created task.
+- Auto-submit only handles `abstain` items that pass all candidate, image, scope, and agreement gates.
+- VLM results remain distinguishable and reversible in the feedback pool.
+- A target-dataset shadow benchmark is completed before auto-submit can be enabled.
+
 ## MVP Residual Acceptance Checkpoint
 
 Before calling the MVP stable for non-technical use, review:
