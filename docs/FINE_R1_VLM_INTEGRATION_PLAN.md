@@ -1,6 +1,13 @@
 # Fine-R1 VLM 复核接入方案与实验记录
 
-状态：方案已完成，模型已下载，远程试验已完成；生产 API、任务表和前端自动复核任务尚未实现。
+状态：assisted 工程链路、任务表、API、worker、GPU 服务和前端入口已完成；auto 门禁已实现但
+默认关闭，等待目标数据集至少 200 条 shadow benchmark 和撤销能力验收。
+
+最终实现与双数据集评测见：
+
+```text
+docs/FINE_R1_VLM_ENGINEERING_REPORT.md
+```
 
 ## 1. 结论
 
@@ -378,15 +385,21 @@ reviewed_by = fine-r1-service
 - `review_item_id`
 - `status`
 - `suggested_label`
-- `matched_candidate`
-- `auto_gate_passed`
-- `auto_gate_reasons`
-- `latency_ms`
+- `candidate_labels`
+- `auto_submit_eligible`
+- `gate_report`
+- `latency_seconds`
+- `input_tokens`
 - `generated_tokens`
-- `reasoning_artifact_id`
-- `error`
+- `reasoning`
+- `raw_output`
+- `image_sha256`
+- `model_revision`
+- `prompt_version`
+- `error_message`
 
-任务必须支持暂停、取消、重试失败项和查看进度。
+当前任务支持创建、查询、自动轮询、取消、过期 lease 重排和最多 3 次尝试。暂停、手工恢复
+和单项重试没有进入本次 assisted MVP。
 
 ## 9. API 草案
 
@@ -396,32 +409,32 @@ reviewed_by = fine-r1-service
 POST   /api/vlm-review-runs
 GET    /api/vlm-review-runs
 GET    /api/vlm-review-runs/{id}
-POST   /api/vlm-review-runs/{id}/pause
-POST   /api/vlm-review-runs/{id}/resume
 POST   /api/vlm-review-runs/{id}/cancel
-GET    /api/vlm-review-runs/{id}/results
+GET    /api/vlm-review-capabilities
 ```
+
+`GET /api/vlm-review-runs/{id}` 同时返回 run 和逐项 results。
 
 远程 GPU 服务：
 
 ```text
 GET  /health
 GET  /ready
-POST /v1/review/classify
+POST /v1/rerank
 ```
 
 GPU 服务只监听内网或 SSH tunnel。正式暴露时必须加 HTTPS、服务 token、请求大小限制和审计日志。
 
 ## 10. 实施顺序
 
-1. 实现只读 `fine-r1-service`，完成 health、ready 和单图候选重排。
-2. 新增 VLM review run/result 数据模型和迁移。
-3. 新增 dispatcher，先只支持 `assist`。
-4. 把 `/review` 的方案 C 占位入口接到真实任务页。
-5. 完成暂停、取消、失败重试和进度显示。
-6. 对目标数据集运行至少 200 张 shadow benchmark。
-7. 在默认关闭状态下增加 `auto` 门禁。
-8. 验收通过后再允许用户创建自动提交任务。
+1. 已完成只读 `fine-r1-service`：health、ready 和单图候选重排。
+2. 已完成 VLM review run/result 数据模型和迁移。
+3. 已完成异步 worker、assisted 模式、取消与 lease 恢复。
+4. 已完成 `/review` 真实任务入口、轮询和状态显示。
+5. 已完成 CUB-200 与 Flowers-102 工程验证。
+6. 已在默认关闭状态下实现 `auto` 门禁和反馈来源标记。
+7. 待完成目标数据集至少 200 条 shadow benchmark。
+8. 待补自动反馈撤销和权限控制后再开放 auto。
 
 ## 11. 当前限制
 

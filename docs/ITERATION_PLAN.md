@@ -760,12 +760,13 @@ Suggested checkpoint pushes:
 
 ## Iteration 7: Fine-R1 VLM Review Worker
 
-Status: model feasibility and integration design completed; production implementation pending.
+Status: assisted workflow implemented and verified; auto gate implemented but shadow-locked by default.
 
 Detailed experiment results and the selected architecture are documented in:
 
 ```text
 docs/FINE_R1_VLM_INTEGRATION_PLAN.md
+docs/FINE_R1_VLM_ENGINEERING_REPORT.md
 ```
 
 Objective: add an isolated Fine-R1 GPU service and asynchronous VLM review queue without replacing
@@ -795,9 +796,11 @@ Acceptance:
 - The model revision, prompt version, image hash, candidates, latency, and generated token count are
   persisted for every result.
 - A failed GPU request cannot block or corrupt the human review queue.
-- Auto-submit is disabled by default and requires an explicit user-created task.
+- Auto-submit is disabled by default and additionally requires a passed target-dataset shadow
+  benchmark, an environment enablement flag, and an explicit user-created task.
 - Auto-submit only handles `abstain` items that pass all candidate, image, scope, and agreement gates.
-- VLM results remain distinguishable and reversible in the feedback pool.
+- VLM results remain distinguishable in the feedback pool. Reversal remains a prerequisite for
+  enabling auto mode, so the delivered default is assisted-only.
 - A target-dataset shadow benchmark is completed before auto-submit can be enabled.
 
 ## MVP Residual Acceptance Checkpoint

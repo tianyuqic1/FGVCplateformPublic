@@ -274,6 +274,91 @@ feedback_items = sa.Table(
     ),
 )
 
+vlm_review_runs = sa.Table(
+    "vlm_review_runs",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("run_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id")),
+    sa.Column("inference_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_runs.id")),
+    sa.Column("mode", sa.Text(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("requested_limit", sa.Integer(), nullable=False),
+    sa.Column("total_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("succeeded_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("failed_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("skipped_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("fallback_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("model_id", sa.Text(), nullable=False),
+    sa.Column("model_revision", sa.Text()),
+    sa.Column("prompt_version", sa.Text(), nullable=False),
+    sa.Column("config", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_by", sa.Text()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True)),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("mode in ('assisted', 'auto')", name="ck_vlm_review_runs_mode"),
+    sa.CheckConstraint(
+        "status in ('queued', 'running', 'succeeded', 'partial_failed', 'failed', 'cancelled')",
+        name="ck_vlm_review_runs_status",
+    ),
+)
+
+vlm_review_results = sa.Table(
+    "vlm_review_results",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("result_key", sa.Text(), nullable=False, unique=True),
+    sa.Column(
+        "vlm_review_run_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("vlm_review_runs.id"),
+        nullable=False,
+    ),
+    sa.Column("review_item_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("review_items.id"), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("candidate_labels", postgresql.JSONB(), nullable=False),
+    sa.Column("suggested_label", sa.Text()),
+    sa.Column("reasoning", sa.Text()),
+    sa.Column("raw_output", sa.Text()),
+    sa.Column("image_sha256", sa.Text()),
+    sa.Column("model_revision", sa.Text()),
+    sa.Column("prompt_version", sa.Text(), nullable=False),
+    sa.Column("latency_seconds", sa.Float()),
+    sa.Column("input_tokens", sa.Integer()),
+    sa.Column("generated_tokens", sa.Integer()),
+    sa.Column("auto_submit_eligible", sa.Boolean(), nullable=False, server_default=sa.false()),
+    sa.Column("gate_report", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("error_message", sa.Text()),
+    sa.Column("attempt_count", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True)),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "status in ('queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')",
+        name="ck_vlm_review_results_status",
+    ),
+    sa.UniqueConstraint("vlm_review_run_id", "review_item_id", name="uq_vlm_review_result_run_item"),
+)
+
+sa.Index(
+    "ix_vlm_review_runs_status_created_at",
+    vlm_review_runs.c.status,
+    vlm_review_runs.c.created_at,
+)
+sa.Index(
+    "ix_vlm_review_results_run_status",
+    vlm_review_results.c.vlm_review_run_id,
+    vlm_review_results.c.status,
+)
+sa.Index(
+    "ix_vlm_review_results_review_item",
+    vlm_review_results.c.review_item_id,
+    vlm_review_results.c.created_at,
+)
+
 sa.Index(
     "ix_inference_runs_scope_created_at",
     inference_runs.c.dataset_version_id,

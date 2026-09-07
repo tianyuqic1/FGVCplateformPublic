@@ -74,9 +74,9 @@ uv run --group dev pytest
   as advisory LLM context.
 - LLM assistance is advisory-only. It cannot set labels, submit reviews, tune thresholds, activate
   policies, or mutate dataset/model versions.
-- Fine-R1 VLM review has completed a remote BF16/NF4 feasibility experiment, but the GPU service,
-  durable VLM job queue, and opt-in auto-review gates are still a proposed next iteration. The
-  current disabled `/review` entry must not be interpreted as an active backend feature.
+- Fine-R1 VLM assisted review is implemented through an isolated GPU service, durable run/result
+  queue, cancellation/lease recovery, and a real `/review` task entry. Auto-review gates exist but
+  remain disabled until a target-dataset shadow benchmark and reversal controls pass.
 - Online abstention supports shadow evaluation and manual activation gates. Active policies can
   affect live inference thresholds only for their exact dataset/model scope after feedback and risk
   checks pass.
@@ -203,6 +203,7 @@ The Fine-R1-3B feasibility results and selected VLM review architecture are docu
 
 ```text
 docs/FINE_R1_VLM_INTEGRATION_PLAN.md
+docs/FINE_R1_VLM_ENGINEERING_REPORT.md
 ```
 
 FineVision now supports shadow evaluation plus a manual activation gate for abstention policies.

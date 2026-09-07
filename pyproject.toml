@@ -20,6 +20,12 @@ dinov3 = [
   "torch>=2.7",
   "torchvision>=0.22",
 ]
+vlm = [
+  "accelerate>=1.0",
+  "qwen-vl-utils>=0.0.14",
+  "torch>=2.7",
+  "transformers>=4.51,<5",
+]
 
 [dependency-groups]
 dev = [

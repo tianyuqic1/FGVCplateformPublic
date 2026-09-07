@@ -78,6 +78,52 @@ services:
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
       - ${HOME}/.cache/torch:/root/.cache/torch
 
+  vlm-review-worker:
+    profiles: ["vlm", "vlm-local"]
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://finevision:finevision@postgres:5432/finevision
+      FINEVISION_METADATA_DIR: /data/metadata
+      FINEVISION_UPLOAD_DIR: /data/uploads
+      FINEVISION_IMPORTED_DATASET_DIR: /data/imported-datasets
+      FINEVISION_FINER1_SERVICE_URL: ${FINEVISION_FINER1_SERVICE_URL:-http://fine-r1-service:8010}
+      FINEVISION_FINER1_TIMEOUT_SECONDS: ${FINEVISION_FINER1_TIMEOUT_SECONDS:-180}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    command: ["python", "-m", "finevision.vlm.worker", "--poll-interval-seconds", "2"]
+    volumes:
+      - finevision-metadata:/data/metadata
+      - finevision-uploads:/data/uploads
+      - finevision-imported-datasets:/data/imported-datasets
+      - ./backend/src:/app/backend/src:ro
+      - ./data:/app/data:ro
+
+  fine-r1-service:
+    profiles: ["vlm-local"]
+    build:
+      context: .
+      dockerfile: Dockerfile.vlm
+    gpus: all
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FINEVISION_FINER1_MODEL_PATH: ${FINEVISION_FINER1_MODEL_PATH:-StevenHH2000/Fine-R1-3B}
+      FINEVISION_FINER1_MODEL_REVISION: ${FINEVISION_FINER1_MODEL_REVISION:-6da43fdd30df0101bbb81f4ae5ad9e6117bf3619}
+      FINEVISION_FINER1_MAX_NEW_TOKENS: ${FINEVISION_FINER1_MAX_NEW_TOKENS:-1024}
+    ports:
+      - "127.0.0.1:8010:8010"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+
   migrate:
     build:
       context: .

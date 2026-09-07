@@ -18,6 +18,8 @@ from finevision.db.schema import (
     model_versions,
     review_items,
     training_runs,
+    vlm_review_results,
+    vlm_review_runs,
 )
 
 
@@ -331,6 +333,21 @@ class DatabaseReviewStore:
         return _review_item_from_row(row) if row else None
 
     def update_review_assistance(self, *, review_id: str, assistance: dict[str, Any]) -> ReviewItemRecord:
+        return self.update_assistance_metadata(
+            review_id=review_id,
+            key="llm_assistance",
+            value=assistance,
+        )
+
+    def update_assistance_metadata(
+        self,
+        *,
+        review_id: str,
+        key: str,
+        value: dict[str, Any],
+    ) -> ReviewItemRecord:
+        if not key.strip():
+            raise ValueError("Assistance metadata key is required")
         now = _now()
         with self.engine.begin() as conn:
             row = conn.execute(
@@ -341,7 +358,7 @@ class DatabaseReviewStore:
             if row is None:
                 raise ValueError(f"Review item not found: {review_id}")
             metadata = dict(row["assistance_metadata"] or {})
-            metadata["llm_assistance"] = assistance
+            metadata[key] = value
             conn.execute(
                 review_items.update()
                 .where(review_items.c.id == row["id"])
@@ -361,6 +378,9 @@ class DatabaseReviewStore:
         final_label: str | None = None,
         reviewer_note: str | None = None,
         reviewer: str | None = None,
+        feedback_source: str = "human_review_mvp",
+        feedback_metadata: dict[str, Any] | None = None,
+        vlm_result_id: str | None = None,
     ) -> tuple[ReviewItemRecord, FeedbackItemRecord]:
         _validate_feedback(final_outcome, destination, final_label)
         now = _now()
@@ -375,8 +395,28 @@ class DatabaseReviewStore:
                 raise ValueError(f"Review item not found: {review_id}")
             if row["status"] != "pending":
                 raise RuntimeError(f"Review item is already completed: {review_id}")
+            if vlm_result_id:
+                active_vlm_result = conn.execute(
+                    sa.select(vlm_review_results.c.id)
+                    .select_from(
+                        vlm_review_results.join(
+                            vlm_review_runs,
+                            vlm_review_runs.c.id == vlm_review_results.c.vlm_review_run_id,
+                        )
+                    )
+                    .where(
+                        vlm_review_results.c.result_key == vlm_result_id,
+                        vlm_review_results.c.status == "running",
+                        vlm_review_runs.c.status == "running",
+                    )
+                    .with_for_update()
+                ).first()
+                if active_vlm_result is None:
+                    raise RuntimeError("VLM review result is no longer active")
 
             feedback_db_id = uuid4()
+            metadata = dict(feedback_metadata or {})
+            metadata["source"] = feedback_source
             conn.execute(
                 feedback_items.insert().values(
                     id=feedback_db_id,
@@ -392,7 +432,7 @@ class DatabaseReviewStore:
                     final_outcome=final_outcome,
                     destination=destination,
                     reviewer_note=reviewer_note,
-                    feedback_metadata={"source": "human_review_mvp"},
+                    feedback_metadata=metadata,
                     created_by=reviewer,
                     created_at=now,
                 )

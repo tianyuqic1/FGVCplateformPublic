@@ -1,0 +1,24 @@
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1 \
+    HF_HOME=/root/.cache/huggingface
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN pip3 install --no-cache-dir --break-system-packages uv
+
+COPY pyproject.toml uv.lock ./
+COPY backend ./backend
+
+RUN uv pip install --system --break-system-packages -e ".[vlm]"
+
+EXPOSE 8010
+
+CMD ["uvicorn", "finevision.vlm.service:app", "--host", "0.0.0.0", "--port", "8010"]

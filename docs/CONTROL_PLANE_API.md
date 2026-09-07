@@ -631,8 +631,9 @@ frontend route availability: 16 x 200
 
 Iteration 4 now turns `abstain` and `reject_ood` inference decisions into typed human review work:
 inference events are persisted, pending review items are created automatically, and human submit
-writes typed feedback pool entries. LLM/VLM assistance, online abstention updates, and automatic
-dataset-version curation remain deferred.
+writes typed feedback pool entries. General LLM assistance remains advisory. Fine-R1 assisted
+review is implemented for `abstain` items; its guarded auto mode remains disabled until a
+target-dataset shadow benchmark passes. Automatic dataset-version curation remains deferred.
 
 ## Online Abstention Phase 1
 
@@ -698,9 +699,11 @@ Inference must prefer the active policy's `tau_conf`, `tau_margin`, and `tau_ood
 version's default threshold artifact for the same dataset/model scope. Inference responses expose
 `applied_policy_id` and `applied_policy_source` so decisions remain auditable.
 
-LLM/VLM assistance must remain advisory-only. It may summarize a policy report or highlight risks,
-but it must not call activation/deactivation endpoints, tune thresholds, or auto-fill an activation
-reason on behalf of the operator.
+LLM and VLM output must remain advisory with respect to abstention-policy management. It may
+summarize a policy report or highlight risks, but it must not call activation/deactivation endpoints,
+tune thresholds, or auto-fill an activation reason on behalf of the operator. Fine-R1 auto review,
+when separately enabled, may only submit an `abstain` sample label through its own deterministic
+review gate; it cannot alter threshold policies.
 
 Activation smoke:
 
@@ -868,3 +871,65 @@ on LLM network/provider availability.
 
 The card is advisory context only. It must not mutate review status, feedback items, thresholds,
 dataset versions, or model versions.
+
+## Fine-R1 VLM Review API
+
+Fine-R1 only selects among the candidate labels already recorded on a pending `abstain` review
+item. `reject_ood` items are excluded.
+
+Create a run:
+
+```text
+POST /api/vlm-review-runs
+```
+
+```json
+{
+  "mode": "assisted",
+  "limit": 20,
+  "dataset_id": "cub-200-2011",
+  "inference_run_id": null,
+  "risk_acknowledged": false,
+  "created_by": "local-operator"
+}
+```
+
+List and inspect:
+
+```text
+GET /api/vlm-review-runs?limit=20
+GET /api/vlm-review-runs/{run_id}
+GET /api/vlm-review-capabilities
+```
+
+The detail response includes both `vlm_review_run` and `results`. Result audit fields include
+candidate labels, suggested label, reasoning, image SHA-256, model revision, prompt version,
+latency, token counts, gate report, attempts, and error text.
+
+Cancel:
+
+```text
+POST /api/vlm-review-runs/{run_id}/cancel
+```
+
+Cancellation invalidates queued and running results. A late GPU response must revalidate persistent
+run/result state before it can update a review or feedback row.
+
+Auto mode returns `409` unless `FINEVISION_FINER1_AUTO_ENABLED=true`. Even when enabled it requires
+`risk_acknowledged=true`, two identical candidate-shuffled passes, a valid candidate, an original
+`abstain` decision, and agreement with classifier top-1 or nearest-neighbor majority. Auto feedback
+uses `feedback_metadata.source=vlm_auto`; OOD auto-submit is forbidden.
+
+The isolated GPU service contract is:
+
+```text
+GET  /health
+GET  /ready
+POST /v1/rerank
+```
+
+Detailed implementation and benchmark evidence:
+
+```text
+docs/FINE_R1_VLM_ENGINEERING_REPORT.md
+```

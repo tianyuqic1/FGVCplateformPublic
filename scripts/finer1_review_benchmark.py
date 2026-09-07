@@ -23,10 +23,17 @@ from transformers import (
 
 ANSWER_PATTERN = re.compile(r"<answer>(.*?)</answer>", re.DOTALL | re.IGNORECASE)
 CHAIN_OF_THOUGHT_TEMPLATE = (
-    "Given the question: {question}, based on the candidate labels in {options}, "
-    "analyze the visible fine-grained attributes and compare the candidates. "
-    "Return reasoning in <think></think> and exactly one candidate label in "
-    "<answer></answer>. Do not invent a label outside the candidate list."
+    "You are reviewing a fine-grained image classification sample.\n"
+    "Dataset context: {dataset_summary}\n"
+    "Question: {question}\n"
+    "Candidate labels: {options}\n"
+    "First inspect the visible object independently. Compare discriminative shape, color, texture, "
+    "parts and context against every candidate. Candidate order is randomized and conveys no rank. "
+    "Do not invent a label outside the candidate list. If the image is imperfect, still select the "
+    "best supported candidate while stating the uncertainty. Keep the reasoning concise: use at most "
+    "180 English words inside <think>.\n"
+    "Return exactly:\n<think>visual observations, candidate comparison, uncertainty</think>\n"
+    "<answer>one candidate label exactly as written</answer>"
 )
 DIRECT_ANSWER_TEMPLATE = (
     "Given the question: {question}, select exactly one label from the candidate "
@@ -49,6 +56,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dataset-summary", default="A fine-grained image classification benchmark.")
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -83,8 +91,15 @@ def load_samples(args: argparse.Namespace) -> list[dict[str, Any]]:
         rng.shuffle(rows)
         selected = rows[: args.samples_per_file]
         for row in selected:
-            image_suffix = row["image_path"].split("images/", maxsplit=1)[-1]
-            row["resolved_image_path"] = str(args.dataset_root / "images" / image_suffix)
+            source_path = Path(row["image_path"])
+            if source_path.is_absolute():
+                row["resolved_image_path"] = str(source_path)
+            else:
+                image_suffix = row["image_path"].split("images/", maxsplit=1)[-1]
+                row["resolved_image_path"] = str(args.dataset_root / "images" / image_suffix)
+            shuffled_options = list(row["options"])
+            rng.shuffle(shuffled_options)
+            row["options"] = shuffled_options
             row["prompt_source"] = prompt_file.name
             samples.append(row)
     return samples
@@ -140,6 +155,7 @@ def run_one(
     prompt = template.format(
         question=sample["question"],
         options=json.dumps(sample["options"], ensure_ascii=False),
+        dataset_summary=sample.get("dataset_summary") or "A fine-grained image classification benchmark.",
     )
     messages = [
         {
@@ -226,6 +242,8 @@ def main() -> None:
     torch.cuda.manual_seed_all(args.seed)
 
     samples = load_samples(args)
+    for sample in samples:
+        sample["dataset_summary"] = args.dataset_summary
     model, processor, load_seconds = load_model(args)
     model_memory_gib = torch.cuda.memory_allocated() / (1024**3)
     torch.cuda.reset_peak_memory_stats()
@@ -268,6 +286,18 @@ def main() -> None:
         "generated_tokens_mean": statistics.mean(generated_tokens),
         "max_new_tokens": args.max_new_tokens,
         "seed": args.seed,
+        "dataset_summary": args.dataset_summary,
+        "by_prompt_source": {
+            source: {
+                "samples": len(source_results),
+                "accuracy": sum(bool(item["correct"]) for item in source_results) / len(source_results),
+                "format_compliance_rate": (
+                    sum(bool(item["format_compliant"]) for item in source_results) / len(source_results)
+                ),
+            }
+            for source in sorted({str(item["prompt_source"]) for item in results})
+            if (source_results := [item for item in results if item["prompt_source"] == source])
+        },
     }
     payload = {"summary": summary, "results": results}
     args.output.parent.mkdir(parents=True, exist_ok=True)

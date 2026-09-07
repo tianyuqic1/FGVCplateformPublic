@@ -716,6 +716,66 @@ model-version threshold artifacts. They only support audit and candidate-policy 
 policy application happens at inference time by reading the active policy threshold snapshot; it
 does not rewrite historical shadow decisions or model artifacts.
 
+### Fine-R1 VLM Review Tables
+
+Implemented by migrations `20260726_0008` through `20260726_0010`.
+
+```text
+vlm_review_runs
+id uuid primary key
+run_key text unique not null
+dataset_id uuid references datasets(id)
+inference_run_id uuid references inference_runs(id)
+mode text not null
+status text not null
+requested_limit integer not null
+total_count integer not null
+succeeded_count integer not null
+failed_count integer not null
+skipped_count integer not null
+fallback_count integer not null
+model_id text not null
+model_revision text
+prompt_version text not null
+config jsonb not null
+created_by text
+created_at / started_at / finished_at / updated_at timestamptz
+```
+
+```text
+vlm_review_results
+id uuid primary key
+result_key text unique not null
+vlm_review_run_id uuid not null references vlm_review_runs(id)
+review_item_id uuid not null references review_items(id)
+status text not null
+candidate_labels jsonb not null
+suggested_label text
+reasoning text
+raw_output text
+image_sha256 text
+model_revision text
+prompt_version text not null
+latency_seconds double precision
+input_tokens integer
+generated_tokens integer
+auto_submit_eligible boolean not null
+gate_report jsonb not null
+error_message text
+attempt_count integer not null
+created_at / started_at / finished_at / updated_at timestamptz
+```
+
+`vlm_review_results` is unique per `(vlm_review_run_id, review_item_id)`. Application-level selection
+also excludes review items assigned to another active run. Workers claim rows with
+`FOR UPDATE SKIP LOCKED`; stale running rows are requeued by a bounded lease policy. Cancelling a
+run marks both queued and running results cancelled, and automatic review completion locks and
+revalidates the VLM result before writing feedback.
+
+Fine-R1 automatic feedback is distinguishable through
+`feedback_items.feedback_metadata.source=vlm_auto`. Human feedback continues to use
+`human_review_mvp`.
+
 ## Non-Goals For Now
 
 - No separate database per service.
