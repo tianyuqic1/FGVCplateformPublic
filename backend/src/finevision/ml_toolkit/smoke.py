@@ -51,7 +51,13 @@ def run_smoke_flow(
 
     extractor = build_extractor(extractor_name, device=device, batch_size=batch_size)
     feature_artifact, features = extract_features(manifest, extractor, artifact_root / "features")
-    model_artifact, training_report, logits = train_linear_head(feature_artifact, features, artifact_root / "models", run_id="run-toy-001")
+    model_artifact, training_report, logits = train_linear_head(
+        feature_artifact,
+        features,
+        artifact_root / "models",
+        run_id="run-toy-001",
+        head_type="ridge_linear",
+    )
     calibration = fit_temperature_scaling(
         model_artifact,
         logits,

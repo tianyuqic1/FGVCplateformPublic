@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package finevision.compute.v1;
+
+option go_package = "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+message ArtifactDescriptor {
+  string artifact_id = 1;
+  string artifact_type = 2;
+  string uri = 3;
+  string sha256 = 4;
+  int64 size_bytes = 5;
+  string content_type = 6;
+  string storage_version = 7;
+  string producer = 8;
+  string dataset_version_id = 9;
+  string training_run_id = 10;
+  string attempt_id = 11;
+  int32 schema_version = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp verified_at = 14;
+  google.protobuf.Struct metadata = 15;
+}

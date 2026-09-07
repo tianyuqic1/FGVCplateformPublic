@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from finevision.ml_toolkit.training import train_linear_head
 from finevision.schemas.artifacts import FeatureArtifact
 
 
 def test_train_linear_head_uses_torch_adam(tmp_path) -> None:
+    pytest.importorskip("torch")
     feature_artifact = FeatureArtifact(
         artifact_id="feature:toy:linear",
         dataset_id="toy",

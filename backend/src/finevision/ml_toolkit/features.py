@@ -197,6 +197,7 @@ class TimmDinoV3Extractor:
     image_size: int | None = None
     feature_pool: str = "cls"
     backbone_id: str = "dinov3_vitb16"
+    checkpoint_path: str | None = None
     config: dict[str, object] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
     _transform: Any = field(default=None, init=False, repr=False)
@@ -230,7 +231,12 @@ class TimmDinoV3Extractor:
             raise RuntimeError("DINOv3 extraction requested cuda, but torch.cuda.is_available() is false.")
 
         if self._model is None or self._transform is None:
-            model = timm.create_model(self.model_name, pretrained=self.pretrained, num_classes=0)
+            model = timm.create_model(
+                self.model_name,
+                pretrained=self.pretrained if self.checkpoint_path is None else False,
+                num_classes=0,
+                checkpoint_path=self.checkpoint_path or "",
+            )
             model.eval().to(self.device)
             data_config = resolve_model_data_config(model)
             if self.image_size is not None:
@@ -291,8 +297,25 @@ def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any
             image_size=int(merged["image_size"]) if merged.get("image_size") is not None else None,
             feature_pool=str(merged.get("feature_pool") or "model"),
             backbone_id=str(merged.get("backbone_id", preset["backbone_id"])),
+            checkpoint_path=_managed_checkpoint_path(merged, str(merged.get("model_name", preset["model_name"]))),
         )
     raise ValueError(f"Unsupported extractor config type: {extractor_type}")
+
+
+def _managed_checkpoint_path(config: dict[str, Any], model_name: str) -> str | None:
+    explicit = str(config.get("checkpoint_path") or "").strip()
+    if explicit:
+        return explicit
+    environment_key = {
+        "vit_small_patch16_dinov3": "FINEVISION_DINOV3_VITS_WEIGHT",
+        "vit_base_patch16_dinov3": "FINEVISION_DINOV3_VITB_WEIGHT",
+        "vit_large_patch16_dinov3": "FINEVISION_DINOV3_VITL_WEIGHT",
+    }.get(model_name)
+    if environment_key:
+        configured = os.environ.get(environment_key, "").strip()
+        if configured:
+            return configured
+    return None
 
 
 def extract_features(

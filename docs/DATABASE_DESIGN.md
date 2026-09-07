@@ -1,5 +1,49 @@
 # Database Design
 
+> Status: current through Alembic head `20260907_0011`. Go owns business writes; Alembic remains the
+> only schema migration owner.
+
+## Phase 1 Additions
+
+Migration `20260907_0011` adds the reliability and integrity depth required by the split runtime:
+
+```text
+jobs
+  dispatch_generation bigint not null
+  execution_epoch bigint not null
+  available_at timestamptz not null
+  active_attempt_id uuid -> job_attempts.id
+  last_heartbeat_at timestamptz
+
+job_attempts
+  unique(job_id, attempt_number)
+  unique(job_id, execution_epoch)
+  unique(job_id, completion_key)
+  worker_id, status, lease_expires_at, last_heartbeat_at
+  result_digest, result, error_code, error_message
+
+outbox_events
+  message_id unique, aggregate_id, aggregate_version
+  event_type, schema_version, payload, available_at
+  published_at, lock_owner, lock_expires_at, publish_attempts, last_error
+
+artifacts
+  storage_version, producer, training_run_id, attempt_id
+  schema_version, verified_at
+  checksum + size_bytes integrity constraint
+```
+
+Lifecycle writes lock `jobs` with `FOR UPDATE`. Creation persists Job, Training Run, Job Event and
+Outbox Event in one transaction. Completion validates the active attempt/epoch and object bytes,
+then persists Artifacts and Model Version in the same transaction. The relay claims events with
+`FOR UPDATE SKIP LOCKED`; a confirm/write-back crash may duplicate delivery, so consumer correctness
+comes from claim idempotency and fencing rather than exactly-once messaging.
+
+The same forward migration removes the former Fine-R1 tables. Historical migration files remain
+unchanged so a fresh database can replay the full chain before the removal migration executes.
+
+## Legacy schema rationale
+
 This document records the recommended durable database design for FineVision after Iteration 1.5.
 
 ## Decision
@@ -635,9 +679,9 @@ Current deliberate simplification:
 
 - Feature artifacts are represented in the generic `artifacts` table as `artifact_type = feature_matrix`; a dedicated `feature_artifacts` table is deferred until feature search/index lifecycle needs richer query semantics.
 - Feature indexes are deferred to Iteration 3, where inference needs nearest-neighbor evidence and OOD distance.
-- DINOv3 pretrained weight cache state is not stored in PostgreSQL yet. Weight files remain in the
-  host Hugging Face cache; a future weight-management slice should add metadata for backbone id,
-  provider, cache state, expected size, checksum if available, and last validation time.
+- DINOv3 ViT-S release metadata is versioned in `weights/manifest.json`; the LFS object is promoted
+  to a content-addressed ArtifactStore key and materialized into Python's SHA cache. The public Go
+  catalog reports the approved digest and size without treating a mutable host cache as canonical.
 - Model versions are currently candidate records produced by training runs. Production promotion,
   rollback, archived states, and release-gate audit events remain a model-registry follow-up.
 
@@ -715,66 +759,6 @@ These rows must not mutate `inference_events.decision`, `review_items.status`, `
 model-version threshold artifacts. They only support audit and candidate-policy comparison. Active
 policy application happens at inference time by reading the active policy threshold snapshot; it
 does not rewrite historical shadow decisions or model artifacts.
-
-### Fine-R1 VLM Review Tables
-
-Implemented by migrations `20260726_0008` through `20260726_0010`.
-
-```text
-vlm_review_runs
-id uuid primary key
-run_key text unique not null
-dataset_id uuid references datasets(id)
-inference_run_id uuid references inference_runs(id)
-mode text not null
-status text not null
-requested_limit integer not null
-total_count integer not null
-succeeded_count integer not null
-failed_count integer not null
-skipped_count integer not null
-fallback_count integer not null
-model_id text not null
-model_revision text
-prompt_version text not null
-config jsonb not null
-created_by text
-created_at / started_at / finished_at / updated_at timestamptz
-```
-
-```text
-vlm_review_results
-id uuid primary key
-result_key text unique not null
-vlm_review_run_id uuid not null references vlm_review_runs(id)
-review_item_id uuid not null references review_items(id)
-status text not null
-candidate_labels jsonb not null
-suggested_label text
-reasoning text
-raw_output text
-image_sha256 text
-model_revision text
-prompt_version text not null
-latency_seconds double precision
-input_tokens integer
-generated_tokens integer
-auto_submit_eligible boolean not null
-gate_report jsonb not null
-error_message text
-attempt_count integer not null
-created_at / started_at / finished_at / updated_at timestamptz
-```
-
-`vlm_review_results` is unique per `(vlm_review_run_id, review_item_id)`. Application-level selection
-also excludes review items assigned to another active run. Workers claim rows with
-`FOR UPDATE SKIP LOCKED`; stale running rows are requeued by a bounded lease policy. Cancelling a
-run marks both queued and running results cancelled, and automatic review completion locks and
-revalidates the VLM result before writing feedback.
-
-Fine-R1 automatic feedback is distinguishable through
-`feedback_items.feedback_metadata.source=vlm_auto`. Human feedback continues to use
-`human_review_mvp`.
 
 ## Non-Goals For Now
 

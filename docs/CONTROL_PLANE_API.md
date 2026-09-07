@@ -1,5 +1,42 @@
 # Control-plane API
 
+> Status: Phase 1 contract reference. The authoritative public source is
+> `go/api/openapi/finevision.yaml`; the authoritative internal source is `go/api/proto`.
+> Sections explicitly labelled “Legacy contract” remain only for route-by-route compatibility work
+> and do not describe a deployed FastAPI service.
+
+## Phase 1 Current Interfaces
+
+The Compose public entry point is the Go Control Plane on port `8001`. Its current OpenAPI batch owns
+health, Dataset/Job/Training read models, Training lifecycle actions, the approved ViT-S weight
+catalog, and generic advisory LLM assistance. The Go process also hosts the internal Training
+Lifecycle gRPC server on port `9000`.
+
+Python compute exposes no public HTTP server:
+
+```text
+TrainingLifecycle (Go :9000)
+  Claim / Heartbeat / ReportProgress / Complete / Fail
+
+InferenceRuntime (Python :9100)
+  Predict / EvictCache / Health
+
+RabbitMQ event
+  training.job.ready.v1
+```
+
+Every compute completion carries Artifact Descriptors. Go verifies object bytes against `sha256` and
+`size_bytes` before one transaction registers Artifacts, creates the Model Version, changes Job and
+Training Run to `succeeded`, and appends the audit event. Stable errors use:
+
+```json
+{"error":{"code":"FENCED","message":"...","details":{},"request_id":"..."}}
+```
+
+Regenerate both Go and Python contract code with `scripts/generate-contracts.sh`.
+
+## Legacy contract reference
+
 This document records the Iteration 1 through Iteration 2 control-plane API slices.
 
 ## Boundary
@@ -28,7 +65,7 @@ The ML/data toolkit remains the compute kernel. API request handlers create meta
 the worker executes feature extraction, classifier-head training, calibration, threshold sweeps, and
 artifact writes outside the request path.
 
-## Run
+## Legacy FastAPI run (contract tests only)
 
 Start the API:
 
@@ -631,9 +668,8 @@ frontend route availability: 16 x 200
 
 Iteration 4 now turns `abstain` and `reject_ood` inference decisions into typed human review work:
 inference events are persisted, pending review items are created automatically, and human submit
-writes typed feedback pool entries. General LLM assistance remains advisory. Fine-R1 assisted
-review is implemented for `abstain` items; its guarded auto mode remains disabled until a
-target-dataset shadow benchmark passes. Automatic dataset-version curation remains deferred.
+writes typed feedback pool entries. General LLM assistance remains advisory. Automatic
+dataset-version curation remains deferred.
 
 ## Online Abstention Phase 1
 
@@ -699,11 +735,9 @@ Inference must prefer the active policy's `tau_conf`, `tau_margin`, and `tau_ood
 version's default threshold artifact for the same dataset/model scope. Inference responses expose
 `applied_policy_id` and `applied_policy_source` so decisions remain auditable.
 
-LLM and VLM output must remain advisory with respect to abstention-policy management. It may
-summarize a policy report or highlight risks, but it must not call activation/deactivation endpoints,
-tune thresholds, or auto-fill an activation reason on behalf of the operator. Fine-R1 auto review,
-when separately enabled, may only submit an `abstain` sample label through its own deterministic
-review gate; it cannot alter threshold policies.
+LLM output must remain advisory with respect to abstention-policy management. It may summarize a
+policy report or highlight risks, but it must not call activation/deactivation endpoints, tune
+thresholds, or auto-fill an activation reason on behalf of the operator.
 
 Activation smoke:
 
@@ -871,65 +905,3 @@ on LLM network/provider availability.
 
 The card is advisory context only. It must not mutate review status, feedback items, thresholds,
 dataset versions, or model versions.
-
-## Fine-R1 VLM Review API
-
-Fine-R1 only selects among the candidate labels already recorded on a pending `abstain` review
-item. `reject_ood` items are excluded.
-
-Create a run:
-
-```text
-POST /api/vlm-review-runs
-```
-
-```json
-{
-  "mode": "assisted",
-  "limit": 20,
-  "dataset_id": "cub-200-2011",
-  "inference_run_id": null,
-  "risk_acknowledged": false,
-  "created_by": "local-operator"
-}
-```
-
-List and inspect:
-
-```text
-GET /api/vlm-review-runs?limit=20
-GET /api/vlm-review-runs/{run_id}
-GET /api/vlm-review-capabilities
-```
-
-The detail response includes both `vlm_review_run` and `results`. Result audit fields include
-candidate labels, suggested label, reasoning, image SHA-256, model revision, prompt version,
-latency, token counts, gate report, attempts, and error text.
-
-Cancel:
-
-```text
-POST /api/vlm-review-runs/{run_id}/cancel
-```
-
-Cancellation invalidates queued and running results. A late GPU response must revalidate persistent
-run/result state before it can update a review or feedback row.
-
-Auto mode returns `409` unless `FINEVISION_FINER1_AUTO_ENABLED=true`. Even when enabled it requires
-`risk_acknowledged=true`, two identical candidate-shuffled passes, a valid candidate, an original
-`abstain` decision, and agreement with classifier top-1 or nearest-neighbor majority. Auto feedback
-uses `feedback_metadata.source=vlm_auto`; OOD auto-submit is forbidden.
-
-The isolated GPU service contract is:
-
-```text
-GET  /health
-GET  /ready
-POST /v1/rerank
-```
-
-Detailed implementation and benchmark evidence:
-
-```text
-docs/FINE_R1_VLM_ENGINEERING_REPORT.md
-```

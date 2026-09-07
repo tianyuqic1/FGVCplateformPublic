@@ -14,8 +14,7 @@
     "smoke:inference-client": "node scripts/smoke-inference-client.mjs",
     "smoke:abstention-client": "node scripts/smoke-abstention-client.mjs",
     "smoke:review-client": "node scripts/smoke-review-client.mjs",
-    "smoke:llm-client": "node scripts/smoke-llm-client.mjs",
-    "smoke:vlm-review-client": "node scripts/smoke-vlm-review-client.mjs"
+    "smoke:llm-client": "node scripts/smoke-llm-client.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

@@ -65,7 +65,7 @@ domain-aware summary.
 - Do not let the LLM update the dataset card automatically.
 - Do not write feedback directly into the training dataset.
 - Do not implement online abstention updates.
-- Do not let VLM/LLM image understanding create final labels or bypass human review.
+- Do not let LLM image understanding create final labels or bypass human review.
 - Do not add a separate dataset-card governance workflow yet.
 
 ## Data Model

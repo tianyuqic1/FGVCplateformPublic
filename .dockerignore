@@ -10,3 +10,4 @@ dist
 .finevision-*
 data/downloads
 data/test
+weights/pretrained

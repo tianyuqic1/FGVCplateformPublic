@@ -25,7 +25,6 @@ import {
   VisualPlaceholder,
 } from "../components/ui.jsx";
 import { PageHero } from "../components/AppShell.jsx";
-import { ReviewAutomationEntry } from "./ReviewAutomationEntry.jsx";
 
 const pipelineNodes = [
   { id: "import", title: "数据导入", description: "生成不可变 dataset version", icon: "FolderInput" },
@@ -2919,10 +2918,6 @@ export function ReviewPage() {
           )}
         </Panel>
         <div className="review-side-stack">
-          <ReviewAutomationEntry
-            pendingCount={statusFilter === "pending" ? totalItems : 0}
-            datasetId={datasetFilter || undefined}
-          />
           <Panel title="队列摘要" caption="统计当前页样本；历史入口在左侧状态切换中。">
             <div className="timeline">
               <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
@@ -2945,7 +2940,6 @@ export function ReviewDetailPage({ showToast }) {
   const reviewAssistant = useReviewAssistance(reviewItemId);
   const storedAssistance = assistanceFromMetadata(item?.assistanceMetadata);
   const reviewAssistance = reviewAssistant.assistance ?? storedAssistance;
-  const vlmAssistance = item?.assistanceMetadata?.vlm_assistance ?? null;
   const [form, setForm] = useState({
     finalOutcome: "corrected_label",
     destination: "training_candidate",
@@ -3119,10 +3113,7 @@ export function ReviewDetailPage({ showToast }) {
             model: {displayValue(item.modelVersionId)}
           </TechnicalDetails>
         </Panel>
-        <Panel title="Fine-R1 视觉复核" caption="读取真实图片并在候选类别中重排；结果与人工反馈分源留痕。">
-          <VLMAssistanceSummary assistance={vlmAssistance} />
-        </Panel>
-        <Panel title="通用 LLM 辅助" caption="解释已有证据，不直接读取 Fine-R1 推理结果，也不会提交反馈池。">
+        <Panel title="通用 LLM 辅助" caption="解释已有证据，不会替代人工判断或提交反馈池。">
           <LLMAssistanceBox
             title="复核辅助建议"
             caption="基于 top-k、阈值原因和近邻证据生成；人工仍必须独立提交最终结论。"
@@ -3280,47 +3271,6 @@ function assistanceFromMetadata(metadata) {
     createdAt: raw.createdAt ?? raw.created_at ?? null,
     confidence: raw.confidence ?? "unknown",
   };
-}
-
-function VLMAssistanceSummary({ assistance }) {
-  if (!assistance) {
-    return (
-      <div className="timeline-item">
-        <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
-        <div>
-          <strong>尚无 Fine-R1 视觉建议</strong>
-          <div className="row-meta">可从复核队列创建辅助建议任务；OOD 拒识项不会进入自动提交。</div>
-        </div>
-        <StatusChip tone="neutral">未运行</StatusChip>
-      </div>
-    );
-  }
-  const gate = assistance.gate_report ?? {};
-  return (
-    <div className="vlm-assistance-result">
-      <div className="chips">
-        <StatusChip tone="info">{assistance.model_id || "Fine-R1-3B"}</StatusChip>
-        <StatusChip tone={assistance.auto_submitted ? "default" : "warn"}>
-          {assistance.auto_submitted ? "已通过门禁并提交" : "建议模式 / 回退人工"}
-        </StatusChip>
-      </div>
-      <div className="vlm-suggestion-label">
-        <span>建议类别</span>
-        <strong>{assistance.suggested_label || "未返回"}</strong>
-      </div>
-      <div className="reason-box">
-        <strong>视觉比较依据</strong>
-        <span>{assistance.reasoning || "模型未返回可展示的比较依据。"}</span>
-      </div>
-      <TechnicalDetails summary="VLM 审计信息">
-        run: {displayValue(assistance.run_id)}<br />
-        result: {displayValue(assistance.result_id)}<br />
-        prompt: {displayValue(assistance.prompt_version)}<br />
-        image sha256: {displayValue(assistance.image_sha256)}<br />
-        gate: {gate.eligible ? "eligible" : "human fallback"}
-      </TechnicalDetails>
-    </div>
-  );
 }
 
 function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = "idle", error, onGenerate, disabled = false }) {

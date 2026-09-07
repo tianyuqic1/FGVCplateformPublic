@@ -1,384 +1,192 @@
 # FineVision
 
-FineVision is the MVP workspace for a fine-grained image classification control plane. The current
-release surface is a local Compose demo with a React workbench, FastAPI control plane, PostgreSQL
-metadata store, worker process, artifact-backed dataset cards, review/feedback capture, and guarded
-online-abstention policy activation.
+FineVision 是一个细粒度图像分类平台。Phase 1 已将控制面与计算面拆开：Go 负责公开 HTTP、
+PostgreSQL 业务状态、事务、任务编排和大模型调用；Python 只负责 Dataset 扫描、特征提取、
+训练、校准、阈值计算与数值推理。
 
-## Start
+## Phase 1 架构
 
-Start the local demo stack, apply migrations, and run lightweight smoke checks:
+```mermaid
+flowchart LR
+    UI["React Workbench"] -->|"/api/*"| CP["Go Control Plane"]
+    CP --> DB[(PostgreSQL)]
+    CP --> LG["Go LLM Gateway"]
+    LG --> LLM["External LLM Provider"]
+    DB --> Relay["Go Outbox Relay"]
+    Relay --> MQ[(RabbitMQ)]
+    MQ --> TW["Python Training Worker"]
+    TW -->|"claim / heartbeat / complete"| CP
+    CP -->|"gRPC"| IR["Python Inference Runtime"]
+    TW --> S3[(MinIO / S3-compatible)]
+    IR --> S3
+    CP --> S3
+```
+
+关键边界：
+
+- PostgreSQL 是任务状态的唯一事实源，RabbitMQ 只提供 at-least-once 派发。
+- `Job + Training Run + Job Event + Outbox Event` 在同一事务中创建。
+- Worker 使用 `attempt_id + execution_epoch` fencing；重复消息、迟到完成和重复完成均有明确语义。
+- Feature、模型、报告及输入对象使用 Artifact Descriptor 传递，并校验 SHA-256 与文件大小。
+- Go 容器不安装 PyTorch、`timm` 或 CUDA；Python 不直接写控制面业务表。
+- 通用 LLM Assistance 保留，但只能提供 advisory 结果；Fine-R1 已从运行时、接口和前端移除。
+
+## 本地启动
+
+首次使用 Git LFS 拉取批准的 DINOv3 ViT-S 权重：
 
 ```bash
+git lfs install
+git lfs pull
+```
+
+复制环境配置并启动 CPU-safe 开发栈：
+
+```bash
+cp .env.example .env
 scripts/demo-up.sh
 ```
 
-Services:
-
-```text
-frontend  http://localhost:5173
-api       http://localhost:8001
-adminer   http://localhost:8081
-postgres  localhost:5432
-```
-
-The default Compose stack attaches the local NVIDIA GPU to `api` and `ml-worker`.
-Verify GPU visibility before long DINOv3 runs:
+启用 NVIDIA GPU：
 
 ```bash
-docker compose exec ml-worker python - <<'PY'
-import torch
-print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)
-PY
+scripts/demo-up.sh --gpu
 ```
 
-For a focused fresh-database migration check:
+主要服务：
+
+```text
+React Workbench          http://localhost:5173
+Go Control Plane         http://localhost:8001
+MinIO Console            http://localhost:9001
+RabbitMQ Management      http://localhost:15672
+PostgreSQL               localhost:5432
+```
+
+默认配置只适合本地开发。生产环境必须替换数据库、RabbitMQ、MinIO、内部 LLM token 和 provider
+凭据，并在网络层限制内部 gRPC/HTTP 端口。
+
+## 服务与目录
+
+```text
+go/cmd/control-plane        Go 公开控制面与 Training Lifecycle gRPC
+go/cmd/outbox-relay         PostgreSQL Outbox -> RabbitMQ relay
+go/cmd/llm-gateway          唯一持有外部 LLM provider 配置的服务
+go/internal/training        fenced、幂等的任务状态机
+go/internal/artifact        ArtifactStore interface 与完整性规则
+backend/src/finevision/compute/queue_worker.py
+                            RabbitMQ 训练消费者
+backend/src/finevision/compute/inference_runtime.py
+                            常驻 Python 数值推理 gRPC 服务
+go/api/openapi              公开 HTTP source contract
+go/api/proto                Go/Python 内部 RPC source contract
+```
+
+Compose 启动三个私有、启用版本控制的 bucket：
+
+- `finevision-datasets`
+- `finevision-artifacts`
+- `finevision-uploads`
+
+`pretrained-weight-init` 会先校验 Git LFS 中 ViT-S 权重的 SHA-256，再以 content-addressed key
+同步到 `finevision-artifacts`，并读回校验。训练产物由 Python 上传，Go 在 complete 事务前再次
+读取并校验，校验失败不会生成 succeeded Job 或 Model Version。
+
+## 预训练权重
+
+Phase 1 只纳入 DINOv3 ViT-S/16：
+
+```text
+weights/manifest.json
+weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors
+weights/pretrained/dinov3/LICENSE.md
+```
+
+ViT-B/L 不在一期发布范围内。Dataset、训练模型、Feature 和报告不得加入 Git LFS，它们属于
+ArtifactStore。权重 revision、许可证、SHA-256 和文件大小以 `weights/manifest.json` 为准。
+
+## 示例 Dataset
+
+仓库提供 3 类、12 张、完全合成的 ImageFolder：
+
+```text
+data/examples/toy-shapes-imagefolder/
+├── blue_triangle/
+├── green_circle/
+└── red_square/
+```
+
+重新生成：
 
 ```bash
-docker compose up -d postgres
-docker compose run --rm migrate
+uv run python scripts/generate_example_dataset.py
 ```
 
-## Acceptance
+来源说明及每张图片的 SHA-256 见
+[`data/examples/toy-shapes-imagefolder/SOURCE.md`](data/examples/toy-shapes-imagefolder/SOURCE.md)。
 
-Default demo smoke is intentionally lightweight. It validates Compose config, API/frontend
-availability, frontend API-client contracts, and online-abstention contracts when a dedicated test
-database is available. It is not a full browser E2E suite.
+## 接口合同
 
-```bash
-scripts/smoke-demo.sh
-```
-
-Use the stronger MVP release gate before publishing a demo build:
-
-```bash
-scripts/smoke-demo.sh --release-acceptance
-```
-
-The release gate includes API/frontend probes, frontend API-client contracts, online abstention plus
-manual activation contracts, frontend production build, and route availability smoke. The route smoke
-only checks that Vite preview returns HTTP 200 for SPA routes; it does not prove user workflows,
-backend data mutations, or browser interactions.
-
-Run backend toolkit validation separately when ML artifact flow changes:
-
-```bash
-uv run --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-smoke
-uv run --group dev pytest
-```
-
-## Current MVP Boundaries
-
-- Dataset cards are active, version-level, artifact-backed MVP documents. They are drafted during
-  import, editable through `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`, and injected
-  as advisory LLM context.
-- LLM assistance is advisory-only. It cannot set labels, submit reviews, tune thresholds, activate
-  policies, or mutate dataset/model versions.
-- Fine-R1 VLM assisted review is implemented through an isolated GPU service, durable run/result
-  queue, cancellation/lease recovery, and a real `/review` task entry. Auto-review gates exist but
-  remain disabled until a target-dataset shadow benchmark and reversal controls pass.
-- Online abstention supports shadow evaluation and manual activation gates. Active policies can
-  affect live inference thresholds only for their exact dataset/model scope after feedback and risk
-  checks pass.
-- DINOv3 extractors are available through `timm`, but default smoke paths use toy data and lightweight
-  extractors to avoid large weight downloads.
-- `POST /api/inference/upload` is a synchronous single-image MVP bridge. High-throughput batch
-  inference should move behind worker jobs before production hardening.
-
-## Workbench App
-
-The React/Vite workbench lives under `frontend/`.
-
-Run locally:
+当前 Go source contract 覆盖：
 
 ```text
-cd frontend
-npm install
-npm run dev
-```
-
-Verify the production build:
-
-```text
-cd frontend
-npm run build
-```
-
-Main routes:
-
-```text
-/
-/datasets
-/datasets/{dataset_id}?tab=classes
-/training
-/training/{run_id}
-/inference
-/review
-/feedback
-/models
-/weights
-/pipelines
-/pipelines?job_id={job_id}
-```
-
-## ML/Data Toolkit
-
-The backend toolkit lives under `backend/src/finevision/ml_toolkit/`.
-
-The lightweight smoke flow generates a tiny ImageFolder-style toy dataset and verifies:
-
-```text
-DatasetManifest -> FeatureArtifact -> ModelArtifact -> EvaluationReport -> CalibrationReport -> ThresholdStrategy -> InferenceResult
-```
-
-DINOv3 ViT-S/ViT-B/ViT-L are wired through `timm` as optional extractors. They may download
-large weights, so they are not used by the default smoke test:
-
-```text
-uv run --extra dinov3 --group dev python -m finevision.ml_toolkit.smoke --work-dir .finevision-dinov3 --extractor dinov3_vits --batch-size 8
-```
-
-`--batch-size` only controls DINOv3 feature extraction throughput and memory use. New DINOv3 training
-runs extract the ViT CLS token by default (`feature_pool=cls`), matching the fine-grained
-classification baseline. The MVP classifier head defaults to `torch_linear_adam`; its
-`head_config.batch_size` controls Adam mini-batches separately from feature extraction. Feature cache
-identity is based on dataset version, DINOv3 model, pretrained flag, backbone id, image size, and
-feature pooling, not the runtime batch size.
-
-In Docker Compose, `ml-worker` is built from `Dockerfile.worker` with the `dinov3` optional
-dependencies installed. The API image also installs the same optional extractor dependencies for
-the current synchronous uploaded-image inference endpoint; this is an MVP bridge until image
-inference is moved behind worker jobs. Both services mount the host Hugging Face and Torch caches so
-DINOv3 weights can be reused across container rebuilds.
-
-`timm` supplies the DINOv3 model definitions and resolves pretrained weights through Hugging Face
-Hub. A slow or incomplete ViT-B download is therefore a weight-cache/Hugging Face issue, not a
-missing `timm` model. Configure `HF_TOKEN` for better Hugging Face rate limits when large weights
-need to be downloaded reliably.
-
-The workbench includes a weight-management page at `/weights`. It lists the supported DINOv3
-pretrained backbones, explains when to use ViT-S/B/L, shows the local Hugging Face cache path and
-size, and can delete a known preset cache. Deleting a pretrained weight cache only affects future
-weight loading/downloads; it does not delete dataset versions, CLS feature artifacts, trained
-classifier heads, calibration reports, or threshold strategies.
-
-For local iteration, Compose bind-mounts `./backend/src` into the API and worker containers and the
-frontend source into the Vite container. Python source changes therefore take effect after a service
-restart, and frontend source changes flow through Vite, without rebuilding the images. Dependency,
-Dockerfile, or system package changes still require `docker compose build`.
-
-GPU execution is supported through the optional Compose override:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d api ml-worker
-```
-
-The override sets DINOv3 feature extraction and the ridge/linear head solver to `cuda`, and requests
-the NVIDIA GPU through Docker CDI (`nvidia.com/gpu=all`). This is a two-layer setup: the FineVision
-images provide the Python/CUDA user-space dependencies (`torch`, `timm`, extractor code, caches), while
-the host NVIDIA Container Toolkit/CDI exposes the real GPU device and driver libraries into the
-containers. If the host runtime is not configured, Compose fails before the service starts. The base
-`docker-compose.yml` remains CPU-safe so the workbench can still boot on machines without a configured
-container GPU runtime.
-
-The first real-data DINOv3 validation is documented in:
-
-```text
-docs/ML_TOOLKIT_VALIDATION.md
-```
-
-The current MVP hardening checklist and remaining P0/P1/P2 risks are tracked in:
-
-```text
-docs/MVP_RESIDUALS_ACCEPTANCE.md
-```
-
-The implemented online-abstention work is documented in:
-
-```text
-docs/ONLINE_ABSTENTION_PHASE1.md
-```
-
-The Fine-R1-3B feasibility results and selected VLM review architecture are documented in:
-
-```text
-docs/FINE_R1_VLM_INTEGRATION_PLAN.md
-docs/FINE_R1_VLM_ENGINEERING_REPORT.md
-```
-
-FineVision now supports shadow evaluation plus a manual activation gate for abstention policies.
-A human operator can promote a feedback-backed policy to `active` only after minimum feedback,
-target-risk, exact-scope, and explicit-reason gates pass. Active policies are the only abstention
-policies allowed to affect live inference thresholds; LLM assistance remains advisory-only and
-cannot activate or tune policies.
-
-For a reproducible local demo with PostgreSQL migration and lightweight smoke checks, see:
-
-```text
-docs/DEMO_RUNBOOK.md
-```
-
-## Control-plane API
-
-Iteration 1 starts the FastAPI control plane under `backend/src/finevision/api/`.
-Iteration 1.7 uses PostgreSQL for control-plane metadata when `DATABASE_URL` is configured.
-The JSON metadata store remains available for explicit no-database local runs and focused tests.
-The API exposes dataset asset and job endpoints without running DINOv3 extraction, training, or
-batch inference work inside request handlers. `POST /api/inference/upload` remains a synchronous
-single-image MVP bridge for manual inference checks.
-
-Run the API locally:
-
-```text
-uv run uvicorn finevision.api:app --reload
-```
-
-Run the worker locally:
-
-```text
-uv run python -m finevision.worker.jobs
-```
-
-When the workbench runs through Vite, `/api` is proxied to `http://localhost:8000`.
-For other environments or a different API port, set `VITE_API_BASE_URL`.
-
-Control-plane endpoints:
-
-```text
-GET  /api/health
-GET  /api/datasets
-GET  /api/datasets/{dataset_id}
-POST /api/datasets/import-imagefolder
-POST /api/datasets/upload-imagefolder
-GET  /api/dataset-versions/{dataset_version_id}/readiness
-GET  /api/dataset-versions/{dataset_version_id}/sample-previews
-GET  /api/dataset-versions/{dataset_version_id}/samples/{sample_id}/image
-POST /api/jobs
-GET  /api/jobs
-GET  /api/jobs/{job_id}
-POST /api/jobs/{job_id}/cancel
-POST /api/training-runs
-GET  /api/training-runs
-GET  /api/training-runs/{run_id}
-POST /api/training-runs/{run_id}/pause
-POST /api/training-runs/{run_id}/resume
-POST /api/training-runs/{run_id}/cancel
-DELETE /api/training-runs/{run_id}
-GET  /api/model-weights
+GET    /api/health
+GET    /api/datasets
+GET    /api/datasets/{dataset_id}
+GET    /api/jobs
+GET    /api/jobs/{job_id}
+GET    /api/model-weights
 DELETE /api/model-weights/{preset}
-POST /api/inference
-POST /api/inference/upload
-POST /api/inference/upload-folder
-GET  /api/dataset-versions/{dataset_version_id}/card
-PUT  /api/dataset-versions/{dataset_version_id}/card
-POST /api/dataset-versions/{dataset_version_id}/card/generate
-GET  /api/review-items
-GET  /api/review-items/{review_item_id}
-POST /api/review-items/{review_item_id}/assist
-POST /api/review-items/{review_item_id}/submit
-GET  /api/feedback-items
-POST /api/abstention-policies/propose
-GET  /api/abstention-policies
-GET  /api/abstention-policies/{policy_key}
-POST /api/abstention-policies/{policy_key}/activate
-POST /api/abstention-policies/{policy_key}/deactivate
-GET  /api/abstention-policies/{policy_key}/shadow-decisions
-POST /api/llm/assist
+GET    /api/training-runs
+POST   /api/training-runs
+GET    /api/training-runs/{run_id}
+POST   /api/training-runs/{run_id}/{pause|resume|cancel}
+POST   /api/llm/assist
 ```
 
-Inference requests are persisted as review-auditable events when routing is enabled. `abstain` and
-`reject_ood` decisions create pending review items; `accept` decisions are recorded but do not enter
-the human queue by default. `POST /api/inference/upload` is an MVP synchronous bridge for manual
-single-image inference. `POST /api/inference/upload-folder` accepts a local folder upload from the
-frontend, runs each image through the same scoped inference path, and defaults to queueing every
-result for human review so an operator can process the batch one image at a time. High-throughput or
-long-running batch inference should move behind worker jobs. Review submission writes typed feedback
-pool entries and does not mutate the immutable source dataset version.
+Training Worker 使用版本化 gRPC 合同执行 `Claim`、`Heartbeat`、`ReportProgress`、`Complete`
+和 `Fail`。Python Inference Runtime 暴露 `Predict`、`EvictCache` 和 `Health`，仅接收已校验的
+Artifact Descriptor。
 
-Dataset cards are active version-level context documents for advisory LLM assistance. Import creates
-a deterministic card from the manifest; `GET`/`PUT /api/dataset-versions/{dataset_version_id}/card`
-read and update the editable summary. `POST /api/dataset-versions/{dataset_version_id}/card/generate`
-lets the configured LLM read class labels and write a domain-aware draft, for example bird species,
-plant disease classes, or CIFAR-10 general objects. LLM assistance receives the card when a request
-references a dataset version.
+更新生成代码：
 
-Online abstention now has two guarded modes. Shadow policies can be proposed, listed, inspected,
-and audited without changing live inference decisions. A manually activated policy can affect live
-inference thresholds for its exact dataset/model scope, but activation requires an explicit human
-reason and risk/feedback gates. Activation never mutates model threshold artifacts, dataset versions,
-review items, feedback items, or LLM outputs.
-
-For a fresh local database, Compose can apply Alembic migrations before starting the API and worker:
-
-```text
-docker compose up -d --build
+```bash
+scripts/generate-contracts.sh
 ```
 
-The stack includes a one-shot `migrate` service. To run only the migration step:
+## 测试
 
-```text
-docker compose up -d postgres
-docker compose run --rm migrate
+Python 与 ViT-S 集成测试：
+
+```bash
+uv sync --extra dinov3 --group dev
+uv run pytest -q
+uv run pytest -q backend/tests/test_dinov3_vits_training_integration.py
 ```
 
-Host-run migration is still available for local development:
+Go 单元、竞态和静态检查：
 
-```text
-DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision uv run alembic upgrade head
+```bash
+cd go
+go test ./...
+go test -race ./internal/training ./internal/outbox ./internal/httpapi
+go vet ./...
 ```
 
-This starts:
+真实 PostgreSQL、MinIO、RabbitMQ adapter 集成测试使用以下环境变量显式启用：
 
 ```text
-frontend: http://localhost:5173
-api:      http://localhost:8001
-adminer:  http://localhost:8081
-postgres: localhost:5432
+FINEVISION_TEST_GO_DATABASE_URL
+FINEVISION_TEST_S3_ENDPOINT
+FINEVISION_TEST_RABBITMQ_URL
 ```
 
-Re-apply migrations after schema changes:
+前端回归：
 
-```text
-docker compose run --rm migrate
-```
-
-Start the demo stack and run lightweight smoke checks:
-
-```text
-scripts/demo-up.sh
-```
-
-Run the stronger MVP release gate against an already running stack:
-
-```text
-scripts/smoke-demo.sh --release-acceptance
-```
-
-Run PostgreSQL-backed repository tests:
-
-```text
-docker compose stop ml-worker
-FINEVISION_TEST_DATABASE_URL=postgresql+psycopg://finevision:finevision@localhost:5432/finevision_test uv run pytest backend/tests/test_db_stores.py backend/tests/test_api_inference.py
-```
-
-Run the minimal online abstention contract smoke. It uses toy data and the lightweight default
-extractor, so it does not train DINOv3 or download model weights:
-
-```text
-scripts/smoke-online-abstention-contract.sh
-```
-
-To include the manual activation gate contract smoke:
-
-```text
-scripts/smoke-online-abstention-contract.sh --with-activation-contracts
-RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1 scripts/smoke-demo.sh --contracts-only
-```
-
-Run frontend API client contract smoke checks:
-
-```text
+```bash
 cd frontend
+npm ci
+npm run build
 npm run smoke:api-client
 npm run smoke:jobs-client
 npm run smoke:training-client
@@ -386,39 +194,17 @@ npm run smoke:inference-client
 npm run smoke:abstention-client
 npm run smoke:review-client
 npm run smoke:llm-client
-npm run build
 ```
 
-Run route availability smoke only after a frontend production build:
+## 文档
 
-```text
-cd frontend
-npm run build
-npm run smoke:routes
-```
+- [`docs/REFACTOR_PHASE1_PLAN.md`](docs/REFACTOR_PHASE1_PLAN.md)：一期范围、状态机、失败语义和验收项。
+- [`docs/TECHNICAL_ARCHITECTURE.md`](docs/TECHNICAL_ARCHITECTURE.md)：框架、模块、接口与工程规范。
+- [`docs/CONTROL_PLANE_API.md`](docs/CONTROL_PLANE_API.md)：公开与内部接口合同。
+- [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md)：PostgreSQL schema 与迁移说明。
+- [`docs/PHASE1_VERIFICATION.md`](docs/PHASE1_VERIFICATION.md)：一期自动化与真实基础设施验证记录。
+- [`CONTEXT.md`](CONTEXT.md)：领域统一语言。
+- [`AGENTS.md`](AGENTS.md)：后续代理和贡献者必须遵守的边界。
 
-`smoke:routes` verifies preview HTTP availability for SPA routes only; it is not browser interaction
-or end-to-end workflow coverage.
-
-More detail:
-
-```text
-docs/CONTROL_PLANE_API.md
-docs/DATABASE_DESIGN.md
-```
-
-## Next Step
-
-Current MVP closeout keeps the model lifecycle candidate-only: no LoRA, no production promotion,
-and no automatic feedback-to-training mutation. The next valuable step is to keep the CLS baseline
-stable while turning feedback into curated dataset-version candidates:
-
-```text
-CLS baseline -> review/feedback pool -> curated dataset version -> retraining gate
-```
-
-Use the OpenSpec task list as the detailed backlog:
-
-```text
-openspec/changes/build-fine-grained-vision-platform-mvp/tasks.md
-```
+历史 FastAPI 代码只用于迁移期非 Go route 的合同回归，不在 Phase 1 Compose 中启动，也不得
+新增控制面写入或外部 LLM 调用。新增公开控制面能力必须落在 Go 中。

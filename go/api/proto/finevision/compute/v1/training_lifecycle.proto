@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package finevision.compute.v1;
+
+option go_package = "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1";
+
+import "finevision/compute/v1/artifact.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service TrainingLifecycle {
+  rpc Claim(ClaimRequest) returns (ClaimResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc ReportProgress(ProgressRequest) returns (ProgressResponse);
+  rpc Complete(CompleteRequest) returns (CompleteResponse);
+  rpc Fail(FailRequest) returns (FailResponse);
+}
+
+message ClaimRequest {
+  string job_id = 1;
+  int64 dispatch_generation = 2;
+  string worker_id = 3;
+  string request_id = 4;
+}
+
+message ClaimResponse {
+  string disposition = 1;
+  string job_id = 2;
+  string training_run_id = 3;
+  string attempt_id = 4;
+  int64 execution_epoch = 5;
+  google.protobuf.Timestamp lease_expires_at = 6;
+  google.protobuf.Struct payload = 7;
+}
+
+message HeartbeatRequest {
+  string job_id = 1;
+  string attempt_id = 2;
+  int64 execution_epoch = 3;
+  string request_id = 4;
+}
+
+message HeartbeatResponse {
+  string directive = 1;
+  google.protobuf.Timestamp lease_expires_at = 2;
+}
+
+message ProgressRequest {
+  string job_id = 1;
+  string attempt_id = 2;
+  int64 execution_epoch = 3;
+  google.protobuf.Struct progress = 4;
+  string request_id = 5;
+}
+
+message ProgressResponse {}
+
+message CompleteRequest {
+  string job_id = 1;
+  string attempt_id = 2;
+  int64 execution_epoch = 3;
+  string completion_key = 4;
+  string result_digest = 5;
+  repeated ArtifactDescriptor artifacts = 6;
+  google.protobuf.Struct metrics = 7;
+  string request_id = 8;
+}
+
+message CompleteResponse {
+  string job_id = 1;
+  string training_run_id = 2;
+  string model_version_id = 3;
+  google.protobuf.Struct metrics = 4;
+}
+
+message FailRequest {
+  string job_id = 1;
+  string attempt_id = 2;
+  int64 execution_epoch = 3;
+  bool retryable = 4;
+  string error_code = 5;
+  string error_message = 6;
+  string request_id = 7;
+}
+
+message FailResponse {}

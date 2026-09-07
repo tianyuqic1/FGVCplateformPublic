@@ -1,13 +1,11 @@
 services:
-  api:
-    environment:
-      FINEVISION_DINOV3_DEVICE: cuda
-    devices:
-      - nvidia.com/gpu=all
-
-  ml-worker:
+  python-training-worker:
     environment:
       FINEVISION_DINOV3_DEVICE: cuda
       FINEVISION_LINEAR_HEAD_DEVICE: cuda
-    devices:
-      - nvidia.com/gpu=all
+    gpus: all
+
+  python-inference-runtime:
+    environment:
+      FINEVISION_DINOV3_DEVICE: cuda
+    gpus: all

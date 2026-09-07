@@ -1,0 +1,433 @@
+openapi: 3.1.0
+info:
+  title: FineVision Control Plane API
+  version: 1.0.0
+servers:
+  - url: /
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: Process liveness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/datasets:
+    get:
+      operationId: listDatasets
+      responses:
+        "200":
+          description: Dataset read models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [datasets]
+                properties:
+                  datasets:
+                    type: array
+                    items: {$ref: "#/components/schemas/FreeFormObject"}
+  /api/datasets/{dataset_id}:
+    parameters:
+      - $ref: "#/components/parameters/DatasetID"
+    get:
+      operationId: getDataset
+      responses:
+        "200": {$ref: "#/components/responses/DatasetResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/jobs:
+    get:
+      operationId: listJobs
+      responses:
+        "200":
+          description: Job read models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items: {$ref: "#/components/schemas/FreeFormObject"}
+  /api/jobs/{job_id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      operationId: getJob
+      responses:
+        "200": {$ref: "#/components/responses/JobResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-weights:
+    get:
+      operationId: listModelWeights
+      responses:
+        "200":
+          description: Approved pretrained weight catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [weights]
+                properties:
+                  weights:
+                    type: array
+                    items: {$ref: "#/components/schemas/FreeFormObject"}
+  /api/model-weights/{preset}:
+    parameters:
+      - name: preset
+        in: path
+        required: true
+        schema: {type: string}
+    delete:
+      operationId: evictModelWeightCache
+      responses:
+        "200":
+          description: Cache eviction result; canonical weight is never deleted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/llm/assist:
+    post:
+      operationId: generateLLMAssistance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/LLMAssistanceRequest"}
+      responses:
+        "200": {$ref: "#/components/responses/LLMAssistanceResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+        "503": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs:
+    get:
+      operationId: listTrainingRuns
+      responses:
+        "200":
+          description: Training Run read models
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [training_runs]
+                properties:
+                  training_runs:
+                    type: array
+                    items: {$ref: "#/components/schemas/FreeFormObject"}
+    post:
+      operationId: createTrainingRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CreateTrainingRun"}
+      responses:
+        "202": {$ref: "#/components/responses/TrainingRunResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    get:
+      operationId: getTrainingRun
+      responses:
+        "200": {$ref: "#/components/responses/TrainingRunResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs/{run_id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: pauseTrainingRun
+      responses:
+        "200": {$ref: "#/components/responses/TrainingRunResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs/{run_id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: resumeTrainingRun
+      responses:
+        "200": {$ref: "#/components/responses/TrainingRunResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs/{run_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: cancelTrainingRun
+      responses:
+        "200": {$ref: "#/components/responses/TrainingRunResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /internal/training-jobs/{job_id}/claim:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: claimTrainingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ClaimTrainingJob"}
+      responses:
+        "200": {$ref: "#/components/responses/ClaimResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /internal/training-jobs/{job_id}/heartbeat:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: heartbeatTrainingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/FencedCommand"}
+      responses:
+        "200": {$ref: "#/components/responses/HeartbeatResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /internal/training-jobs/{job_id}/progress:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: reportTrainingProgress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/FencedCommand"
+                - type: object
+                  required: [progress]
+                  properties:
+                    progress: {$ref: "#/components/schemas/FreeFormObject"}
+      responses:
+        "204": {description: Progress accepted}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /internal/training-jobs/{job_id}/complete:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: completeTrainingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CompleteTrainingJob"}
+      responses:
+        "200": {$ref: "#/components/responses/CompleteResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /internal/training-jobs/{job_id}/fail:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: failTrainingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/FailTrainingJob"}
+      responses:
+        "204": {description: Failure accepted}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+components:
+  parameters:
+    DatasetID: {name: dataset_id, in: path, required: true, schema: {type: string}}
+    JobID: {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
+    RunID: {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
+  schemas:
+    FreeFormObject:
+      type: object
+      additionalProperties: true
+    Health:
+      type: object
+      required: [status, runtime]
+      properties:
+        status: {type: string, enum: [ok]}
+        runtime: {type: string, enum: [go-control-plane]}
+    Error:
+      type: object
+      required: [code, message, details, request_id]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        details: {$ref: "#/components/schemas/FreeFormObject"}
+        request_id: {type: string}
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: {$ref: "#/components/schemas/Error"}
+    DatasetEnvelope:
+      type: object
+      required: [dataset]
+      properties:
+        dataset: {$ref: "#/components/schemas/FreeFormObject"}
+    JobEnvelope:
+      type: object
+      required: [job]
+      properties:
+        job: {$ref: "#/components/schemas/FreeFormObject"}
+    TrainingRunEnvelope:
+      type: object
+      required: [training_run]
+      properties:
+        training_run: {$ref: "#/components/schemas/FreeFormObject"}
+    ClaimResult:
+      type: object
+      required: [disposition, job_id]
+      properties:
+        disposition: {type: string, enum: [claimed, obsolete, terminal]}
+        job_id: {type: string, format: uuid}
+        training_run_id: {type: string, format: uuid}
+        attempt_id: {type: string, format: uuid}
+        execution_epoch: {type: integer, format: int64}
+        lease_expires_at: {type: string, format: date-time}
+        payload: {$ref: "#/components/schemas/FreeFormObject"}
+    HeartbeatResult:
+      type: object
+      required: [directive, lease_expires_at]
+      properties:
+        directive: {type: string, enum: [continue, pause, cancel, fenced]}
+        lease_expires_at: {type: string, format: date-time}
+    LLMAssistanceRequest:
+      type: object
+      required: [task, context]
+      properties:
+        task:
+          type: string
+          enum: [inference_explanation, review_assistance, training_diagnosis, feedback_curation]
+        context: {$ref: "#/components/schemas/FreeFormObject"}
+    LLMAssistanceEnvelope:
+      type: object
+      required: [assistance]
+      properties:
+        assistance: {$ref: "#/components/schemas/FreeFormObject"}
+    CompleteResult:
+      type: object
+      required: [job_id, training_run_id, model_version_id, metrics]
+      properties:
+        job_id: {type: string, format: uuid}
+        training_run_id: {type: string, format: uuid}
+        model_version_id: {type: string, format: uuid}
+        metrics: {$ref: "#/components/schemas/FreeFormObject"}
+    CreateTrainingRun:
+      type: object
+      required: [dataset_version_id]
+      properties:
+        dataset_id: {type: string}
+        dataset_version_id: {type: string}
+        backbone_id: {type: string, default: dinov3_vits16}
+        max_attempts: {type: integer, minimum: 1, maximum: 10, default: 3}
+        extractor: {type: string, enum: [color_stats, dinov3_vits, dinov3_vitb, dinov3_vitl], default: color_stats}
+        feature_batch_size: {type: integer, minimum: 1, maximum: 128, default: 8}
+        image_size: {type: integer, minimum: 128, maximum: 1024}
+        feature_pool: {type: string, enum: [cls, model], default: cls}
+        target_selective_risk: {type: number, minimum: 0, maximum: 1, default: 0.01}
+        review_cost_per_item: {type: number, minimum: 0, default: 1}
+        extractor_config: {$ref: "#/components/schemas/FreeFormObject"}
+        head_config: {$ref: "#/components/schemas/FreeFormObject"}
+    ClaimTrainingJob:
+      type: object
+      required: [dispatch_generation, worker_id]
+      properties:
+        dispatch_generation: {type: integer, format: int64, minimum: 1}
+        worker_id: {type: string, minLength: 1}
+    FencedCommand:
+      type: object
+      required: [attempt_id, execution_epoch]
+      properties:
+        attempt_id: {type: string, format: uuid}
+        execution_epoch: {type: integer, format: int64, minimum: 1}
+    ArtifactDescriptor:
+      type: object
+      required: [artifact_id, artifact_type, uri, sha256, size_bytes, content_type, storage_version, producer, schema_version]
+      properties:
+        artifact_id: {type: string, format: uuid}
+        artifact_type: {type: string}
+        uri: {type: string}
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        size_bytes: {type: integer, format: int64, minimum: 0}
+        content_type: {type: string}
+        storage_version: {type: string}
+        producer: {type: string}
+        dataset_version_id: {type: string}
+        training_run_id: {type: string}
+        attempt_id: {type: string}
+        schema_version: {type: integer, enum: [1]}
+        created_at: {type: string, format: date-time}
+        verified_at: {type: string, format: date-time}
+        metadata: {$ref: "#/components/schemas/FreeFormObject"}
+    CompleteTrainingJob:
+      allOf:
+        - $ref: "#/components/schemas/FencedCommand"
+        - type: object
+          required: [completion_key, result_digest, artifacts]
+          properties:
+            completion_key: {type: string, minLength: 1}
+            result_digest: {type: string, minLength: 1}
+            artifacts:
+              type: array
+              minItems: 1
+              items: {$ref: "#/components/schemas/ArtifactDescriptor"}
+            metrics: {$ref: "#/components/schemas/FreeFormObject"}
+    FailTrainingJob:
+      allOf:
+        - $ref: "#/components/schemas/FencedCommand"
+        - type: object
+          required: [retryable, error_code, error_message]
+          properties:
+            retryable: {type: boolean}
+            error_code: {type: string}
+            error_message: {type: string}
+  responses:
+    DatasetResponse:
+      description: Dataset response
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/DatasetEnvelope"}
+    JobResponse:
+      description: Job response
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/JobEnvelope"}
+    TrainingRunResponse:
+      description: Training Run response
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/TrainingRunEnvelope"}
+    ClaimResponse:
+      description: Claim result
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ClaimResult"}
+    HeartbeatResponse:
+      description: Heartbeat directive
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/HeartbeatResult"}
+    CompleteResponse:
+      description: Completion result
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/CompleteResult"}
+    LLMAssistanceResponse:
+      description: Advisory-only LLM assistance
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/LLMAssistanceEnvelope"}
+    ErrorResponse:
+      description: Stable error envelope
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ErrorEnvelope"}

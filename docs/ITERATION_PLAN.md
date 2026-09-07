@@ -476,7 +476,7 @@ Scope:
 - Add review completion API requiring human final outcome, feedback destination, reviewer note, and completion metadata.
 - Route completed outcomes into training candidate, OOD/stress, bad-image, dispute, or ignore pools.
 - Connect review queue and detail UI.
-- Defer LLM/VLM assistance, online abstention updates, accept-sample auditing, and automatic dataset-version curation.
+- Defer LLM assistance, online abstention updates, accept-sample auditing, and automatic dataset-version curation.
 
 Deliverables:
 
@@ -504,7 +504,7 @@ Acceptance:
 
 - Review items are ordered by risk priority.
 - A review cannot complete without a human final outcome.
-- LLM/VLM assistance is deferred; current UI shows model evidence and human notes only.
+- LLM assistance is deferred; current UI shows model evidence and human notes only.
 - Completed outcomes enter the correct typed feedback pool.
 - Users can inspect the feedback pool without confusing it for automatic training data ingestion.
 - Tests cover queue ordering, completion, typed routing, and audit trail retention.
@@ -758,51 +758,6 @@ Suggested checkpoint pushes:
 - `test: add end-to-end MVP flow coverage`
 - `docs: document MVP workflow`
 
-## Iteration 7: Fine-R1 VLM Review Worker
-
-Status: assisted workflow implemented and verified; auto gate implemented but shadow-locked by default.
-
-Detailed experiment results and the selected architecture are documented in:
-
-```text
-docs/FINE_R1_VLM_INTEGRATION_PLAN.md
-docs/FINE_R1_VLM_ENGINEERING_REPORT.md
-```
-
-Objective: add an isolated Fine-R1 GPU service and asynchronous VLM review queue without replacing
-the DINOv3 classifier, OOD policy, or the default human source of truth.
-
-Scope:
-
-- Deploy `StevenHH2000/Fine-R1-3B` in BF16 as a model-resident GPU service.
-- Add durable VLM review runs and per-item results.
-- Route `abstain` review items through candidate-constrained visual reasoning.
-- Keep the existing manual review flow as the default.
-- Allow an explicit user-created auto-review mode with deterministic gates and full audit metadata.
-- Route invalid, failed, inconsistent, bad-image, and `reject_ood` results back to humans.
-
-Non-goals:
-
-- Do not replace the DINOv3 CLS classifier.
-- Do not use VLM output to update confidence, margin, or OOD thresholds.
-- Do not let Fine-R1 automatically submit `reject_ood` items.
-- Do not mix VLM-generated feedback with human feedback without a source field.
-- Do not enable NF4 by default; the feasibility experiment showed lower quality and higher latency on
-  the available RTX 4090.
-
-Acceptance:
-
-- The GPU service exposes health, readiness, and candidate-constrained review endpoints.
-- The model revision, prompt version, image hash, candidates, latency, and generated token count are
-  persisted for every result.
-- A failed GPU request cannot block or corrupt the human review queue.
-- Auto-submit is disabled by default and additionally requires a passed target-dataset shadow
-  benchmark, an environment enablement flag, and an explicit user-created task.
-- Auto-submit only handles `abstain` items that pass all candidate, image, scope, and agreement gates.
-- VLM results remain distinguishable in the feedback pool. Reversal remains a prerequisite for
-  enabling auto mode, so the delivered default is assisted-only.
-- A target-dataset shadow benchmark is completed before auto-submit can be enabled.
-
 ## MVP Residual Acceptance Checkpoint
 
 Before calling the MVP stable for non-technical use, review:
@@ -822,5 +777,5 @@ boundaries, and remaining manual QA commands.
 - The toolkit prototype should happen before durable dataset APIs, so backend contracts can wrap real callable functionality instead of imagined behavior.
 - DINOv3 should be a configured backbone option behind an extractor interface, not a hard-coded platform assumption.
 - OOD behavior should be treated as risk scoring and abstention support in the MVP, not as a guaranteed open-set classifier.
-- LLM/VLM assistance should remain advisory and can be integrated after the review data model is stable.
+- LLM assistance should remain advisory and can be integrated after the review data model is stable.
 - Model version metadata and threshold strategy should be introduced early, even if promotion and rollback are implemented later.

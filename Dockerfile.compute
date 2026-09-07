@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1 \
+    HF_HOME=/home/finevision/.cache/huggingface \
+    TORCH_HOME=/home/finevision/.cache/torch
+
+WORKDIR /app
+RUN pip install --no-cache-dir uv
+COPY pyproject.toml uv.lock ./
+COPY backend ./backend
+RUN uv export --frozen --extra dinov3 --no-dev --no-emit-project --output-file /tmp/requirements.txt \
+    && uv pip install --system --requirement /tmp/requirements.txt \
+    && uv pip install --system --no-deps -e . \
+    && rm /tmp/requirements.txt
+
+RUN useradd --create-home --uid 10001 finevision \
+    && mkdir -p /data/cache /data/metadata /home/finevision/.cache/huggingface /home/finevision/.cache/torch \
+    && chown -R finevision:finevision /data /home/finevision/.cache
+USER finevision

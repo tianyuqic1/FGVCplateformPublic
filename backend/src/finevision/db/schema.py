@@ -34,6 +34,11 @@ jobs = sa.Table(
     sa.Column("max_attempts", sa.Integer(), nullable=False, server_default="3"),
     sa.Column("lease_owner", sa.Text()),
     sa.Column("lease_expires_at", sa.DateTime(timezone=True)),
+    sa.Column("dispatch_generation", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("execution_epoch", sa.BigInteger(), nullable=False, server_default="0"),
+    sa.Column("available_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("active_attempt_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("job_attempts.id")),
+    sa.Column("last_heartbeat_at", sa.DateTime(timezone=True)),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("queued_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("started_at", sa.DateTime(timezone=True)),
@@ -43,6 +48,63 @@ jobs = sa.Table(
         "status in ('queued', 'paused', 'running', 'succeeded', 'failed', 'cancelled')",
         name="ck_jobs_status",
     ),
+)
+
+job_attempts = sa.Table(
+    "job_attempts",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("job_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("attempt_number", sa.Integer(), nullable=False),
+    sa.Column("execution_epoch", sa.BigInteger(), nullable=False),
+    sa.Column("worker_id", sa.Text(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("last_heartbeat_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column("error_code", sa.Text()),
+    sa.Column("error_message", sa.Text()),
+    sa.Column("completion_key", sa.Text()),
+    sa.Column("result_digest", sa.Text()),
+    sa.Column("result", postgresql.JSONB()),
+    sa.CheckConstraint(
+        "status in ('running', 'succeeded', 'failed', 'fenced', 'cancelled', 'expired')",
+        name="ck_job_attempts_status",
+    ),
+    sa.UniqueConstraint("job_id", "attempt_number", name="uq_job_attempts_number"),
+    sa.UniqueConstraint("job_id", "execution_epoch", name="uq_job_attempts_epoch"),
+    sa.UniqueConstraint("job_id", "completion_key", name="uq_job_attempts_completion_key"),
+)
+
+outbox_events = sa.Table(
+    "outbox_events",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("message_id", sa.Text(), nullable=False, unique=True),
+    sa.Column("aggregate_type", sa.Text(), nullable=False),
+    sa.Column("aggregate_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("aggregate_version", sa.BigInteger(), nullable=False),
+    sa.Column("event_type", sa.Text(), nullable=False),
+    sa.Column("schema_version", sa.Integer(), nullable=False),
+    sa.Column("payload", postgresql.JSONB(), nullable=False),
+    sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("published_at", sa.DateTime(timezone=True)),
+    sa.Column("lock_owner", sa.Text()),
+    sa.Column("lock_expires_at", sa.DateTime(timezone=True)),
+    sa.Column("publish_attempts", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("last_error", sa.Text()),
+)
+
+sa.Index("ix_job_attempts_job_status", job_attempts.c.job_id, job_attempts.c.status)
+sa.Index("ix_job_attempts_lease", job_attempts.c.status, job_attempts.c.lease_expires_at)
+sa.Index("ix_jobs_dispatchable", jobs.c.status, jobs.c.available_at, jobs.c.priority, jobs.c.queued_at)
+sa.Index(
+    "ix_outbox_events_pending",
+    outbox_events.c.published_at,
+    outbox_events.c.available_at,
+    outbox_events.c.created_at,
 )
 
 dataset_versions = sa.Table(
@@ -75,8 +137,18 @@ artifacts = sa.Table(
     sa.Column("checksum", sa.Text()),
     sa.Column("content_type", sa.Text()),
     sa.Column("size_bytes", sa.BigInteger()),
+    sa.Column("storage_version", sa.Text(), nullable=False, server_default="s3-v1"),
+    sa.Column("producer", sa.Text(), nullable=False, server_default="legacy"),
+    sa.Column("training_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("training_runs.id")),
+    sa.Column("attempt_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("job_attempts.id")),
+    sa.Column("schema_version", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("verified_at", sa.DateTime(timezone=True)),
     sa.Column("artifact_metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint(
+        "checksum is null or (char_length(checksum) = 64 and size_bytes >= 0)",
+        name="ck_artifacts_ready_integrity",
+    ),
 )
 
 job_events = sa.Table(
@@ -272,91 +344,6 @@ feedback_items = sa.Table(
         "destination in ('training_candidate', 'ood_stress', 'bad_image', 'taxonomy_dispute', 'ignore')",
         name="ck_feedback_items_destination",
     ),
-)
-
-vlm_review_runs = sa.Table(
-    "vlm_review_runs",
-    metadata,
-    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-    sa.Column("run_key", sa.Text(), nullable=False, unique=True),
-    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id")),
-    sa.Column("inference_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("inference_runs.id")),
-    sa.Column("mode", sa.Text(), nullable=False),
-    sa.Column("status", sa.Text(), nullable=False),
-    sa.Column("requested_limit", sa.Integer(), nullable=False),
-    sa.Column("total_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("succeeded_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("failed_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("skipped_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("fallback_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("model_id", sa.Text(), nullable=False),
-    sa.Column("model_revision", sa.Text()),
-    sa.Column("prompt_version", sa.Text(), nullable=False),
-    sa.Column("config", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
-    sa.Column("created_by", sa.Text()),
-    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.Column("started_at", sa.DateTime(timezone=True)),
-    sa.Column("finished_at", sa.DateTime(timezone=True)),
-    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.CheckConstraint("mode in ('assisted', 'auto')", name="ck_vlm_review_runs_mode"),
-    sa.CheckConstraint(
-        "status in ('queued', 'running', 'succeeded', 'partial_failed', 'failed', 'cancelled')",
-        name="ck_vlm_review_runs_status",
-    ),
-)
-
-vlm_review_results = sa.Table(
-    "vlm_review_results",
-    metadata,
-    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-    sa.Column("result_key", sa.Text(), nullable=False, unique=True),
-    sa.Column(
-        "vlm_review_run_id",
-        postgresql.UUID(as_uuid=True),
-        sa.ForeignKey("vlm_review_runs.id"),
-        nullable=False,
-    ),
-    sa.Column("review_item_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("review_items.id"), nullable=False),
-    sa.Column("status", sa.Text(), nullable=False),
-    sa.Column("candidate_labels", postgresql.JSONB(), nullable=False),
-    sa.Column("suggested_label", sa.Text()),
-    sa.Column("reasoning", sa.Text()),
-    sa.Column("raw_output", sa.Text()),
-    sa.Column("image_sha256", sa.Text()),
-    sa.Column("model_revision", sa.Text()),
-    sa.Column("prompt_version", sa.Text(), nullable=False),
-    sa.Column("latency_seconds", sa.Float()),
-    sa.Column("input_tokens", sa.Integer()),
-    sa.Column("generated_tokens", sa.Integer()),
-    sa.Column("auto_submit_eligible", sa.Boolean(), nullable=False, server_default=sa.false()),
-    sa.Column("gate_report", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
-    sa.Column("error_message", sa.Text()),
-    sa.Column("attempt_count", sa.Integer(), nullable=False, server_default="0"),
-    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    sa.Column("started_at", sa.DateTime(timezone=True)),
-    sa.Column("finished_at", sa.DateTime(timezone=True)),
-    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-    sa.CheckConstraint(
-        "status in ('queued', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')",
-        name="ck_vlm_review_results_status",
-    ),
-    sa.UniqueConstraint("vlm_review_run_id", "review_item_id", name="uq_vlm_review_result_run_item"),
-)
-
-sa.Index(
-    "ix_vlm_review_runs_status_created_at",
-    vlm_review_runs.c.status,
-    vlm_review_runs.c.created_at,
-)
-sa.Index(
-    "ix_vlm_review_results_run_status",
-    vlm_review_results.c.vlm_review_run_id,
-    vlm_review_results.c.status,
-)
-sa.Index(
-    "ix_vlm_review_results_review_item",
-    vlm_review_results.c.review_item_id,
-    vlm_review_results.c.created_at,
 )
 
 sa.Index(
