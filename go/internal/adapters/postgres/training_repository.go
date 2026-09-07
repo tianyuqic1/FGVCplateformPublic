@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -182,7 +183,34 @@ FROM training_runs WHERE job_id = $1`, id).Scan(
 	if err := loadArtifacts(ctx, tx, id, aggregate); err != nil {
 		return nil, err
 	}
+	if err := loadMetricPoints(ctx, tx, aggregate.Run.ID, aggregate); err != nil {
+		return nil, err
+	}
 	return aggregate, nil
+}
+
+func loadMetricPoints(ctx context.Context, tx pgx.Tx, runID string, aggregate *training.Aggregate) error {
+	rows, err := tx.Query(ctx, `
+SELECT id, training_run_id::text, attempt_id::text, execution_epoch, metric_name, step,
+       value, recorded_at, context
+FROM training_metric_points
+WHERE training_run_id=$1
+ORDER BY id`, runID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var point training.MetricPoint
+		var contextJSON []byte
+		if err := rows.Scan(&point.ID, &point.TrainingRunID, &point.AttemptID, &point.ExecutionEpoch,
+			&point.Name, &point.Step, &point.Value, &point.RecordedAt, &contextJSON); err != nil {
+			return err
+		}
+		_ = json.Unmarshal(contextJSON, &point.Context)
+		aggregate.Metrics = append(aggregate.Metrics, point)
+	}
+	return rows.Err()
 }
 
 func loadAttempts(ctx context.Context, tx pgx.Tx, jobID string, aggregate *training.Aggregate) error {
@@ -383,6 +411,18 @@ INSERT INTO artifacts (
 			return err
 		}
 	}
+	for _, point := range aggregate.Metrics {
+		contextJSON, _ := json.Marshal(point.Context)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO training_metric_points (
+ training_run_id, attempt_id, execution_epoch, metric_name, step, value, recorded_at, context
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+ON CONFLICT (training_run_id, attempt_id, metric_name, step) DO NOTHING`,
+			point.TrainingRunID, point.AttemptID, point.ExecutionEpoch, point.Name, point.Step,
+			point.Value, point.RecordedAt, contextJSON); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -437,16 +477,50 @@ func insertModelVersion(ctx context.Context, tx pgx.Tx, aggregate *training.Aggr
 		return &training.DomainError{Code: training.CodeValidationFailed, Message: "completion requires a model artifact"}
 	}
 	metrics, _ := json.Marshal(aggregate.Job.Result.Metrics)
+	extractorConfig := nestedMap(aggregate.Job.Payload, "extractor_config")
+	headConfig := nestedMap(aggregate.Job.Payload, "head_config")
+	evaluationContext := map[string]any{
+		"dataset_version_id": aggregate.Run.DatasetVersionID,
+		"evaluation_split":   "test",
+		"protocol_fingerprint": protocolFingerprint(aggregate.Run.DatasetVersionID, map[string]any{
+			"head_config":           headConfig,
+			"target_selective_risk": aggregate.Job.Payload["target_selective_risk"],
+			"review_cost_per_item":  aggregate.Job.Payload["review_cost_per_item"],
+		}),
+	}
+	evaluationJSON, _ := json.Marshal(evaluationContext)
+	backboneKey := stringValue(extractorConfig, "backbone_key", aggregate.Run.BackboneID)
+	architecture := stringValue(extractorConfig, "architecture", "")
+	pretrainingMethod := stringValue(extractorConfig, "pretraining_method", "")
+	pretrainingDataset := stringValue(extractorConfig, "pretraining_dataset", "")
+	pooling := stringValue(extractorConfig, "feature_pool", "")
+	headType := stringValue(headConfig, "head_type", "ridge_linear")
+	inputSize := integerValue(extractorConfig["image_size"])
+	featureDim := integerValue(extractorConfig["feature_dim"])
+	parameterCount := integerValue(extractorConfig["parameter_count"])
+	modelName := "Model " + aggregate.Job.Result.ModelVersionID[:8]
 	_, err := tx.Exec(ctx, `
 INSERT INTO model_versions (
  id, model_key, dataset_id, dataset_version_id, training_run_id, status,
  model_artifact_id, calibration_artifact_id, threshold_strategy_artifact_id,
- metrics, created_at, updated_at
-) VALUES ($1,$2,$3,$4,$5,'candidate',$6,$7,$8,$9,$10,$10)
+ metrics, name, backbone_key, architecture, pretraining_method, pretraining_dataset,
+ input_size, feature_dim, parameter_count, pooling, head_type, evaluation_context,
+ created_at, updated_at
+) VALUES ($1,$2,$3,$4,$5,'candidate',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21)
 ON CONFLICT (id) DO NOTHING`, aggregate.Job.Result.ModelVersionID, "model-"+aggregate.Job.Result.ModelVersionID,
 		aggregate.Run.DatasetID, aggregate.Run.DatasetVersionID, aggregate.Run.ID, modelArtifactID,
-		calibrationArtifactID, thresholdArtifactID, metrics, aggregate.Job.UpdatedAt)
+		calibrationArtifactID, thresholdArtifactID, metrics, modelName, backboneKey, architecture,
+		pretrainingMethod, pretrainingDataset, inputSize, featureDim, parameterCount, pooling, headType,
+		evaluationJSON, aggregate.Job.UpdatedAt)
 	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `
+INSERT INTO model_version_events (id,model_version_id,event_type,to_status,actor,reason,payload,created_at)
+SELECT $1,$2,'created','candidate','training-lifecycle','training completed',jsonb_build_object('training_run_id',$3::text),$4
+WHERE NOT EXISTS (
+  SELECT 1 FROM model_version_events WHERE model_version_id=$2 AND event_type='created'
+)`, randomUUID(), aggregate.Job.Result.ModelVersionID, aggregate.Run.ID, aggregate.Job.UpdatedAt); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `
@@ -454,6 +528,42 @@ UPDATE training_runs SET feature_artifact_id=$2, model_artifact_id=$3, report_ar
  calibration_artifact_id=$5, threshold_strategy_artifact_id=$6 WHERE id=$1`,
 		aggregate.Run.ID, featureArtifactID, modelArtifactID, reportArtifactID, calibrationArtifactID, thresholdArtifactID)
 	return err
+}
+
+func nestedMap(payload map[string]any, key string) map[string]any {
+	value, _ := payload[key].(map[string]any)
+	return value
+}
+
+func stringValue(source map[string]any, key, fallback string) string {
+	value, _ := source[key].(string)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func integerValue(value any) any {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed
+		}
+	}
+	return nil
+}
+
+func protocolFingerprint(datasetVersionID string, values map[string]any) string {
+	encoded, _ := json.Marshal(values)
+	digest := sha256.Sum256(append([]byte(datasetVersionID+":"), encoded...))
+	return hex.EncodeToString(digest[:])
 }
 
 func nestedConfig(payload map[string]any, key string) []byte {

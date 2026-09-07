@@ -24,6 +24,7 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 	"google.golang.org/grpc"
 )
@@ -67,6 +68,7 @@ func main() {
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
 			Lifecycle: lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
+			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

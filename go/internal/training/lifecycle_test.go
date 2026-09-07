@@ -11,6 +11,66 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 )
 
+func TestProgressPersistsIdempotentMetricPointsForCurrentAttempt(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 8, 2, 0, 0, 0, time.UTC)
+	service, repository := newService(now)
+	created, claimed := createAndClaim(t, service)
+	command := training.ProgressCommand{
+		JobID: created.JobID, AttemptID: claimed.AttemptID, ExecutionEpoch: claimed.ExecutionEpoch,
+		Progress: map[string]any{"current_stage": "head"},
+		MetricPoints: []training.MetricPoint{
+			{Name: "train_loss", Step: 1, Value: 0.42, Context: map[string]any{"split": "train"}},
+			{Name: "eval_accuracy", Step: 1, Value: 0.91, Context: map[string]any{"split": "validation"}},
+		},
+	}
+	if err := service.Progress(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Progress(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := repository.Get(context.Background(), created.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aggregate.Metrics) != 2 {
+		t.Fatalf("metric point count = %d, want 2", len(aggregate.Metrics))
+	}
+	for _, point := range aggregate.Metrics {
+		if point.TrainingRunID != created.TrainingRunID || point.AttemptID != claimed.AttemptID || point.RecordedAt != now {
+			t.Fatalf("metric lineage = %#v", point)
+		}
+	}
+}
+
+func TestProgressRejectsInvalidAndFencedMetricPoints(t *testing.T) {
+	t.Parallel()
+	service, repository := newService(time.Now().UTC())
+	created, claimed := createAndClaim(t, service)
+	err := service.Progress(context.Background(), training.ProgressCommand{
+		JobID: created.JobID, AttemptID: claimed.AttemptID, ExecutionEpoch: claimed.ExecutionEpoch,
+		MetricPoints: []training.MetricPoint{{Name: "", Step: -1, Value: 1}},
+	})
+	if training.ErrorCode(err) != training.CodeValidationFailed {
+		t.Fatalf("invalid metric error = %v", err)
+	}
+	if err := service.Pause(context.Background(), created.JobID); err != nil {
+		t.Fatal(err)
+	}
+	err = service.Progress(context.Background(), training.ProgressCommand{
+		JobID: created.JobID, AttemptID: claimed.AttemptID, ExecutionEpoch: claimed.ExecutionEpoch,
+		MetricPoints: []training.MetricPoint{{Name: "train_loss", Step: 2, Value: .2}},
+	})
+	if training.ErrorCode(err) != training.CodeFenced {
+		t.Fatalf("fenced metric error = %v", err)
+	}
+	aggregate, _ := repository.Get(context.Background(), created.JobID)
+	if len(aggregate.Metrics) != 0 {
+		t.Fatalf("fenced/invalid metric points persisted: %#v", aggregate.Metrics)
+	}
+}
+
 type rejectingVerifier struct{}
 
 func (rejectingVerifier) Verify(context.Context, artifact.Descriptor) error {
@@ -155,6 +215,25 @@ func TestInvalidArtifactCannotSucceedJob(t *testing.T) {
 	}
 }
 
+func TestArtifactFromDifferentDatasetVersionCannotSucceedJob(t *testing.T) {
+	t.Parallel()
+	service, repository := newService(time.Now().UTC())
+	created, claimed := createAndClaim(t, service)
+	descriptor := validDescriptor(created.TrainingRunID, claimed.AttemptID)
+	descriptor.DatasetVersionID = "version-other"
+	_, err := service.Complete(context.Background(), training.CompleteCommand{
+		JobID: created.JobID, AttemptID: claimed.AttemptID, ExecutionEpoch: claimed.ExecutionEpoch,
+		CompletionKey: "complete-1", ResultDigest: "digest-1", Artifacts: []artifact.Descriptor{descriptor},
+	})
+	if training.ErrorCode(err) != training.CodeValidationFailed {
+		t.Fatalf("expected Dataset Version scope failure, got %v", err)
+	}
+	aggregate, _ := repository.Get(context.Background(), created.JobID)
+	if aggregate.Job.Status != training.StatusRunning {
+		t.Fatalf("job status = %s", aggregate.Job.Status)
+	}
+}
+
 func TestArtifactByteVerificationFailureCannotSucceedJob(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -241,6 +320,6 @@ func validDescriptor(runID, attemptID string) artifact.Descriptor {
 		ArtifactID: "model-1", ArtifactType: "model", URI: "s3://finevision-artifacts/models/model-1",
 		SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SizeBytes: 12,
 		ContentType: "application/octet-stream", StorageVersion: "s3-v1", Producer: "training-worker",
-		TrainingRunID: runID, AttemptID: attemptID, SchemaVersion: 1,
+		DatasetVersionID: "version-1", TrainingRunID: runID, AttemptID: attemptID, SchemaVersion: 1,
 	}
 }

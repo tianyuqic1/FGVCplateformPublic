@@ -15,6 +15,8 @@ const routes = [
   "/review",
   "/feedback",
   "/models",
+  "/models/compare?ids=11111111-1111-4111-8111-111111111111,22222222-2222-4222-8222-222222222222",
+  "/models/11111111-1111-4111-8111-111111111111",
   "/pipelines",
   "/pipelines?job_id=route-availability-job",
 ];

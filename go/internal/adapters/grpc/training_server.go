@@ -54,8 +54,20 @@ func (server *TrainingLifecycleServer) ReportProgress(ctx context.Context, reque
 	if request.Progress != nil {
 		progress = request.Progress.AsMap()
 	}
+	metricPoints := make([]training.MetricPoint, 0, len(request.MetricPoints))
+	for _, item := range request.MetricPoints {
+		point := training.MetricPoint{Name: item.GetName(), Step: item.GetStep(), Value: item.GetValue()}
+		if item.RecordedAt != nil {
+			point.RecordedAt = item.RecordedAt.AsTime()
+		}
+		if item.Context != nil {
+			point.Context = item.Context.AsMap()
+		}
+		metricPoints = append(metricPoints, point)
+	}
 	err := server.service.Progress(ctx, training.ProgressCommand{
-		JobID: request.GetJobId(), AttemptID: request.GetAttemptId(), ExecutionEpoch: request.GetExecutionEpoch(), Progress: progress,
+		JobID: request.GetJobId(), AttemptID: request.GetAttemptId(), ExecutionEpoch: request.GetExecutionEpoch(),
+		Progress: progress, MetricPoints: metricPoints,
 	})
 	if err != nil {
 		return nil, grpcError(err)

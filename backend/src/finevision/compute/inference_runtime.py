@@ -19,7 +19,7 @@ from finevision.artifact_store import (
     S3ArtifactStore,
 )
 from finevision.compute.v1 import inference_runtime_pb2, inference_runtime_pb2_grpc
-from finevision.compute.pretrained_weights import prepare_managed_vits_weight
+from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, prepare_managed_weight
 from finevision.ml_toolkit.features import build_extractor_from_config
 from finevision.ml_toolkit.inference import run_image_inference
 from finevision.schemas.artifacts import ModelArtifact, ThresholdStrategy
@@ -49,8 +49,11 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             bundle_descriptor = _descriptor_from_proto(request.model_bundle)
             bundle_path = self._materialize(bundle_descriptor)
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-            model_path = self._materialize(_descriptor_from_dict(bundle["model"]))
-            features_path = self._materialize(_descriptor_from_dict(bundle["features"]))
+            model_descriptor = _descriptor_from_dict(bundle["model"])
+            features_descriptor = _descriptor_from_dict(bundle["features"])
+            _validate_bundle_scope(bundle_descriptor, model_descriptor, features_descriptor, bundle)
+            model_path = self._materialize(model_descriptor)
+            features_path = self._materialize(features_descriptor)
             input_path = self._materialize(_descriptor_from_proto(request.input_image))
 
             model_data = np.load(model_path, allow_pickle=False)
@@ -58,7 +61,18 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             model_artifact = ModelArtifact(**bundle["model_artifact"])
             strategy = ThresholdStrategy(**bundle["threshold_strategy"])
             feature_data = np.load(features_path, allow_pickle=False)
-            extractor = build_extractor_from_config(bundle["extractor_config"])
+            extractor_config = bundle["extractor_config"]
+            backbone_key = str(extractor_config.get("backbone_key") or extractor_config.get("preset") or "")
+            if backbone_key in MANAGED_WEIGHTS:
+                prepare_managed_weight(
+                    S3ArtifactStore(
+                        client=self.s3_client or _create_s3_client(),
+                        bucket=os.environ.get("FINEVISION_ARTIFACT_BUCKET", "finevision-artifacts"),
+                    ),
+                    self.cache_root,
+                    backbone_key,
+                )
+            extractor = build_extractor_from_config(extractor_config)
             policy = request.policy.AsMap() if request.policy is not None else {}
             result = run_image_inference(
                 image_path=str(input_path),
@@ -142,6 +156,27 @@ def _optional_float(value: object) -> float | None:
     return None if value is None else float(value)
 
 
+def _validate_bundle_scope(
+    bundle: ArtifactDescriptor,
+    model: ArtifactDescriptor,
+    features: ArtifactDescriptor,
+    payload: dict[str, object],
+) -> None:
+    if not bundle.dataset_version_id or not bundle.training_run_id:
+        raise ValueError("model bundle must carry Dataset Version and Training Run lineage")
+    for descriptor in (model, features):
+        if descriptor.dataset_version_id != bundle.dataset_version_id:
+            raise ValueError("model bundle contains an Artifact from a different Dataset Version")
+        if descriptor.training_run_id != bundle.training_run_id:
+            raise ValueError("model bundle contains an Artifact from a different Training Run")
+    model_artifact = payload.get("model_artifact")
+    if isinstance(model_artifact, dict) and model_artifact.get("dataset_version_id") != bundle.dataset_version_id:
+        raise ValueError("model metadata Dataset Version does not match the verified bundle")
+    strategy = payload.get("threshold_strategy")
+    if isinstance(strategy, dict) and strategy.get("dataset_version_id") != bundle.dataset_version_id:
+        raise ValueError("threshold strategy Dataset Version does not match the verified bundle")
+
+
 def _create_s3_client():
     return boto3.client(
         "s3",
@@ -155,12 +190,7 @@ def _create_s3_client():
 
 def main() -> None:
     s3_client = _create_s3_client()
-    weight_store = S3ArtifactStore(
-        client=s3_client,
-        bucket=os.environ.get("FINEVISION_ARTIFACT_BUCKET", "finevision-artifacts"),
-    )
     cache_root = os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache")
-    prepare_managed_vits_weight(weight_store, cache_root)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))))
     inference_runtime_pb2_grpc.add_InferenceRuntimeServicer_to_server(
         InferenceRuntimeService(cache_root, s3_client=s3_client),

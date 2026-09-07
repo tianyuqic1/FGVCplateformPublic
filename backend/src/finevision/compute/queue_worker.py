@@ -24,7 +24,7 @@ import pika
 from finevision.api.store import MetadataStore
 from finevision.artifact_store import ArtifactDescriptor, ArtifactStore, S3ArtifactStore
 from finevision.compute.v1 import artifact_pb2, training_lifecycle_pb2, training_lifecycle_pb2_grpc
-from finevision.compute.pretrained_weights import prepare_managed_vits_weight
+from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, WEIGHT_ALIASES, prepare_managed_weight
 from finevision.worker.jobs import TrainingRunStopped, _run_train_classifier
 
 
@@ -145,6 +145,22 @@ class RemoteTrainingStore:
         self._check_run(run_id)
         progress_message = Struct()
         progress_message.update(progress)
+        metric_points = []
+        latest_metrics = progress.get("latest_metrics")
+        if isinstance(latest_metrics, dict) and "epoch" in latest_metrics:
+            step = int(latest_metrics["epoch"])
+            for name, split in (("train_loss", "train"), ("eval_accuracy", "validation")):
+                if name in latest_metrics:
+                    context = Struct()
+                    context.update({"split": split, "phase": "head"})
+                    metric_points.append(
+                        training_lifecycle_pb2.MetricPoint(
+                            name=name,
+                            step=step,
+                            value=float(latest_metrics[name]),
+                            context=context,
+                        )
+                    )
         self.lifecycle.ReportProgress(
             training_lifecycle_pb2.ProgressRequest(
                 job_id=self.job_id,
@@ -152,6 +168,7 @@ class RemoteTrainingStore:
                 execution_epoch=self.execution_epoch,
                 progress=progress_message,
                 request_id=str(uuid4()),
+                metric_points=metric_points,
             ),
             timeout=self.rpc_timeout,
         )
@@ -422,6 +439,14 @@ class QueueTrainingWorker:
         )
         metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata"))
         try:
+            backbone_key = str(payload.get("backbone_id") or payload.get("extractor") or "")
+            backbone_key = WEIGHT_ALIASES.get(backbone_key, backbone_key)
+            if backbone_key in MANAGED_WEIGHTS:
+                prepare_managed_weight(
+                    self.artifact_store,
+                    os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"),
+                    backbone_key,
+                )
             with HeartbeatLoop(remote_store):
                 _run_train_classifier(payload, metadata_store, remote_store)
         except TrainingRunStopped:
@@ -440,7 +465,6 @@ def main() -> None:
     grpc_channel = grpc.insecure_channel(os.environ.get("FINEVISION_CONTROL_PLANE_GRPC", "go-control-plane:9000"))
     lifecycle = training_lifecycle_pb2_grpc.TrainingLifecycleStub(grpc_channel)
     artifact_store = create_s3_artifact_store()
-    prepare_managed_vits_weight(artifact_store, os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"))
     worker = QueueTrainingWorker(
         lifecycle,
         artifact_store,

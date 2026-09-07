@@ -1370,7 +1370,14 @@ function runTimeValue(run) {
 }
 
 function isDinoExtractor(extractor) {
-  return String(extractor).startsWith("dinov3_");
+  return [
+    "dinov3_vits",
+    "dinov3_vits16_lvd1689m",
+    "imagenet_vits",
+    "imagenet_vits16_augreg_in21k_ft_in1k",
+    "imagenet_resnet50",
+    "imagenet_resnet50_a1_in1k",
+  ].includes(String(extractor));
 }
 
 function formatBytes(bytes) {
@@ -1393,9 +1400,9 @@ function modelWeightLabel(state) {
 }
 
 function extractorShortLabel(extractor) {
-  if (extractor === "dinov3_vits") return "ViT-S";
-  if (extractor === "dinov3_vitb") return "ViT-B";
-  if (extractor === "dinov3_vitl") return "ViT-L";
+  if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "ViT-S · DINOv3";
+  if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ViT-S · ImageNet";
+  if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor)) return "ResNet-50 · ImageNet";
   return extractor;
 }
 
@@ -1460,10 +1467,10 @@ function selectRecommendedClsRun(runs, datasetVersionId = "") {
 }
 
 function weightUsageLabel(extractor) {
-  if (extractor === "dinov3_vits") return "推荐默认，用于快速 CLS 特征训练和日常验证。";
-  if (extractor === "dinov3_vitb") return "中等规模对照模型，适合后续做速度/精度折中评估。";
-  if (extractor === "dinov3_vitl") return "重型精度优先模型，适合 GPU 资源充足时跑更强基线。";
-  return "仅支持 FineVision 已登记的 DINOv3 权重。";
+  if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "DINOv3 自监督 ViT-S 基线。";
+  if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ImageNet-21K 预训练并在 ImageNet-1K 微调的 ViT-S。";
+  if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor)) return "ImageNet-1K 监督预训练 ResNet-50 对照基线。";
+  return "仅支持 FineVision manifest 已登记的预训练权重。";
 }
 
 function filterTrainingRuns(runs, statusFilter, sortMode) {
@@ -1560,7 +1567,7 @@ export function WeightManagementPage({ showToast }) {
     <>
       <PageHero
         title="权重管理"
-        description="查看 DINOv3 ViT-S/B/L 的本地 Hugging Face 权重缓存；删除后不会影响已生成的 feature/model artifact，但下一次训练会重新下载。"
+        description="查看二期批准的 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重；删除缓存不会影响已生成的训练产物。"
         actions={<button className="ghost-button" onClick={refresh} disabled={loading}><Icon name="RefreshCw" size={16} />刷新</button>}
       />
       <div className="grid metrics">
@@ -1570,7 +1577,7 @@ export function WeightManagementPage({ showToast }) {
         <MetricCard title="训练特征" value="CLS" caption="feature_pool 默认 cls" fill="#0f766e" percent={100} icon="Target" />
       </div>
       <div className="grid two section-gap">
-        <Panel title="DINOv3 权重缓存" caption="只管理预训练 backbone 权重；分类头和训练报告仍在 artifact store。">
+        <Panel title="预训练权重缓存" caption="只管理批准的 backbone 权重；分类头和训练报告仍在 ArtifactStore。">
           {error && <div className="route-box"><strong>权重服务不可用</strong><div className="row-meta">{error.message}</div></div>}
           <div className="timeline">
             {weights.map((weight) => {
@@ -1606,16 +1613,16 @@ export function WeightManagementPage({ showToast }) {
         </Panel>
         <Panel title="权重说明" caption="权重文件、特征缓存、分类头产物不要混淆。">
           <div className="timeline">
-            <GateRow title="预训练权重" description="Hugging Face/timm 下载的 DINOv3 backbone 参数；这个页面管理的是它。" result="pass" />
-            <GateRow title="特征缓存" description="某个 dataset version 经过 DINOv3 CLS 提取后的 features.npz；删除权重不会删除它。" result="pending" />
+            <GateRow title="预训练权重" description="通过 Git LFS 发布并提升到 MinIO 的受管 backbone 参数；这个页面管理的是它。" result="pass" />
+            <GateRow title="特征缓存" description="某个 Dataset Version 提取后的 features.npz；删除权重不会删除它。" result="pending" />
             <GateRow title="分类头产物" description="FineVision 训练出的 linear head、校准报告和阈值策略；不在本页删除。" result="pending" />
           </div>
           <TechnicalDetails>
             feature_pool: cls<br />
             image_size_default: 448<br />
-            managed_presets: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
-            delete_scope: local Hugging Face repo cache only<br />
-            cache_recovery: next training downloads again
+            managed_presets: dinov3_vits16_lvd1689m | imagenet_vits16_augreg_in21k_ft_in1k | imagenet_resnet50_a1_in1k<br />
+            integrity: sha256 + size<br />
+            runtime_source: MinIO content-addressed object
           </TechnicalDetails>
           {weights[0]?.cacheDir && (
             <TechnicalDetails summary="缓存路径">
@@ -1786,7 +1793,7 @@ export function TrainingPage({ showToast }) {
   const [queueSortMode, setQueueSortMode] = useState("recent");
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: "",
-    extractor: "dinov3_vits",
+    extractor: "dinov3_vits16_lvd1689m",
     featureBatchSize: "8",
     imageSize: "448",
     learningRate: "0.001",
@@ -1920,10 +1927,10 @@ export function TrainingPage({ showToast }) {
             <div className="field">
               <label>特征提取器</label>
               <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
-                <optgroup label="DINOv3 训练">
-                  <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
-                  <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
-                  <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
+                <optgroup label="受管预训练骨干">
+                  <option value="dinov3_vits16_lvd1689m">ViT-S/16 · DINOv3 LVD-1689M</option>
+                  <option value="imagenet_vits16_augreg_in21k_ft_in1k">ViT-S/16 · ImageNet-21K → 1K</option>
+                  <option value="imagenet_resnet50_a1_in1k">ResNet-50 · ImageNet-1K</option>
                 </optgroup>
                 {trainingForm.extractor === "color_stats" && <option value="color_stats">旧版诊断配置</option>}
               </select>
@@ -1982,10 +1989,10 @@ export function TrainingPage({ showToast }) {
             </div>
           </div>
           <p className="panel-caption section-gap-small">
-            DINOv3 batch_size 控制特征提取；输入分辨率和 CLS token 特征池化会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
+            feature batch_size 控制冻结骨干的特征提取；预处理、池化方式与权重 SHA 会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
           </p>
           <div className="weight-status-grid section-gap-small">
-            {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
+            {["dinov3_vits16_lvd1689m", "imagenet_vits16_augreg_in21k_ft_in1k", "imagenet_resnet50_a1_in1k"].map((extractor) => {
               const weight = weightByExtractor[extractor];
               const state = weight?.state ?? (weightsLoading ? "loading" : "missing");
               const sizeLabel =
@@ -2170,12 +2177,12 @@ export function TrainingPage({ showToast }) {
         </Panel>
         <Panel title="训练配置模板" caption="默认采用 frozen backbone + 分类头。">
           <div className="timeline">
-            <GateRow title="视觉基座" description="DINOv3 ViT-S/B/L，默认使用 CLS token 特征" result="pass" />
+            <GateRow title="视觉基座" description="DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50" result="pass" />
             <GateRow title="分类头" description="torch_linear_adam，使用交叉熵和 Adam 优化" result="pass" />
             <GateRow title="校准与弃权" description="生成校准报告和风险覆盖材料" result="pending" />
           </div>
           <TechnicalDetails>
-            backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
+            backbone: dinov3_vits16_lvd1689m | imagenet_vits16_augreg_in21k_ft_in1k | imagenet_resnet50_a1_in1k<br />
             feature_pool: cls<br />
             image_size: 448<br />
             feature_batch_size: 8<br />

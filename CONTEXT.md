@@ -1,6 +1,6 @@
 # FineVision Context
 
-FineVision is a fine-grained image classification platform that governs versioned datasets, compute work, model artifacts, inference decisions, human review, and feedback. This glossary fixes the domain terms used during the Phase 1 refactor.
+FineVision is a fine-grained image classification platform that governs versioned datasets, compute work, model artifacts, inference decisions, human review, and feedback. This glossary fixes the domain terms used during the Phase 1 and Phase 2 refactors.
 
 ## Platform Modules
 
@@ -35,6 +35,10 @@ _Avoid_: Training Run, queue message
 **Training Run**:
 The product-facing record that preserves training configuration, lineage, metrics, Artifacts, and resulting Model Version.
 _Avoid_: Training Job, Job Attempt
+
+**Training Metric Point**:
+One append-only named numeric observation reported at a step for a specific Training Run and Job Attempt, ordered by a server-issued cursor for incremental reads.
+_Avoid_: latest progress blob, chart event, RabbitMQ metric
 
 **Job Attempt**:
 One actual execution of a Training Job by one worker under one fencing epoch.
@@ -102,6 +106,14 @@ _Avoid_: Model version, training output
 A governed model candidate or release tied to one Dataset Version, one Training Lifecycle result, and a complete set of verified inference Artifacts.
 _Avoid_: Weight file, checkpoint
 
+**Model Alias**:
+A Dataset-scoped mutable pointer such as `champion` or `challenger` that resolves to one immutable Model Version and changes only through an audited Control Plane transaction.
+_Avoid_: Model Version status, automatic best model, tag
+
+**Backbone Spec**:
+The stable catalog definition binding a `backbone_key` to architecture, preprocessing, pooling, feature dimension, Pretrained Weight identity, and extractor semantic version.
+_Avoid_: arbitrary timm model name, download URL, model display label
+
 **Trained Model Artifact**:
 The model bytes produced by a Training Run and stored as an Artifact Object.
 _Avoid_: Pretrained Weight, Model Version
@@ -133,6 +145,7 @@ _Avoid_: Global threshold
 - “任务”必须具体写成 Training Job、Training Run、Job Attempt 或 Dispatch Message。
 - “权重”必须具体写成 Pretrained Weight 或 Trained Model Artifact。
 - “模型”必须具体写成 backbone、Trained Model Artifact、Model Version 或外部 LLM。
+- “指标”必须具体写成 Training Metric Point、Training Run 摘要指标或评估报告指标。
 - “数据集”必须具体写成 Dataset、Dataset Version、manifest 或 Artifact Object 集合。
 - 产品和代码统一使用官方拼写 **MinIO**，不使用 “MiniIO”。
 - 完整性字段统一使用 **SHA-256**，不能用含糊的 “SHA”，也不能与 ETag 混用。

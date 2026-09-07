@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -52,12 +53,33 @@ func (e ClaimResultDisposition) Valid() bool {
 	}
 }
 
+// Defines values for CreateTrainingRunBackboneKey.
+const (
+	Dinov3Vits16Lvd1689m            CreateTrainingRunBackboneKey = "dinov3_vits16_lvd1689m"
+	ImagenetResnet50A1In1k          CreateTrainingRunBackboneKey = "imagenet_resnet50_a1_in1k"
+	ImagenetVits16AugregIn21kFtIn1k CreateTrainingRunBackboneKey = "imagenet_vits16_augreg_in21k_ft_in1k"
+)
+
+// Valid indicates whether the value is a known member of the CreateTrainingRunBackboneKey enum.
+func (e CreateTrainingRunBackboneKey) Valid() bool {
+	switch e {
+	case Dinov3Vits16Lvd1689m:
+		return true
+	case ImagenetResnet50A1In1k:
+		return true
+	case ImagenetVits16AugregIn21kFtIn1k:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateTrainingRunExtractor.
 const (
-	ColorStats CreateTrainingRunExtractor = "color_stats"
-	Dinov3Vitb CreateTrainingRunExtractor = "dinov3_vitb"
-	Dinov3Vitl CreateTrainingRunExtractor = "dinov3_vitl"
-	Dinov3Vits CreateTrainingRunExtractor = "dinov3_vits"
+	ColorStats       CreateTrainingRunExtractor = "color_stats"
+	Dinov3Vits       CreateTrainingRunExtractor = "dinov3_vits"
+	ImagenetResnet50 CreateTrainingRunExtractor = "imagenet_resnet50"
+	ImagenetVits     CreateTrainingRunExtractor = "imagenet_vits"
 )
 
 // Valid indicates whether the value is a known member of the CreateTrainingRunExtractor enum.
@@ -65,11 +87,11 @@ func (e CreateTrainingRunExtractor) Valid() bool {
 	switch e {
 	case ColorStats:
 		return true
-	case Dinov3Vitb:
-		return true
-	case Dinov3Vitl:
-		return true
 	case Dinov3Vits:
+		return true
+	case ImagenetResnet50:
+		return true
+	case ImagenetVits:
 		return true
 	default:
 		return false
@@ -172,6 +194,57 @@ func (e LLMAssistanceRequestTask) Valid() bool {
 	}
 }
 
+// Defines values for PromoteModelVersionRequestTargetStatus.
+const (
+	PromoteModelVersionRequestTargetStatusProduction PromoteModelVersionRequestTargetStatus = "production"
+	PromoteModelVersionRequestTargetStatusStaging    PromoteModelVersionRequestTargetStatus = "staging"
+)
+
+// Valid indicates whether the value is a known member of the PromoteModelVersionRequestTargetStatus enum.
+func (e PromoteModelVersionRequestTargetStatus) Valid() bool {
+	switch e {
+	case PromoteModelVersionRequestTargetStatusProduction:
+		return true
+	case PromoteModelVersionRequestTargetStatusStaging:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListModelVersionsParamsStatus.
+const (
+	ListModelVersionsParamsStatusArchived   ListModelVersionsParamsStatus = "archived"
+	ListModelVersionsParamsStatusCandidate  ListModelVersionsParamsStatus = "candidate"
+	ListModelVersionsParamsStatusFailed     ListModelVersionsParamsStatus = "failed"
+	ListModelVersionsParamsStatusProduction ListModelVersionsParamsStatus = "production"
+	ListModelVersionsParamsStatusStaging    ListModelVersionsParamsStatus = "staging"
+)
+
+// Valid indicates whether the value is a known member of the ListModelVersionsParamsStatus enum.
+func (e ListModelVersionsParamsStatus) Valid() bool {
+	switch e {
+	case ListModelVersionsParamsStatusArchived:
+		return true
+	case ListModelVersionsParamsStatusCandidate:
+		return true
+	case ListModelVersionsParamsStatusFailed:
+		return true
+	case ListModelVersionsParamsStatusProduction:
+		return true
+	case ListModelVersionsParamsStatusStaging:
+		return true
+	default:
+		return false
+	}
+}
+
+// ArchiveModelVersionRequest defines model for ArchiveModelVersionRequest.
+type ArchiveModelVersionRequest struct {
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
+}
+
 // ArtifactDescriptor defines model for ArtifactDescriptor.
 type ArtifactDescriptor struct {
 	ArtifactId       openapi_types.UUID              `json:"artifact_id"`
@@ -234,9 +307,12 @@ type CompleteTrainingJob struct {
 
 // CreateTrainingRun defines model for CreateTrainingRun.
 type CreateTrainingRun struct {
-	BackboneId          *string                       `json:"backbone_id,omitempty"`
-	DatasetId           *string                       `json:"dataset_id,omitempty"`
-	DatasetVersionId    string                        `json:"dataset_version_id"`
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
+	BackboneId       *string                       `json:"backbone_id,omitempty"`
+	BackboneKey      *CreateTrainingRunBackboneKey `json:"backbone_key,omitempty"`
+	DatasetId        *string                       `json:"dataset_id,omitempty"`
+	DatasetVersionId string                        `json:"dataset_version_id"`
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Extractor           *CreateTrainingRunExtractor   `json:"extractor,omitempty"`
 	ExtractorConfig     *FreeFormObject               `json:"extractor_config,omitempty"`
 	FeatureBatchSize    *int                          `json:"feature_batch_size,omitempty"`
@@ -248,7 +324,12 @@ type CreateTrainingRun struct {
 	TargetSelectiveRisk *float32                      `json:"target_selective_risk,omitempty"`
 }
 
+// CreateTrainingRunBackboneKey defines model for CreateTrainingRun.BackboneKey.
+type CreateTrainingRunBackboneKey string
+
 // CreateTrainingRunExtractor defines model for CreateTrainingRun.Extractor.
+//
+// Deprecated: this type has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 type CreateTrainingRunExtractor string
 
 // CreateTrainingRunFeaturePool defines model for CreateTrainingRun.FeaturePool.
@@ -330,6 +411,38 @@ type LLMAssistanceRequest struct {
 // LLMAssistanceRequestTask defines model for LLMAssistanceRequest.Task.
 type LLMAssistanceRequestTask string
 
+// MetricPointInput defines model for MetricPointInput.
+type MetricPointInput struct {
+	Context    *FreeFormObject `json:"context,omitempty"`
+	Name       string          `json:"name"`
+	RecordedAt *time.Time      `json:"recorded_at,omitempty"`
+	Step       int64           `json:"step"`
+	Value      float64         `json:"value"`
+}
+
+// ModelVersionComparisonRequest defines model for ModelVersionComparisonRequest.
+type ModelVersionComparisonRequest struct {
+	ModelVersionIds []openapi_types.UUID `json:"model_version_ids"`
+}
+
+// PromoteModelVersionRequest defines model for PromoteModelVersionRequest.
+type PromoteModelVersionRequest struct {
+	Actor        string                                 `json:"actor"`
+	Reason       string                                 `json:"reason"`
+	TargetStatus PromoteModelVersionRequestTargetStatus `json:"target_status"`
+}
+
+// PromoteModelVersionRequestTargetStatus defines model for PromoteModelVersionRequest.TargetStatus.
+type PromoteModelVersionRequestTargetStatus string
+
+// SetModelAliasRequest defines model for SetModelAliasRequest.
+type SetModelAliasRequest struct {
+	Actor          string             `json:"actor"`
+	DatasetId      string             `json:"dataset_id"`
+	ModelVersionId openapi_types.UUID `json:"model_version_id"`
+	Reason         string             `json:"reason"`
+}
+
 // TrainingRunEnvelope defines model for TrainingRunEnvelope.
 type TrainingRunEnvelope struct {
 	TrainingRun FreeFormObject `json:"training_run"`
@@ -340,6 +453,9 @@ type DatasetID = string
 
 // JobID defines model for JobID.
 type JobID = openapi_types.UUID
+
+// ModelVersionID defines model for ModelVersionID.
+type ModelVersionID = openapi_types.UUID
 
 // RunID defines model for RunID.
 type RunID = openapi_types.UUID
@@ -368,15 +484,48 @@ type LLMAssistanceResponse = LLMAssistanceEnvelope
 // TrainingRunResponse defines model for TrainingRunResponse.
 type TrainingRunResponse = TrainingRunEnvelope
 
+// ListModelVersionsParams defines parameters for ListModelVersions.
+type ListModelVersionsParams struct {
+	DatasetId        *string                        `form:"dataset_id,omitempty" json:"dataset_id,omitempty"`
+	DatasetVersionId *string                        `form:"dataset_version_id,omitempty" json:"dataset_version_id,omitempty"`
+	Architecture     *string                        `form:"architecture,omitempty" json:"architecture,omitempty"`
+	Pretraining      *string                        `form:"pretraining,omitempty" json:"pretraining,omitempty"`
+	Status           *ListModelVersionsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListModelVersionsParamsStatus defines parameters for ListModelVersions.
+type ListModelVersionsParamsStatus string
+
+// GetTrainingRunMetricsParams defines parameters for GetTrainingRunMetrics.
+type GetTrainingRunMetricsParams struct {
+	AttemptId  *openapi_types.UUID `form:"attempt_id,omitempty" json:"attempt_id,omitempty"`
+	MetricName *string             `form:"metric_name,omitempty" json:"metric_name,omitempty"`
+	AfterId    *int64              `form:"after_id,omitempty" json:"after_id,omitempty"`
+	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ReportTrainingProgressJSONBody defines parameters for ReportTrainingProgress.
 type ReportTrainingProgressJSONBody struct {
-	AttemptId      openapi_types.UUID `json:"attempt_id"`
-	ExecutionEpoch int64              `json:"execution_epoch"`
-	Progress       FreeFormObject     `json:"progress"`
+	AttemptId      openapi_types.UUID  `json:"attempt_id"`
+	ExecutionEpoch int64               `json:"execution_epoch"`
+	MetricPoints   *[]MetricPointInput `json:"metric_points,omitempty"`
+	Progress       FreeFormObject      `json:"progress"`
 }
 
 // GenerateLLMAssistanceJSONRequestBody defines body for GenerateLLMAssistance for application/json ContentType.
 type GenerateLLMAssistanceJSONRequestBody = LLMAssistanceRequest
+
+// SetModelAliasJSONRequestBody defines body for SetModelAlias for application/json ContentType.
+type SetModelAliasJSONRequestBody = SetModelAliasRequest
+
+// CompareModelVersionsJSONRequestBody defines body for CompareModelVersions for application/json ContentType.
+type CompareModelVersionsJSONRequestBody = ModelVersionComparisonRequest
+
+// ArchiveModelVersionJSONRequestBody defines body for ArchiveModelVersion for application/json ContentType.
+type ArchiveModelVersionJSONRequestBody = ArchiveModelVersionRequest
+
+// PromoteModelVersionJSONRequestBody defines body for PromoteModelVersion for application/json ContentType.
+type PromoteModelVersionJSONRequestBody = PromoteModelVersionRequest
 
 // CreateTrainingRunJSONRequestBody defines body for CreateTrainingRun for application/json ContentType.
 type CreateTrainingRunJSONRequestBody = CreateTrainingRun
@@ -417,6 +566,24 @@ type ServerInterface interface {
 	// (POST /api/llm/assist)
 	GenerateLLMAssistance(w http.ResponseWriter, r *http.Request)
 
+	// (PUT /api/model-aliases/{alias})
+	SetModelAlias(w http.ResponseWriter, r *http.Request, alias string)
+
+	// (POST /api/model-version-comparisons)
+	CompareModelVersions(w http.ResponseWriter, r *http.Request)
+
+	// (GET /api/model-versions)
+	ListModelVersions(w http.ResponseWriter, r *http.Request, params ListModelVersionsParams)
+
+	// (GET /api/model-versions/{model_version_id})
+	GetModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
+
+	// (POST /api/model-versions/{model_version_id}/archive)
+	ArchiveModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
+
+	// (POST /api/model-versions/{model_version_id}/promote)
+	PromoteModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
+
 	// (GET /api/model-weights)
 	ListModelWeights(w http.ResponseWriter, r *http.Request)
 
@@ -434,6 +601,9 @@ type ServerInterface interface {
 
 	// (POST /api/training-runs/{run_id}/cancel)
 	CancelTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
+
+	// (GET /api/training-runs/{run_id}/metrics)
+	GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request, runId RunID, params GetTrainingRunMetricsParams)
 
 	// (POST /api/training-runs/{run_id}/pause)
 	PauseTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
@@ -491,6 +661,36 @@ func (_ Unimplemented) GenerateLLMAssistance(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// (PUT /api/model-aliases/{alias})
+func (_ Unimplemented) SetModelAlias(w http.ResponseWriter, r *http.Request, alias string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/model-version-comparisons)
+func (_ Unimplemented) CompareModelVersions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/model-versions)
+func (_ Unimplemented) ListModelVersions(w http.ResponseWriter, r *http.Request, params ListModelVersionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/model-versions/{model_version_id})
+func (_ Unimplemented) GetModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/model-versions/{model_version_id}/archive)
+func (_ Unimplemented) ArchiveModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/model-versions/{model_version_id}/promote)
+func (_ Unimplemented) PromoteModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /api/model-weights)
 func (_ Unimplemented) ListModelWeights(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -518,6 +718,11 @@ func (_ Unimplemented) GetTrainingRun(w http.ResponseWriter, r *http.Request, ru
 
 // (POST /api/training-runs/{run_id}/cancel)
 func (_ Unimplemented) CancelTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/training-runs/{run_id}/metrics)
+func (_ Unimplemented) GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request, runId RunID, params GetTrainingRunMetricsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -673,6 +878,209 @@ func (siw *ServerInterfaceWrapper) GenerateLLMAssistance(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// SetModelAlias operation middleware
+func (siw *ServerInterfaceWrapper) SetModelAlias(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "alias" -------------
+	var alias string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "alias", chi.URLParam(r, "alias"), &alias, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "alias", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetModelAlias(w, r, alias)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompareModelVersions operation middleware
+func (siw *ServerInterfaceWrapper) CompareModelVersions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompareModelVersions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModelVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListModelVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelVersionsParams
+
+	// ------------- Optional query parameter "dataset_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dataset_id", r.URL.Query(), &params.DatasetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dataset_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "dataset_version_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dataset_version_id", r.URL.Query(), &params.DatasetVersionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dataset_version_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_version_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "architecture" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "architecture", r.URL.Query(), &params.Architecture, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "architecture"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "architecture", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pretraining" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pretraining", r.URL.Query(), &params.Pretraining, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pretraining"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pretraining", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModelVersions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModelVersion operation middleware
+func (siw *ServerInterfaceWrapper) GetModelVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_version_id" -------------
+	var modelVersionId ModelVersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_version_id", chi.URLParam(r, "model_version_id"), &modelVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModelVersion(w, r, modelVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveModelVersion operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveModelVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_version_id" -------------
+	var modelVersionId ModelVersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_version_id", chi.URLParam(r, "model_version_id"), &modelVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveModelVersion(w, r, modelVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PromoteModelVersion operation middleware
+func (siw *ServerInterfaceWrapper) PromoteModelVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_version_id" -------------
+	var modelVersionId ModelVersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_version_id", chi.URLParam(r, "model_version_id"), &modelVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PromoteModelVersion(w, r, modelVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListModelWeights operation middleware
 func (siw *ServerInterfaceWrapper) ListModelWeights(w http.ResponseWriter, r *http.Request) {
 
@@ -784,6 +1192,87 @@ func (siw *ServerInterfaceWrapper) CancelTrainingRun(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CancelTrainingRun(w, r, runId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTrainingRunMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "run_id" -------------
+	var runId RunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", chi.URLParam(r, "run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetTrainingRunMetricsParams
+
+	// ------------- Optional query parameter "attempt_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "attempt_id", r.URL.Query(), &params.AttemptId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "attempt_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attempt_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "metric_name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "metric_name", r.URL.Query(), &params.MetricName, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "metric_name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "metric_name", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after_id", r.URL.Query(), &params.AfterId, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTrainingRunMetrics(w, r, runId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1110,6 +1599,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/api/model-weights/{preset}", wrapper.EvictModelWeightCache)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/model-versions", wrapper.ListModelVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/model-versions/{model_version_id}", wrapper.GetModelVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/model-version-comparisons", wrapper.CompareModelVersions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/model-versions/{model_version_id}/promote", wrapper.PromoteModelVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/model-versions/{model_version_id}/archive", wrapper.ArchiveModelVersion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/model-aliases/{alias}", wrapper.SetModelAlias)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/llm/assist", wrapper.GenerateLLMAssistance)
 	})
 	r.Group(func(r chi.Router) {
@@ -1120,6 +1627,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/training-runs/{run_id}", wrapper.GetTrainingRun)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/training-runs/{run_id}/metrics", wrapper.GetTrainingRunMetrics)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/training-runs/{run_id}/pause", wrapper.PauseTrainingRun)
@@ -1356,6 +1866,309 @@ func (response GenerateLLMAssistance503JSONResponse) VisitGenerateLLMAssistanceR
 	return err
 }
 
+type SetModelAliasRequestObject struct {
+	Alias string `json:"alias"`
+	Body  *SetModelAliasJSONRequestBody
+}
+
+type SetModelAliasResponseObject interface {
+	VisitSetModelAliasResponse(w http.ResponseWriter) error
+}
+
+type SetModelAlias200JSONResponse FreeFormObject
+
+func (response SetModelAlias200JSONResponse) VisitSetModelAliasResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelAlias404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response SetModelAlias404JSONResponse) VisitSetModelAliasResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelAlias409JSONResponse ErrorEnvelope
+
+func (response SetModelAlias409JSONResponse) VisitSetModelAliasResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetModelAlias422JSONResponse ErrorEnvelope
+
+func (response SetModelAlias422JSONResponse) VisitSetModelAliasResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompareModelVersionsRequestObject struct {
+	Body *CompareModelVersionsJSONRequestBody
+}
+
+type CompareModelVersionsResponseObject interface {
+	VisitCompareModelVersionsResponse(w http.ResponseWriter) error
+}
+
+type CompareModelVersions200JSONResponse FreeFormObject
+
+func (response CompareModelVersions200JSONResponse) VisitCompareModelVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompareModelVersions404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response CompareModelVersions404JSONResponse) VisitCompareModelVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompareModelVersions422JSONResponse ErrorEnvelope
+
+func (response CompareModelVersions422JSONResponse) VisitCompareModelVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelVersionsRequestObject struct {
+	Params ListModelVersionsParams
+}
+
+type ListModelVersionsResponseObject interface {
+	VisitListModelVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListModelVersions200JSONResponse FreeFormObject
+
+func (response ListModelVersions200JSONResponse) VisitListModelVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelVersionRequestObject struct {
+	ModelVersionId ModelVersionID `json:"model_version_id"`
+}
+
+type GetModelVersionResponseObject interface {
+	VisitGetModelVersionResponse(w http.ResponseWriter) error
+}
+
+type GetModelVersion200JSONResponse FreeFormObject
+
+func (response GetModelVersion200JSONResponse) VisitGetModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelVersion404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response GetModelVersion404JSONResponse) VisitGetModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveModelVersionRequestObject struct {
+	ModelVersionId ModelVersionID `json:"model_version_id"`
+	Body           *ArchiveModelVersionJSONRequestBody
+}
+
+type ArchiveModelVersionResponseObject interface {
+	VisitArchiveModelVersionResponse(w http.ResponseWriter) error
+}
+
+type ArchiveModelVersion200JSONResponse FreeFormObject
+
+func (response ArchiveModelVersion200JSONResponse) VisitArchiveModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveModelVersion404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response ArchiveModelVersion404JSONResponse) VisitArchiveModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveModelVersion409JSONResponse ErrorEnvelope
+
+func (response ArchiveModelVersion409JSONResponse) VisitArchiveModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveModelVersion422JSONResponse ErrorEnvelope
+
+func (response ArchiveModelVersion422JSONResponse) VisitArchiveModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromoteModelVersionRequestObject struct {
+	ModelVersionId ModelVersionID `json:"model_version_id"`
+	Body           *PromoteModelVersionJSONRequestBody
+}
+
+type PromoteModelVersionResponseObject interface {
+	VisitPromoteModelVersionResponse(w http.ResponseWriter) error
+}
+
+type PromoteModelVersion200JSONResponse FreeFormObject
+
+func (response PromoteModelVersion200JSONResponse) VisitPromoteModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromoteModelVersion404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response PromoteModelVersion404JSONResponse) VisitPromoteModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromoteModelVersion409JSONResponse ErrorEnvelope
+
+func (response PromoteModelVersion409JSONResponse) VisitPromoteModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PromoteModelVersion422JSONResponse ErrorEnvelope
+
+func (response PromoteModelVersion422JSONResponse) VisitPromoteModelVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListModelWeightsRequestObject struct {
 }
 
@@ -1562,6 +2375,43 @@ func (response CancelTrainingRun409JSONResponse) VisitCancelTrainingRunResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTrainingRunMetricsRequestObject struct {
+	RunId  RunID `json:"run_id"`
+	Params GetTrainingRunMetricsParams
+}
+
+type GetTrainingRunMetricsResponseObject interface {
+	VisitGetTrainingRunMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetTrainingRunMetrics200JSONResponse FreeFormObject
+
+func (response GetTrainingRunMetrics200JSONResponse) VisitGetTrainingRunMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTrainingRunMetrics404JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response GetTrainingRunMetrics404JSONResponse) VisitGetTrainingRunMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1948,6 +2798,24 @@ type StrictServerInterface interface {
 	// (POST /api/llm/assist)
 	GenerateLLMAssistance(ctx context.Context, request GenerateLLMAssistanceRequestObject) (GenerateLLMAssistanceResponseObject, error)
 
+	// (PUT /api/model-aliases/{alias})
+	SetModelAlias(ctx context.Context, request SetModelAliasRequestObject) (SetModelAliasResponseObject, error)
+
+	// (POST /api/model-version-comparisons)
+	CompareModelVersions(ctx context.Context, request CompareModelVersionsRequestObject) (CompareModelVersionsResponseObject, error)
+
+	// (GET /api/model-versions)
+	ListModelVersions(ctx context.Context, request ListModelVersionsRequestObject) (ListModelVersionsResponseObject, error)
+
+	// (GET /api/model-versions/{model_version_id})
+	GetModelVersion(ctx context.Context, request GetModelVersionRequestObject) (GetModelVersionResponseObject, error)
+
+	// (POST /api/model-versions/{model_version_id}/archive)
+	ArchiveModelVersion(ctx context.Context, request ArchiveModelVersionRequestObject) (ArchiveModelVersionResponseObject, error)
+
+	// (POST /api/model-versions/{model_version_id}/promote)
+	PromoteModelVersion(ctx context.Context, request PromoteModelVersionRequestObject) (PromoteModelVersionResponseObject, error)
+
 	// (GET /api/model-weights)
 	ListModelWeights(ctx context.Context, request ListModelWeightsRequestObject) (ListModelWeightsResponseObject, error)
 
@@ -1965,6 +2833,9 @@ type StrictServerInterface interface {
 
 	// (POST /api/training-runs/{run_id}/cancel)
 	CancelTrainingRun(ctx context.Context, request CancelTrainingRunRequestObject) (CancelTrainingRunResponseObject, error)
+
+	// (GET /api/training-runs/{run_id}/metrics)
+	GetTrainingRunMetrics(ctx context.Context, request GetTrainingRunMetricsRequestObject) (GetTrainingRunMetricsResponseObject, error)
 
 	// (POST /api/training-runs/{run_id}/pause)
 	PauseTrainingRun(ctx context.Context, request PauseTrainingRunRequestObject) (PauseTrainingRunResponseObject, error)
@@ -2182,6 +3053,188 @@ func (sh *strictHandler) GenerateLLMAssistance(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// SetModelAlias operation middleware
+func (sh *strictHandler) SetModelAlias(w http.ResponseWriter, r *http.Request, alias string) {
+	var request SetModelAliasRequestObject
+
+	request.Alias = alias
+
+	var body SetModelAliasJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetModelAlias(ctx, request.(SetModelAliasRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetModelAlias")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetModelAliasResponseObject); ok {
+		if err := validResponse.VisitSetModelAliasResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompareModelVersions operation middleware
+func (sh *strictHandler) CompareModelVersions(w http.ResponseWriter, r *http.Request) {
+	var request CompareModelVersionsRequestObject
+
+	var body CompareModelVersionsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompareModelVersions(ctx, request.(CompareModelVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompareModelVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompareModelVersionsResponseObject); ok {
+		if err := validResponse.VisitCompareModelVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModelVersions operation middleware
+func (sh *strictHandler) ListModelVersions(w http.ResponseWriter, r *http.Request, params ListModelVersionsParams) {
+	var request ListModelVersionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModelVersions(ctx, request.(ListModelVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModelVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelVersionsResponseObject); ok {
+		if err := validResponse.VisitListModelVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModelVersion operation middleware
+func (sh *strictHandler) GetModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	var request GetModelVersionRequestObject
+
+	request.ModelVersionId = modelVersionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModelVersion(ctx, request.(GetModelVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModelVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelVersionResponseObject); ok {
+		if err := validResponse.VisitGetModelVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ArchiveModelVersion operation middleware
+func (sh *strictHandler) ArchiveModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	var request ArchiveModelVersionRequestObject
+
+	request.ModelVersionId = modelVersionId
+
+	var body ArchiveModelVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ArchiveModelVersion(ctx, request.(ArchiveModelVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ArchiveModelVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ArchiveModelVersionResponseObject); ok {
+		if err := validResponse.VisitArchiveModelVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PromoteModelVersion operation middleware
+func (sh *strictHandler) PromoteModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
+	var request PromoteModelVersionRequestObject
+
+	request.ModelVersionId = modelVersionId
+
+	var body PromoteModelVersionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PromoteModelVersion(ctx, request.(PromoteModelVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PromoteModelVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PromoteModelVersionResponseObject); ok {
+		if err := validResponse.VisitPromoteModelVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListModelWeights operation middleware
 func (sh *strictHandler) ListModelWeights(w http.ResponseWriter, r *http.Request) {
 	var request ListModelWeightsRequestObject
@@ -2332,6 +3385,33 @@ func (sh *strictHandler) CancelTrainingRun(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CancelTrainingRunResponseObject); ok {
 		if err := validResponse.VisitCancelTrainingRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTrainingRunMetrics operation middleware
+func (sh *strictHandler) GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request, runId RunID, params GetTrainingRunMetricsParams) {
+	var request GetTrainingRunMetricsRequestObject
+
+	request.RunId = runId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTrainingRunMetrics(ctx, request.(GetTrainingRunMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTrainingRunMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTrainingRunMetricsResponseObject); ok {
+		if err := validResponse.VisitGetTrainingRunMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

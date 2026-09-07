@@ -51,9 +51,18 @@ message ProgressRequest {
   int64 execution_epoch = 3;
   google.protobuf.Struct progress = 4;
   string request_id = 5;
+  repeated MetricPoint metric_points = 6;
 }
 
 message ProgressResponse {}
+
+message MetricPoint {
+  string name = 1;
+  int64 step = 2;
+  double value = 3;
+  google.protobuf.Timestamp recorded_at = 4;
+  google.protobuf.Struct context = 5;
+}
 
 message CompleteRequest {
   string job_id = 1;

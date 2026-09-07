@@ -87,6 +87,91 @@ func (models *ReadModels) GetTrainingRun(ctx context.Context, id string) (map[st
 	return queryObject(ctx, models.pool, trainingRunSelect+` WHERE tr.id=$1`, id)
 }
 
+func (models *ReadModels) GetTrainingRunMetrics(ctx context.Context, runID string, filter httpapi.MetricsQuery) (map[string]any, error) {
+	var status string
+	if err := models.pool.QueryRow(ctx, `SELECT status FROM training_runs WHERE id=$1`, runID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, httpapi.ErrReadModelNotFound
+		}
+		return nil, err
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 1000
+	}
+	if filter.Limit > 5000 {
+		filter.Limit = 5000
+	}
+	rows, err := models.pool.Query(ctx, `
+SELECT id, attempt_id::text, execution_epoch, metric_name, step, value, recorded_at, context
+FROM training_metric_points
+WHERE training_run_id=$1
+  AND (NULLIF($2, '') IS NULL OR attempt_id=NULLIF($2, '')::uuid)
+  AND (NULLIF($3, '') IS NULL OR metric_name=$3)
+  AND id > $4
+ORDER BY id
+LIMIT $5`, runID, filter.AttemptID, filter.MetricName, filter.AfterID, filter.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	points := make([]map[string]any, 0)
+	nextCursor := filter.AfterID
+	for rows.Next() {
+		var id, executionEpoch, step int64
+		var attemptID, name string
+		var value float64
+		var recordedAt any
+		var contextJSON []byte
+		if err := rows.Scan(&id, &attemptID, &executionEpoch, &name, &step, &value, &recordedAt, &contextJSON); err != nil {
+			return nil, err
+		}
+		contextValue := map[string]any{}
+		_ = json.Unmarshal(contextJSON, &contextValue)
+		points = append(points, map[string]any{
+			"id": id, "attempt_id": attemptID, "execution_epoch": executionEpoch,
+			"metric_name": name, "step": step, "value": value,
+			"recorded_at": recordedAt, "context": contextValue,
+		})
+		nextCursor = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	attemptRows, err := models.pool.Query(ctx, `
+SELECT ja.id::text, ja.attempt_number, ja.execution_epoch, ja.status, ja.started_at, ja.finished_at
+FROM job_attempts ja
+JOIN training_runs tr ON tr.job_id=ja.job_id
+WHERE tr.id=$1
+ORDER BY ja.attempt_number`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer attemptRows.Close()
+	attempts := make([]map[string]any, 0)
+	for attemptRows.Next() {
+		var id, attemptStatus string
+		var number int
+		var epoch int64
+		var startedAt any
+		var finishedAt any
+		if err := attemptRows.Scan(&id, &number, &epoch, &attemptStatus, &startedAt, &finishedAt); err != nil {
+			return nil, err
+		}
+		attempts = append(attempts, map[string]any{
+			"attempt_id": id, "attempt_number": number, "execution_epoch": epoch,
+			"status": attemptStatus, "started_at": startedAt, "finished_at": finishedAt,
+		})
+	}
+	pollAfter := 0
+	if status == "queued" || status == "running" || status == "paused" {
+		pollAfter = 2000
+	}
+	return map[string]any{
+		"training_run_id": runID, "run_status": status, "metric_points": points,
+		"next_cursor": nextCursor, "attempts": attempts, "poll_after_ms": pollAfter,
+	}, attemptRows.Err()
+}
+
 func (models *ReadModels) JobIDForRun(ctx context.Context, id string) (string, error) {
 	var jobID string
 	err := models.pool.QueryRow(ctx, `SELECT job_id::text FROM training_runs WHERE id=$1`, id).Scan(&jobID)

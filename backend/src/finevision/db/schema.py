@@ -204,12 +204,96 @@ model_versions = sa.Table(
     sa.Column("calibration_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
     sa.Column("threshold_strategy_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
     sa.Column("metrics", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("name", sa.Text()),
+    sa.Column("description", sa.Text()),
+    sa.Column("backbone_key", sa.Text()),
+    sa.Column("architecture", sa.Text()),
+    sa.Column("pretraining_method", sa.Text()),
+    sa.Column("pretraining_dataset", sa.Text()),
+    sa.Column("input_size", sa.Integer()),
+    sa.Column("feature_dim", sa.Integer()),
+    sa.Column("parameter_count", sa.BigInteger()),
+    sa.Column("pooling", sa.Text()),
+    sa.Column("head_type", sa.Text()),
+    sa.Column("evaluation_context", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.CheckConstraint(
         "status in ('candidate', 'staging', 'production', 'archived', 'failed')",
         name="ck_model_versions_status",
     ),
+)
+
+training_metric_points = sa.Table(
+    "training_metric_points",
+    metadata,
+    sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+    sa.Column(
+        "training_run_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("training_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "attempt_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("job_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("execution_epoch", sa.BigInteger(), nullable=False),
+    sa.Column("metric_name", sa.Text(), nullable=False),
+    sa.Column("step", sa.BigInteger(), nullable=False),
+    sa.Column("value", sa.Float(), nullable=False),
+    sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("context", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.CheckConstraint("step >= 0", name="ck_training_metric_points_step"),
+    sa.UniqueConstraint(
+        "training_run_id",
+        "attempt_id",
+        "metric_name",
+        "step",
+        name="uq_training_metric_points_attempt_name_step",
+    ),
+)
+
+model_version_aliases = sa.Table(
+    "model_version_aliases",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False),
+    sa.Column(
+        "model_version_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("model_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("alias", sa.Text(), nullable=False),
+    sa.Column("updated_by", sa.Text(), nullable=False),
+    sa.Column("reason", sa.Text()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint("alias in ('champion', 'challenger')", name="ck_model_version_aliases_alias"),
+    sa.UniqueConstraint("dataset_id", "alias", name="uq_model_version_aliases_dataset_alias"),
+)
+
+model_version_events = sa.Table(
+    "model_version_events",
+    metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column(
+        "model_version_id",
+        postgresql.UUID(as_uuid=True),
+        sa.ForeignKey("model_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column("event_type", sa.Text(), nullable=False),
+    sa.Column("from_status", sa.Text()),
+    sa.Column("to_status", sa.Text()),
+    sa.Column("alias", sa.Text()),
+    sa.Column("actor", sa.Text(), nullable=False),
+    sa.Column("reason", sa.Text()),
+    sa.Column("payload", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
 inference_runs = sa.Table(
@@ -351,6 +435,24 @@ sa.Index(
     inference_runs.c.dataset_version_id,
     inference_runs.c.model_version_id,
     inference_runs.c.created_at,
+)
+sa.Index(
+    "ix_training_metric_points_run_cursor",
+    training_metric_points.c.training_run_id,
+    training_metric_points.c.id,
+)
+sa.Index(
+    "ix_training_metric_points_series",
+    training_metric_points.c.training_run_id,
+    training_metric_points.c.attempt_id,
+    training_metric_points.c.metric_name,
+    training_metric_points.c.step,
+)
+sa.Index("ix_model_version_aliases_version", model_version_aliases.c.model_version_id)
+sa.Index(
+    "ix_model_version_events_version_created",
+    model_version_events.c.model_version_id,
+    model_version_events.c.created_at,
 )
 sa.Index(
     "ix_inference_events_run_created_at",

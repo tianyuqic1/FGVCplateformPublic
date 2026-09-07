@@ -91,6 +91,119 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/FreeFormObject"}
         "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-versions:
+    get:
+      operationId: listModelVersions
+      parameters:
+        - name: dataset_id
+          in: query
+          schema: {type: string}
+        - name: dataset_version_id
+          in: query
+          schema: {type: string}
+        - name: architecture
+          in: query
+          schema: {type: string}
+        - name: pretraining
+          in: query
+          schema: {type: string}
+        - name: status
+          in: query
+          schema: {type: string, enum: [candidate, staging, production, archived, failed]}
+      responses:
+        "200":
+          description: Governed Model Version read models
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+  /api/model-versions/{model_version_id}:
+    parameters:
+      - $ref: "#/components/parameters/ModelVersionID"
+    get:
+      operationId: getModelVersion
+      responses:
+        "200":
+          description: Model Version detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-version-comparisons:
+    post:
+      operationId: compareModelVersions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ModelVersionComparisonRequest"}
+      responses:
+        "200":
+          description: Non-persistent comparison view with comparability warnings
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-versions/{model_version_id}/promote:
+    parameters:
+      - $ref: "#/components/parameters/ModelVersionID"
+    post:
+      operationId: promoteModelVersion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/PromoteModelVersionRequest"}
+      responses:
+        "200":
+          description: Promoted Model Version
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-versions/{model_version_id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ModelVersionID"
+    post:
+      operationId: archiveModelVersion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ArchiveModelVersionRequest"}
+      responses:
+        "200":
+          description: Archived Model Version
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+  /api/model-aliases/{alias}:
+    parameters:
+      - name: alias
+        in: path
+        required: true
+        schema: {type: string, enum: [champion, challenger]}
+    put:
+      operationId: setModelAlias
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SetModelAliasRequest"}
+      responses:
+        "200":
+          description: Updated Dataset-scoped Model Alias
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
   /api/llm/assist:
     post:
       operationId: generateLLMAssistance
@@ -135,6 +248,30 @@ paths:
       operationId: getTrainingRun
       responses:
         "200": {$ref: "#/components/responses/TrainingRunResponse"}
+        "404": {$ref: "#/components/responses/ErrorResponse"}
+  /api/training-runs/{run_id}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+      - name: attempt_id
+        in: query
+        schema: {type: string, format: uuid}
+      - name: metric_name
+        in: query
+        schema: {type: string}
+      - name: after_id
+        in: query
+        schema: {type: integer, format: int64, minimum: 0, default: 0}
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 5000, default: 1000}
+    get:
+      operationId: getTrainingRunMetrics
+      responses:
+        "200":
+          description: Cursor-based Training Metric Points
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
         "404": {$ref: "#/components/responses/ErrorResponse"}
   /api/training-runs/{run_id}/pause:
     parameters:
@@ -207,6 +344,9 @@ paths:
                   required: [progress]
                   properties:
                     progress: {$ref: "#/components/schemas/FreeFormObject"}
+                    metric_points:
+                      type: array
+                      items: {$ref: "#/components/schemas/MetricPointInput"}
       responses:
         "204": {description: Progress accepted}
         "409": {$ref: "#/components/responses/ErrorResponse"}
@@ -245,6 +385,7 @@ components:
     DatasetID: {name: dataset_id, in: path, required: true, schema: {type: string}}
     JobID: {name: job_id, in: path, required: true, schema: {type: string, format: uuid}}
     RunID: {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
+    ModelVersionID: {name: model_version_id, in: path, required: true, schema: {type: string, format: uuid}}
   schemas:
     FreeFormObject:
       type: object
@@ -327,9 +468,16 @@ components:
       properties:
         dataset_id: {type: string}
         dataset_version_id: {type: string}
-        backbone_id: {type: string, default: dinov3_vits16}
+        backbone_key:
+          type: string
+          enum: [dinov3_vits16_lvd1689m, imagenet_vits16_augreg_in21k_ft_in1k, imagenet_resnet50_a1_in1k]
+          default: dinov3_vits16_lvd1689m
+        backbone_id: {type: string, deprecated: true}
         max_attempts: {type: integer, minimum: 1, maximum: 10, default: 3}
-        extractor: {type: string, enum: [color_stats, dinov3_vits, dinov3_vitb, dinov3_vitl], default: color_stats}
+        extractor:
+          type: string
+          enum: [color_stats, dinov3_vits, imagenet_vits, imagenet_resnet50]
+          deprecated: true
         feature_batch_size: {type: integer, minimum: 1, maximum: 128, default: 8}
         image_size: {type: integer, minimum: 128, maximum: 1024}
         feature_pool: {type: string, enum: [cls, model], default: cls}
@@ -349,6 +497,46 @@ components:
       properties:
         attempt_id: {type: string, format: uuid}
         execution_epoch: {type: integer, format: int64, minimum: 1}
+    MetricPointInput:
+      type: object
+      required: [name, step, value]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+        step: {type: integer, format: int64, minimum: 0}
+        value: {type: number, format: double}
+        recorded_at: {type: string, format: date-time}
+        context: {$ref: "#/components/schemas/FreeFormObject"}
+    ModelVersionComparisonRequest:
+      type: object
+      required: [model_version_ids]
+      properties:
+        model_version_ids:
+          type: array
+          minItems: 2
+          maxItems: 5
+          uniqueItems: true
+          items: {type: string, format: uuid}
+    PromoteModelVersionRequest:
+      type: object
+      required: [target_status, actor, reason]
+      properties:
+        target_status: {type: string, enum: [staging, production]}
+        actor: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 1, maxLength: 1000}
+    ArchiveModelVersionRequest:
+      type: object
+      required: [actor, reason]
+      properties:
+        actor: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 1, maxLength: 1000}
+    SetModelAliasRequest:
+      type: object
+      required: [dataset_id, model_version_id, actor, reason]
+      properties:
+        dataset_id: {type: string, minLength: 1}
+        model_version_id: {type: string, format: uuid}
+        actor: {type: string, minLength: 1, maxLength: 200}
+        reason: {type: string, minLength: 1, maxLength: 1000}
     ArtifactDescriptor:
       type: object
       required: [artifact_id, artifact_type, uri, sha256, size_bytes, content_type, storage_version, producer, schema_version]

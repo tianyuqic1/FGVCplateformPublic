@@ -1,11 +1,11 @@
 services:
   python-training-worker:
     environment:
-      FINEVISION_DINOV3_DEVICE: cuda
+      FINEVISION_COMPUTE_DEVICE: cuda
       FINEVISION_LINEAR_HEAD_DEVICE: cuda
     gpus: all
 
   python-inference-runtime:
     environment:
-      FINEVISION_DINOV3_DEVICE: cuda
+      FINEVISION_COMPUTE_DEVICE: cuda
     gpus: all

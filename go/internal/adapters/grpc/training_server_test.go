@@ -40,3 +40,39 @@ func TestTrainingServerMapsClaimAndStableErrors(t *testing.T) {
 		t.Fatalf("claim response = %#v", response)
 	}
 }
+
+func TestTrainingServerPersistsMetricPointsAndRejectsStaleEpoch(t *testing.T) {
+	t.Parallel()
+	repository := training.NewMemoryRepository()
+	service := training.NewService(repository, time.Now, 2*time.Minute)
+	server := grpcadapter.NewTrainingLifecycleServer(service)
+	created, err := service.Create(context.Background(), training.CreateCommand{
+		DatasetID: "dataset", DatasetVersionID: "version", BackboneID: "dinov3_vits16",
+		Payload: map[string]any{}, MaxAttempts: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := service.Claim(context.Background(), training.ClaimCommand{JobID: created.JobID, DispatchGeneration: 1, WorkerID: "worker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.ReportProgress(context.Background(), &computev1.ProgressRequest{
+		JobId: created.JobID, AttemptId: claim.AttemptID, ExecutionEpoch: claim.ExecutionEpoch,
+		MetricPoints: []*computev1.MetricPoint{{Name: "eval_accuracy", Step: 1, Value: .9}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, _ := repository.Get(context.Background(), created.JobID)
+	if len(aggregate.Metrics) != 1 || aggregate.Metrics[0].Name != "eval_accuracy" {
+		t.Fatalf("metrics = %#v", aggregate.Metrics)
+	}
+	_, err = server.ReportProgress(context.Background(), &computev1.ProgressRequest{
+		JobId: created.JobID, AttemptId: claim.AttemptID, ExecutionEpoch: claim.ExecutionEpoch + 1,
+		MetricPoints: []*computev1.MetricPoint{{Name: "eval_accuracy", Step: 2, Value: .95}},
+	})
+	if status.Code(err) != codes.Aborted {
+		t.Fatalf("stale progress code = %s", status.Code(err))
+	}
+}

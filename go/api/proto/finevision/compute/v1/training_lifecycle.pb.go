@@ -310,6 +310,7 @@ type ProgressRequest struct {
 	ExecutionEpoch int64                  `protobuf:"varint,3,opt,name=execution_epoch,json=executionEpoch,proto3" json:"execution_epoch,omitempty"`
 	Progress       *structpb.Struct       `protobuf:"bytes,4,opt,name=progress,proto3" json:"progress,omitempty"`
 	RequestId      string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	MetricPoints   []*MetricPoint         `protobuf:"bytes,6,rep,name=metric_points,json=metricPoints,proto3" json:"metric_points,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -379,6 +380,13 @@ func (x *ProgressRequest) GetRequestId() string {
 	return ""
 }
 
+func (x *ProgressRequest) GetMetricPoints() []*MetricPoint {
+	if x != nil {
+		return x.MetricPoints
+	}
+	return nil
+}
+
 type ProgressResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -415,6 +423,82 @@ func (*ProgressResponse) Descriptor() ([]byte, []int) {
 	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{5}
 }
 
+type MetricPoint struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Step          int64                  `protobuf:"varint,2,opt,name=step,proto3" json:"step,omitempty"`
+	Value         float64                `protobuf:"fixed64,3,opt,name=value,proto3" json:"value,omitempty"`
+	RecordedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=recorded_at,json=recordedAt,proto3" json:"recorded_at,omitempty"`
+	Context       *structpb.Struct       `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MetricPoint) Reset() {
+	*x = MetricPoint{}
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetricPoint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetricPoint) ProtoMessage() {}
+
+func (x *MetricPoint) ProtoReflect() protoreflect.Message {
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetricPoint.ProtoReflect.Descriptor instead.
+func (*MetricPoint) Descriptor() ([]byte, []int) {
+	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *MetricPoint) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *MetricPoint) GetStep() int64 {
+	if x != nil {
+		return x.Step
+	}
+	return 0
+}
+
+func (x *MetricPoint) GetValue() float64 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+func (x *MetricPoint) GetRecordedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.RecordedAt
+	}
+	return nil
+}
+
+func (x *MetricPoint) GetContext() *structpb.Struct {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
 type CompleteRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	JobId          string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
@@ -431,7 +515,7 @@ type CompleteRequest struct {
 
 func (x *CompleteRequest) Reset() {
 	*x = CompleteRequest{}
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[6]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -443,7 +527,7 @@ func (x *CompleteRequest) String() string {
 func (*CompleteRequest) ProtoMessage() {}
 
 func (x *CompleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[6]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -456,7 +540,7 @@ func (x *CompleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRequest) Descriptor() ([]byte, []int) {
-	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{6}
+	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CompleteRequest) GetJobId() string {
@@ -527,7 +611,7 @@ type CompleteResponse struct {
 
 func (x *CompleteResponse) Reset() {
 	*x = CompleteResponse{}
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[7]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -539,7 +623,7 @@ func (x *CompleteResponse) String() string {
 func (*CompleteResponse) ProtoMessage() {}
 
 func (x *CompleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[7]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -552,7 +636,7 @@ func (x *CompleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteResponse.ProtoReflect.Descriptor instead.
 func (*CompleteResponse) Descriptor() ([]byte, []int) {
-	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{7}
+	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CompleteResponse) GetJobId() string {
@@ -598,7 +682,7 @@ type FailRequest struct {
 
 func (x *FailRequest) Reset() {
 	*x = FailRequest{}
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[8]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +694,7 @@ func (x *FailRequest) String() string {
 func (*FailRequest) ProtoMessage() {}
 
 func (x *FailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[8]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +707,7 @@ func (x *FailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailRequest.ProtoReflect.Descriptor instead.
 func (*FailRequest) Descriptor() ([]byte, []int) {
-	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{8}
+	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FailRequest) GetJobId() string {
@@ -683,7 +767,7 @@ type FailResponse struct {
 
 func (x *FailResponse) Reset() {
 	*x = FailResponse{}
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[9]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -695,7 +779,7 @@ func (x *FailResponse) String() string {
 func (*FailResponse) ProtoMessage() {}
 
 func (x *FailResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[9]
+	mi := &file_finevision_compute_v1_training_lifecycle_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -708,7 +792,7 @@ func (x *FailResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailResponse.ProtoReflect.Descriptor instead.
 func (*FailResponse) Descriptor() ([]byte, []int) {
-	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{9}
+	return file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP(), []int{10}
 }
 
 var File_finevision_compute_v1_training_lifecycle_proto protoreflect.FileDescriptor
@@ -740,7 +824,7 @@ const file_finevision_compute_v1_training_lifecycle_proto_rawDesc = "" +
 	"request_id\x18\x04 \x01(\tR\trequestId\"w\n" +
 	"\x11HeartbeatResponse\x12\x1c\n" +
 	"\tdirective\x18\x01 \x01(\tR\tdirective\x12D\n" +
-	"\x10lease_expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0eleaseExpiresAt\"\xc4\x01\n" +
+	"\x10lease_expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x0eleaseExpiresAt\"\x8d\x02\n" +
 	"\x0fProgressRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
 	"\n" +
@@ -748,8 +832,16 @@ const file_finevision_compute_v1_training_lifecycle_proto_rawDesc = "" +
 	"\x0fexecution_epoch\x18\x03 \x01(\x03R\x0eexecutionEpoch\x123\n" +
 	"\bprogress\x18\x04 \x01(\v2\x17.google.protobuf.StructR\bprogress\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x05 \x01(\tR\trequestId\"\x12\n" +
-	"\x10ProgressResponse\"\xd7\x02\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId\x12G\n" +
+	"\rmetric_points\x18\x06 \x03(\v2\".finevision.compute.v1.MetricPointR\fmetricPoints\"\x12\n" +
+	"\x10ProgressResponse\"\xbb\x01\n" +
+	"\vMetricPoint\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04step\x18\x02 \x01(\x03R\x04step\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\x01R\x05value\x12;\n" +
+	"\vrecorded_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"recordedAt\x121\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.google.protobuf.StructR\acontext\"\xd7\x02\n" +
 	"\x0fCompleteRequest\x12\x15\n" +
 	"\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1d\n" +
 	"\n" +
@@ -797,7 +889,7 @@ func file_finevision_compute_v1_training_lifecycle_proto_rawDescGZIP() []byte {
 	return file_finevision_compute_v1_training_lifecycle_proto_rawDescData
 }
 
-var file_finevision_compute_v1_training_lifecycle_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_finevision_compute_v1_training_lifecycle_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_finevision_compute_v1_training_lifecycle_proto_goTypes = []any{
 	(*ClaimRequest)(nil),          // 0: finevision.compute.v1.ClaimRequest
 	(*ClaimResponse)(nil),         // 1: finevision.compute.v1.ClaimResponse
@@ -805,37 +897,41 @@ var file_finevision_compute_v1_training_lifecycle_proto_goTypes = []any{
 	(*HeartbeatResponse)(nil),     // 3: finevision.compute.v1.HeartbeatResponse
 	(*ProgressRequest)(nil),       // 4: finevision.compute.v1.ProgressRequest
 	(*ProgressResponse)(nil),      // 5: finevision.compute.v1.ProgressResponse
-	(*CompleteRequest)(nil),       // 6: finevision.compute.v1.CompleteRequest
-	(*CompleteResponse)(nil),      // 7: finevision.compute.v1.CompleteResponse
-	(*FailRequest)(nil),           // 8: finevision.compute.v1.FailRequest
-	(*FailResponse)(nil),          // 9: finevision.compute.v1.FailResponse
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),       // 11: google.protobuf.Struct
-	(*ArtifactDescriptor)(nil),    // 12: finevision.compute.v1.ArtifactDescriptor
+	(*MetricPoint)(nil),           // 6: finevision.compute.v1.MetricPoint
+	(*CompleteRequest)(nil),       // 7: finevision.compute.v1.CompleteRequest
+	(*CompleteResponse)(nil),      // 8: finevision.compute.v1.CompleteResponse
+	(*FailRequest)(nil),           // 9: finevision.compute.v1.FailRequest
+	(*FailResponse)(nil),          // 10: finevision.compute.v1.FailResponse
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),       // 12: google.protobuf.Struct
+	(*ArtifactDescriptor)(nil),    // 13: finevision.compute.v1.ArtifactDescriptor
 }
 var file_finevision_compute_v1_training_lifecycle_proto_depIdxs = []int32{
-	10, // 0: finevision.compute.v1.ClaimResponse.lease_expires_at:type_name -> google.protobuf.Timestamp
-	11, // 1: finevision.compute.v1.ClaimResponse.payload:type_name -> google.protobuf.Struct
-	10, // 2: finevision.compute.v1.HeartbeatResponse.lease_expires_at:type_name -> google.protobuf.Timestamp
-	11, // 3: finevision.compute.v1.ProgressRequest.progress:type_name -> google.protobuf.Struct
-	12, // 4: finevision.compute.v1.CompleteRequest.artifacts:type_name -> finevision.compute.v1.ArtifactDescriptor
-	11, // 5: finevision.compute.v1.CompleteRequest.metrics:type_name -> google.protobuf.Struct
-	11, // 6: finevision.compute.v1.CompleteResponse.metrics:type_name -> google.protobuf.Struct
-	0,  // 7: finevision.compute.v1.TrainingLifecycle.Claim:input_type -> finevision.compute.v1.ClaimRequest
-	2,  // 8: finevision.compute.v1.TrainingLifecycle.Heartbeat:input_type -> finevision.compute.v1.HeartbeatRequest
-	4,  // 9: finevision.compute.v1.TrainingLifecycle.ReportProgress:input_type -> finevision.compute.v1.ProgressRequest
-	6,  // 10: finevision.compute.v1.TrainingLifecycle.Complete:input_type -> finevision.compute.v1.CompleteRequest
-	8,  // 11: finevision.compute.v1.TrainingLifecycle.Fail:input_type -> finevision.compute.v1.FailRequest
-	1,  // 12: finevision.compute.v1.TrainingLifecycle.Claim:output_type -> finevision.compute.v1.ClaimResponse
-	3,  // 13: finevision.compute.v1.TrainingLifecycle.Heartbeat:output_type -> finevision.compute.v1.HeartbeatResponse
-	5,  // 14: finevision.compute.v1.TrainingLifecycle.ReportProgress:output_type -> finevision.compute.v1.ProgressResponse
-	7,  // 15: finevision.compute.v1.TrainingLifecycle.Complete:output_type -> finevision.compute.v1.CompleteResponse
-	9,  // 16: finevision.compute.v1.TrainingLifecycle.Fail:output_type -> finevision.compute.v1.FailResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	11, // 0: finevision.compute.v1.ClaimResponse.lease_expires_at:type_name -> google.protobuf.Timestamp
+	12, // 1: finevision.compute.v1.ClaimResponse.payload:type_name -> google.protobuf.Struct
+	11, // 2: finevision.compute.v1.HeartbeatResponse.lease_expires_at:type_name -> google.protobuf.Timestamp
+	12, // 3: finevision.compute.v1.ProgressRequest.progress:type_name -> google.protobuf.Struct
+	6,  // 4: finevision.compute.v1.ProgressRequest.metric_points:type_name -> finevision.compute.v1.MetricPoint
+	11, // 5: finevision.compute.v1.MetricPoint.recorded_at:type_name -> google.protobuf.Timestamp
+	12, // 6: finevision.compute.v1.MetricPoint.context:type_name -> google.protobuf.Struct
+	13, // 7: finevision.compute.v1.CompleteRequest.artifacts:type_name -> finevision.compute.v1.ArtifactDescriptor
+	12, // 8: finevision.compute.v1.CompleteRequest.metrics:type_name -> google.protobuf.Struct
+	12, // 9: finevision.compute.v1.CompleteResponse.metrics:type_name -> google.protobuf.Struct
+	0,  // 10: finevision.compute.v1.TrainingLifecycle.Claim:input_type -> finevision.compute.v1.ClaimRequest
+	2,  // 11: finevision.compute.v1.TrainingLifecycle.Heartbeat:input_type -> finevision.compute.v1.HeartbeatRequest
+	4,  // 12: finevision.compute.v1.TrainingLifecycle.ReportProgress:input_type -> finevision.compute.v1.ProgressRequest
+	7,  // 13: finevision.compute.v1.TrainingLifecycle.Complete:input_type -> finevision.compute.v1.CompleteRequest
+	9,  // 14: finevision.compute.v1.TrainingLifecycle.Fail:input_type -> finevision.compute.v1.FailRequest
+	1,  // 15: finevision.compute.v1.TrainingLifecycle.Claim:output_type -> finevision.compute.v1.ClaimResponse
+	3,  // 16: finevision.compute.v1.TrainingLifecycle.Heartbeat:output_type -> finevision.compute.v1.HeartbeatResponse
+	5,  // 17: finevision.compute.v1.TrainingLifecycle.ReportProgress:output_type -> finevision.compute.v1.ProgressResponse
+	8,  // 18: finevision.compute.v1.TrainingLifecycle.Complete:output_type -> finevision.compute.v1.CompleteResponse
+	10, // 19: finevision.compute.v1.TrainingLifecycle.Fail:output_type -> finevision.compute.v1.FailResponse
+	15, // [15:20] is the sub-list for method output_type
+	10, // [10:15] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_finevision_compute_v1_training_lifecycle_proto_init() }
@@ -850,7 +946,7 @@ func file_finevision_compute_v1_training_lifecycle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_finevision_compute_v1_training_lifecycle_proto_rawDesc), len(file_finevision_compute_v1_training_lifecycle_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -15,8 +15,8 @@ def test_vit_small_extracts_features_and_trains_only_supported_integration_model
     pytest.importorskip("timm")
     root = Path(__file__).resolve().parents[2]
     manifest_data = json.loads((root / "weights" / "manifest.json").read_text(encoding="utf-8"))
-    assert [item["architecture"] for item in manifest_data["weights"]] == ["vit_small_patch16_dinov3"]
-    checkpoint = root / manifest_data["weights"][0]["lfs_path"]
+    weight = next(item for item in manifest_data["weights"] if item["preset"] == "dinov3_vits16_lvd1689m")
+    checkpoint = root / weight["lfs_path"]
 
     manifest = scan_imagefolder(
         root / "data" / "examples" / "toy-shapes-imagefolder",
@@ -31,7 +31,7 @@ def test_vit_small_extracts_features_and_trains_only_supported_integration_model
         batch_size=4,
         image_size=224,
         feature_pool="cls",
-        backbone_id="dinov3_vits16",
+        backbone_id="dinov3_vits16_lvd1689m",
     )
 
     feature_artifact, features = extract_features(manifest, extractor, tmp_path / "features")

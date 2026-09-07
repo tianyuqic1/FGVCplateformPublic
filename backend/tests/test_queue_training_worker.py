@@ -105,3 +105,31 @@ def test_remote_training_store_uploads_verified_artifacts_before_complete(tmp_pa
     assert {item.artifact_type for item in request.artifacts} >= {"model", "features", "report", "model_bundle"}
     assert all(len(item.sha256) == 64 and item.size_bytes > 0 for item in request.artifacts)
     assert all(item.uri.startswith("file://") for item in request.artifacts)
+
+
+def test_remote_training_store_emits_epoch_metric_points() -> None:
+    lifecycle = FakeLifecycle([], [])
+    store = RemoteTrainingStore(
+        lifecycle=lifecycle,
+        artifact_store=LocalFilesystemArtifactStore("/tmp/finevision-unused-artifacts"),
+        job_id="11111111-1111-4111-8111-111111111111",
+        training_run_id="33333333-3333-4333-8333-333333333333",
+        dataset_version_id="dataset-version",
+        attempt_id="55555555-5555-4555-8555-555555555555",
+        execution_epoch=7,
+    )
+
+    store.update_progress(
+        "33333333-3333-4333-8333-333333333333",
+        {
+            "current_stage": "head",
+            "latest_metrics": {"epoch": 3.0, "train_loss": 0.42, "eval_accuracy": 0.91},
+        },
+    )
+
+    request = lifecycle.progress_requests[0]
+    assert [(point.name, point.step, point.value) for point in request.metric_points] == [
+        ("train_loss", 3, 0.42),
+        ("eval_accuracy", 3, 0.91),
+    ]
+    assert request.metric_points[0].context.fields["split"].string_value == "train"

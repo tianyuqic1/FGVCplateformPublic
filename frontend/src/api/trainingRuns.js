@@ -1,44 +1,6 @@
-const DEFAULT_TIMEOUT_MS = 2500;
+import { fetchJson, withTimeout } from "./http.js";
+
 const CREATE_TRAINING_TIMEOUT_MS = 15000;
-
-function apiBaseUrl() {
-  const configured = import.meta.env?.VITE_API_BASE_URL;
-  return configured ? configured.replace(/\/$/, "") : "";
-}
-
-async function fetchJson(path, { method = "GET", body, signal } = {}) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-
-  if (!response.ok) {
-    let detail = `${response.status} ${method} ${path}`;
-    try {
-      const payload = await response.json();
-      const message = errorMessageFromDetail(payload?.detail);
-      detail = message ? `${detail}: ${message}` : detail;
-    } catch {
-      // Keep the HTTP status fallback when the response body is not JSON.
-    }
-    throw new Error(detail);
-  }
-
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
-}
 
 function normalizeStatus(value) {
   if (["queued", "paused", "running", "succeeded", "failed", "cancelled"].includes(value)) return value;
@@ -161,6 +123,36 @@ export async function getTrainingRun(runId) {
   });
 }
 
+export function normalizeMetricPoint(raw) {
+  return {
+    id: Number(raw?.id ?? 0),
+    attemptId: raw?.attempt_id ?? raw?.attemptId ?? "",
+    executionEpoch: Number(raw?.execution_epoch ?? raw?.executionEpoch ?? 0),
+    name: raw?.metric_name ?? raw?.name ?? "metric",
+    step: Number(raw?.step ?? 0),
+    value: Number(raw?.value ?? 0),
+    recordedAt: raw?.recorded_at ?? raw?.recordedAt ?? null,
+    context: raw?.context ?? {},
+  };
+}
+
+export async function getTrainingRunMetrics(runId, query = {}, { signal } = {}) {
+  const params = new URLSearchParams();
+  if (query.attemptId) params.set("attempt_id", query.attemptId);
+  if (query.metricName) params.set("metric_name", query.metricName);
+  if (Number(query.afterId) > 0) params.set("after_id", String(query.afterId));
+  if (query.limit) params.set("limit", String(query.limit));
+  const suffix = params.size ? `?${params}` : "";
+  const payload = await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}/metrics${suffix}`, { signal });
+  return {
+    points: Array.isArray(payload?.metric_points) ? payload.metric_points.map(normalizeMetricPoint) : [],
+    nextCursor: Number(payload?.next_cursor ?? query.afterId ?? 0),
+    attempts: Array.isArray(payload?.attempts) ? payload.attempts : [],
+    runStatus: normalizeStatus(payload?.run_status),
+    pollAfterMs: Math.max(1000, Number(payload?.poll_after_ms ?? 2000)),
+  };
+}
+
 export async function createTrainingRun(input) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/training-runs", { method: "POST", body: input, signal });
@@ -194,19 +186,4 @@ export async function deleteTrainingRun(runId) {
     await fetchJson(`/api/training-runs/${encodeURIComponent(runId)}`, { method: "DELETE", signal });
     return true;
   });
-}
-
-function errorMessageFromDetail(detail) {
-  if (typeof detail === "string") return detail;
-  if (typeof detail?.message === "string") return detail.message;
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        const field = Array.isArray(item?.loc) ? item.loc.join(".") : "field";
-        return item?.msg ? `${field}: ${item.msg}` : null;
-      })
-      .filter(Boolean)
-      .join("; ");
-  }
-  return null;
 }

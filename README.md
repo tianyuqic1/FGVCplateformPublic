@@ -4,7 +4,7 @@ FineVision 是一个细粒度图像分类平台。Phase 1 已将控制面与计�
 PostgreSQL 业务状态、事务、任务编排和大模型调用；Python 只负责 Dataset 扫描、特征提取、
 训练、校准、阈值计算与数值推理。
 
-## Phase 1 架构
+## Phase 1 + Phase 2 架构
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
 
 ## 本地启动
 
-首次使用 Git LFS 拉取批准的 DINOv3 ViT-S 权重：
+首次使用 Git LFS 拉取二期批准的三份预训练权重：
 
 ```bash
 git lfs install
@@ -88,22 +88,44 @@ Compose 启动三个私有、启用版本控制的 bucket：
 - `finevision-artifacts`
 - `finevision-uploads`
 
-`pretrained-weight-init` 会先校验 Git LFS 中 ViT-S 权重的 SHA-256，再以 content-addressed key
+`pretrained-weight-init` 会先校验 Git LFS 文件的 SHA-256 与大小，再以 content-addressed key
 同步到 `finevision-artifacts`，并读回校验。训练产物由 Python 上传，Go 在 complete 事务前再次
-读取并校验，校验失败不会生成 succeeded Job 或 Model Version。
+读取并校验，校验失败不会生成 succeeded Job 或 Model Version。逻辑层按 Dataset Version、
+Training Run 和 Model Version 区分归属；物理层按 SHA-256 去重，同一内容可由多个逻辑记录安全引用。
 
 ## 预训练权重
 
-Phase 1 只纳入 DINOv3 ViT-S/16：
+当前受管权重固定为三项：
 
 ```text
 weights/manifest.json
 weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors
 weights/pretrained/dinov3/LICENSE.md
+weights/pretrained/imagenet/vit_small_patch16_224.augreg_in21k_ft_in1k.safetensors
+weights/pretrained/imagenet/resnet50.a1_in1k.safetensors
+weights/pretrained/imagenet/LICENSE
 ```
 
-ViT-B/L 不在一期发布范围内。Dataset、训练模型、Feature 和报告不得加入 Git LFS，它们属于
-ArtifactStore。权重 revision、许可证、SHA-256 和文件大小以 `weights/manifest.json` 为准。
+稳定 `backbone_key` 分别为 `dinov3_vits16_lvd1689m`、
+`imagenet_vits16_augreg_in21k_ft_in1k`、`imagenet_resnet50_a1_in1k`。ViT-B/L 和其他 backbone
+不在二期范围内。Dataset、训练模型、Feature 和报告不得加入 Git LFS，它们属于 ArtifactStore。
+权重 revision、许可证、SHA-256 和文件大小以 `weights/manifest.json` 为准。
+
+## Phase 2 页面
+
+前端已采用 A「科研实验工作台」风格，并提供以下生产页面：
+
+```text
+/training             Training Run 列表、三种 backbone 选择
+/training/{run_id}    每个 attempt 的 Loss/Accuracy 动态曲线
+/models               Model Version 列表、筛选与 2–5 项选择
+/models/{model_id}    lineage、指标、Artifact 与审计事件
+/models/compare       同 Dataset Version/评估协议的性能比较
+```
+
+曲线由 ECharts 渲染，通过 Go API 每 2 秒按 cursor 拉取 append-only Metric Point；Training Run
+进入终态后停止轮询。FineVision 自身仍是 Training Run、Metric、Model Version 与 Artifact 的唯一
+事实源，不部署 MLflow 服务。
 
 ## 示例 Dataset
 
@@ -140,7 +162,13 @@ DELETE /api/model-weights/{preset}
 GET    /api/training-runs
 POST   /api/training-runs
 GET    /api/training-runs/{run_id}
+GET    /api/training-runs/{run_id}/metrics
 POST   /api/training-runs/{run_id}/{pause|resume|cancel}
+GET    /api/model-versions
+GET    /api/model-versions/{model_version_id}
+POST   /api/model-version-comparisons
+POST   /api/model-versions/{model_version_id}/{promote|archive}
+PUT    /api/model-aliases/{alias}
 POST   /api/llm/assist
 ```
 
@@ -161,7 +189,9 @@ Python 与 ViT-S 集成测试：
 ```bash
 uv sync --extra dinov3 --group dev
 uv run pytest -q
-uv run pytest -q backend/tests/test_dinov3_vits_training_integration.py
+uv run --extra dinov3 --group dev pytest -q \
+  backend/tests/test_dinov3_vits_training_integration.py \
+  backend/tests/test_phase2_backbone_integration.py
 ```
 
 Go 单元、竞态和静态检查：
@@ -190,6 +220,7 @@ npm run build
 npm run smoke:api-client
 npm run smoke:jobs-client
 npm run smoke:training-client
+npm run smoke:phase2-client
 npm run smoke:inference-client
 npm run smoke:abstention-client
 npm run smoke:review-client
@@ -203,6 +234,9 @@ npm run smoke:llm-client
 - [`docs/CONTROL_PLANE_API.md`](docs/CONTROL_PLANE_API.md)：公开与内部接口合同。
 - [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md)：PostgreSQL schema 与迁移说明。
 - [`docs/PHASE1_VERIFICATION.md`](docs/PHASE1_VERIFICATION.md)：一期自动化与真实基础设施验证记录。
+- [`docs/DEPLOYMENT_CONFIGURATION_CHECKLIST.md`](docs/DEPLOYMENT_CONFIGURATION_CHECKLIST.md)：数据库、MinIO、RabbitMQ、LLM、GPU 与上线配置清单。
+- [`docs/REFACTOR_PHASE2_PLAN.md`](docs/REFACTOR_PHASE2_PLAN.md)：已批准的二期实施方案，包含 A 版科研实验工作台、训练曲线、Model Version 与 ImageNet 权重。
+- [`docs/REFACTOR_PHASE2_VERIFICATION.md`](docs/REFACTOR_PHASE2_VERIFICATION.md)：二期自动化、真实基础设施与视觉验收记录。
 - [`CONTEXT.md`](CONTEXT.md)：领域统一语言。
 - [`AGENTS.md`](AGENTS.md)：后续代理和贡献者必须遵守的边界。
 

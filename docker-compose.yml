@@ -98,7 +98,8 @@ services:
       FINEVISION_CONTROL_PLANE_GRPC: go-control-plane:9000
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/work
-      FINEVISION_DINOV3_DEVICE: ${FINEVISION_DINOV3_DEVICE:-cpu}
+      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_COMPUTE_DEVICE:-cpu}
+      FINEVISION_FEATURE_BATCH_SIZE: ${FINEVISION_FEATURE_BATCH_SIZE:-8}
       FINEVISION_LINEAR_HEAD_DEVICE: ${FINEVISION_LINEAR_HEAD_DEVICE:-cpu}
     depends_on:
       go-control-plane:
@@ -123,7 +124,8 @@ services:
       <<: *object-store-environment
       FINEVISION_INFERENCE_GRPC_ADDRESS: "[::]:9100"
       FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
-      FINEVISION_DINOV3_DEVICE: ${FINEVISION_DINOV3_DEVICE:-cpu}
+      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_COMPUTE_DEVICE:-cpu}
+      FINEVISION_FEATURE_BATCH_SIZE: ${FINEVISION_FEATURE_BATCH_SIZE:-8}
     depends_on:
       pretrained-weight-init:
         condition: service_completed_successfully
@@ -220,14 +222,22 @@ services:
       - /bin/sh
       - -ec
       - |
-        expected=2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040
-        source=/weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors
-        actual="$$(sha256sum "$${source}")"
-        test "$${actual%% *}" = "$${expected}"
         mc alias set finevision http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
-        mc cp --attr "sha256=$${expected}" "$${source}" finevision/finevision-artifacts/pretrained/dinov3/2a/"$${expected}"
-        actual="$$(mc cat finevision/finevision-artifacts/pretrained/dinov3/2a/"$${expected}" | sha256sum)"
-        test "$${actual%% *}" = "$${expected}"
+        promote() {
+          source="$${1}"
+          object="$${2}"
+          expected="$${3}"
+          expected_size="$${4}"
+          actual="$$(sha256sum "$${source}")"
+          test "$${actual%% *}" = "$${expected}"
+          test "$$(wc -c < "$${source}" | tr -d ' ')" = "$${expected_size}"
+          mc cp --attr "sha256=$${expected}" "$${source}" "finevision/finevision-artifacts/$${object}"
+          actual="$$(mc cat "finevision/finevision-artifacts/$${object}" | sha256sum)"
+          test "$${actual%% *}" = "$${expected}"
+        }
+        promote /weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors pretrained/dinov3/2a/2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 86362376
+        promote /weights/pretrained/imagenet/vit_small_patch16_224.augreg_in21k_ft_in1k.safetensors pretrained/imagenet/vit-small/79/79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 88216496
+        promote /weights/pretrained/imagenet/resnet50.a1_in1k.safetensors pretrained/imagenet/resnet-50/77/773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 102469840
     environment:
       MINIO_ROOT_USER: ${FINEVISION_S3_ACCESS_KEY:-finevision}
       MINIO_ROOT_PASSWORD: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}

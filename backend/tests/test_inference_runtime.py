@@ -5,8 +5,8 @@ from pathlib import Path
 import grpc
 import pytest
 
-from finevision.artifact_store import LocalFilesystemArtifactStore
-from finevision.compute.inference_runtime import InferenceRuntimeService
+from finevision.artifact_store import ArtifactDescriptor, LocalFilesystemArtifactStore
+from finevision.compute.inference_runtime import InferenceRuntimeService, _validate_bundle_scope
 from finevision.compute.v1 import inference_runtime_pb2
 
 
@@ -52,3 +52,25 @@ def test_inference_runtime_fails_closed_for_corrupted_model_bundle(tmp_path: Pat
 
     with pytest.raises(grpc.RpcError, match="integrity"):
         service.Predict(request, Context())
+
+
+def test_inference_runtime_rejects_cross_dataset_artifact_bundle() -> None:
+    def descriptor(artifact_id: str, dataset_version_id: str) -> ArtifactDescriptor:
+        return ArtifactDescriptor(
+            artifact_id=artifact_id,
+            artifact_type="model",
+            uri=f"s3://finevision-artifacts/compute/model/aa/{'a' * 64}",
+            sha256="a" * 64,
+            size_bytes=1,
+            content_type="application/octet-stream",
+            storage_version="s3-v1",
+            producer="pytest",
+            dataset_version_id=dataset_version_id,
+            training_run_id="run-1",
+        )
+
+    bundle = descriptor("bundle", "dataset-version-a")
+    model = descriptor("model", "dataset-version-b")
+    features = descriptor("features", "dataset-version-a")
+    with pytest.raises(ValueError, match="different Dataset Version"):
+        _validate_bundle_scope(bundle, model, features, {})

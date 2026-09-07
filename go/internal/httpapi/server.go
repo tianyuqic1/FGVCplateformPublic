@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelcatalog"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 )
 
@@ -22,19 +25,154 @@ type ReadModels interface {
 	GetJob(context.Context, string) (map[string]any, error)
 	ListTrainingRuns(context.Context) ([]map[string]any, error)
 	GetTrainingRun(context.Context, string) (map[string]any, error)
+	GetTrainingRunMetrics(context.Context, string, MetricsQuery) (map[string]any, error)
 	JobIDForRun(context.Context, string) (string, error)
 	ResolveDatasetScope(context.Context, string, string) (string, string, string, error)
+}
+
+type MetricsQuery struct {
+	AttemptID  string
+	MetricName string
+	AfterID    int64
+	Limit      int
 }
 
 type Server struct {
 	lifecycle *training.Service
 	reads     ReadModels
 	llm       *llm.Application
+	registry  *modelregistry.Service
 	created   sync.Map
 }
 
-func NewServer(lifecycle *training.Service, reads ReadModels, llmApplication *llm.Application) *Server {
-	return &Server{lifecycle: lifecycle, reads: reads, llm: llmApplication}
+func NewServer(lifecycle *training.Service, reads ReadModels, llmApplication *llm.Application, registry *modelregistry.Service) *Server {
+	return &Server{lifecycle: lifecycle, reads: reads, llm: llmApplication, registry: registry}
+}
+
+func (server *Server) ListModelVersions(ctx context.Context, request openapi.ListModelVersionsRequestObject) (openapi.ListModelVersionsResponseObject, error) {
+	filter := modelregistry.Filter{}
+	if request.Params.DatasetId != nil {
+		filter.DatasetID = *request.Params.DatasetId
+	}
+	if request.Params.DatasetVersionId != nil {
+		filter.DatasetVersionID = *request.Params.DatasetVersionId
+	}
+	if request.Params.Architecture != nil {
+		filter.Architecture = *request.Params.Architecture
+	}
+	if request.Params.Pretraining != nil {
+		filter.Pretraining = *request.Params.Pretraining
+	}
+	if request.Params.Status != nil {
+		filter.Status = modelregistry.Status(*request.Params.Status)
+	}
+	versions, err := server.registry.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListModelVersions200JSONResponse(openapi.FreeFormObject{"model_versions": jsonValue(versions)}), nil
+}
+
+func (server *Server) GetModelVersion(ctx context.Context, request openapi.GetModelVersionRequestObject) (openapi.GetModelVersionResponseObject, error) {
+	version, err := server.registry.Get(ctx, request.ModelVersionId.String())
+	if errors.Is(err, modelregistry.ErrNotFound) {
+		return openapi.GetModelVersion404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", "model version not found"))}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetModelVersion200JSONResponse(openapi.FreeFormObject{"model_version": jsonValue(version)}), nil
+}
+
+func (server *Server) CompareModelVersions(ctx context.Context, request openapi.CompareModelVersionsRequestObject) (openapi.CompareModelVersionsResponseObject, error) {
+	if request.Body == nil {
+		return openapi.CompareModelVersions422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
+	}
+	ids := make([]string, len(request.Body.ModelVersionIds))
+	for index, id := range request.Body.ModelVersionIds {
+		ids[index] = id.String()
+	}
+	comparison, err := server.registry.Compare(ctx, ids)
+	if errors.Is(err, modelregistry.ErrNotFound) {
+		return openapi.CompareModelVersions404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", "model version not found"))}, nil
+	}
+	if errors.Is(err, modelregistry.ErrInvalid) {
+		return openapi.CompareModelVersions422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error())), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return openapi.CompareModelVersions200JSONResponse(openapi.FreeFormObject{"comparison": jsonValue(comparison)}), nil
+}
+
+func (server *Server) PromoteModelVersion(ctx context.Context, request openapi.PromoteModelVersionRequestObject) (openapi.PromoteModelVersionResponseObject, error) {
+	if request.Body == nil {
+		return openapi.PromoteModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
+	}
+	version, err := server.registry.Promote(ctx, request.ModelVersionId.String(), modelregistry.Status(request.Body.TargetStatus), request.Body.Actor, request.Body.Reason)
+	if err != nil {
+		if response := promoteError(ctx, err); response != nil {
+			return response, nil
+		}
+		return nil, err
+	}
+	return openapi.PromoteModelVersion200JSONResponse(openapi.FreeFormObject{"model_version": jsonValue(version)}), nil
+}
+
+func promoteError(ctx context.Context, err error) openapi.PromoteModelVersionResponseObject {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, modelregistry.ErrNotFound) {
+		return openapi.PromoteModelVersion404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", err.Error()))}
+	}
+	if errors.Is(err, modelregistry.ErrInvalid) {
+		return openapi.PromoteModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error()))
+	}
+	if errors.Is(err, modelregistry.ErrConflict) {
+		return openapi.PromoteModelVersion409JSONResponse(errorEnvelope(ctx, "INVALID_STATE_TRANSITION", err.Error()))
+	}
+	return nil
+}
+
+func (server *Server) ArchiveModelVersion(ctx context.Context, request openapi.ArchiveModelVersionRequestObject) (openapi.ArchiveModelVersionResponseObject, error) {
+	if request.Body == nil {
+		return openapi.ArchiveModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
+	}
+	version, err := server.registry.Archive(ctx, request.ModelVersionId.String(), request.Body.Actor, request.Body.Reason)
+	if errors.Is(err, modelregistry.ErrNotFound) {
+		return openapi.ArchiveModelVersion404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", err.Error()))}, nil
+	}
+	if errors.Is(err, modelregistry.ErrInvalid) {
+		return openapi.ArchiveModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error())), nil
+	}
+	if errors.Is(err, modelregistry.ErrConflict) {
+		return openapi.ArchiveModelVersion409JSONResponse(errorEnvelope(ctx, "INVALID_STATE_TRANSITION", err.Error())), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ArchiveModelVersion200JSONResponse(openapi.FreeFormObject{"model_version": jsonValue(version)}), nil
+}
+
+func (server *Server) SetModelAlias(ctx context.Context, request openapi.SetModelAliasRequestObject) (openapi.SetModelAliasResponseObject, error) {
+	if request.Body == nil {
+		return openapi.SetModelAlias422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
+	}
+	result, err := server.registry.SetAlias(ctx, request.Body.DatasetId, request.Alias, request.Body.ModelVersionId.String(), request.Body.Actor, request.Body.Reason)
+	if errors.Is(err, modelregistry.ErrNotFound) {
+		return openapi.SetModelAlias404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", err.Error()))}, nil
+	}
+	if errors.Is(err, modelregistry.ErrInvalid) {
+		return openapi.SetModelAlias422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error())), nil
+	}
+	if errors.Is(err, modelregistry.ErrConflict) {
+		return openapi.SetModelAlias409JSONResponse(errorEnvelope(ctx, "MODEL_SCOPE_CONFLICT", err.Error())), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return openapi.SetModelAlias200JSONResponse(openapi.FreeFormObject{"model_alias": jsonValue(result)}), nil
 }
 
 func (server *Server) GenerateLLMAssistance(ctx context.Context, request openapi.GenerateLLMAssistanceRequestObject) (openapi.GenerateLLMAssistanceResponseObject, error) {
@@ -94,14 +232,19 @@ func (server *Server) GetJob(ctx context.Context, request openapi.GetJobRequestO
 }
 
 func (server *Server) ListModelWeights(context.Context, openapi.ListModelWeightsRequestObject) (openapi.ListModelWeightsResponseObject, error) {
-	return openapi.ListModelWeights200JSONResponse{Weights: freeFormList([]map[string]any{managedViTSWeight()})}, nil
+	items := make([]map[string]any, 0, len(modelcatalog.Approved()))
+	for _, backbone := range modelcatalog.Approved() {
+		items = append(items, managedWeight(backbone))
+	}
+	return openapi.ListModelWeights200JSONResponse{Weights: freeFormList(items)}, nil
 }
 
 func (server *Server) EvictModelWeightCache(ctx context.Context, request openapi.EvictModelWeightCacheRequestObject) (openapi.EvictModelWeightCacheResponseObject, error) {
-	if request.Preset != "dinov3_vits" {
+	backbone, exists := modelcatalog.Resolve(request.Preset)
+	if !exists {
 		return openapi.EvictModelWeightCache404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", "pretrained weight preset not found"))}, nil
 	}
-	weight := managedViTSWeight()
+	weight := managedWeight(backbone)
 	// The canonical Git LFS/S3 object is immutable. Runtime cache eviction is a
 	// separate, auditable compute-plane operation and this catalog endpoint never
 	// deletes the canonical object.
@@ -111,17 +254,26 @@ func (server *Server) EvictModelWeightCache(ctx context.Context, request openapi
 	}), nil
 }
 
-func managedViTSWeight() map[string]any {
-	const digest = "2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040"
+func managedWeight(backbone modelcatalog.Backbone) map[string]any {
+	category := "imagenet/vit-small"
+	if backbone.Key == modelcatalog.DINOv3ViTSKey {
+		category = "dinov3"
+	} else if backbone.Key == modelcatalog.ResNet50Key {
+		category = "imagenet/resnet-50"
+	}
 	return map[string]any{
-		"preset": "dinov3_vits", "extractor": "dinov3_vits", "backbone_id": "dinov3_vits16",
-		"model_name": "vit_small_patch16_dinov3", "repo_id": "timm/vit_small_patch16_dinov3.lvd1689m",
-		"state": "managed", "cache_status": "managed", "cached": true, "cache_bytes": int64(86362376),
-		"complete_size_bytes": int64(86362376), "complete_file_count": 1, "partial_bytes": 0,
-		"incomplete_file_count": 0, "sha256": digest,
-		"cache_dir":     "s3://finevision-artifacts/pretrained/dinov3/2a/" + digest,
+		"preset": backbone.Key, "extractor": backbone.LegacyExtractor, "backbone_key": backbone.Key,
+		"backbone_id": backbone.Key, "display_name": backbone.DisplayName, "architecture": backbone.Architecture,
+		"model_name": backbone.ModelName, "repo_id": backbone.ModelID, "revision": backbone.Revision,
+		"pretraining_method": backbone.PretrainingMethod, "pretraining_dataset": backbone.PretrainingDataset,
+		"input_size": backbone.InputSize, "feature_dim": backbone.FeatureDim, "parameter_count": backbone.ParameterCount,
+		"pooling": backbone.Pooling, "license": backbone.License, "license_url": backbone.LicenseURL,
+		"state": "managed", "cache_status": "managed", "cached": true, "cache_bytes": backbone.SizeBytes,
+		"complete_size_bytes": backbone.SizeBytes, "complete_file_count": 1, "partial_bytes": 0,
+		"incomplete_file_count": 0, "sha256": backbone.SHA256, "size_bytes": backbone.SizeBytes,
+		"cache_dir":     "s3://finevision-artifacts/pretrained/" + category + "/" + backbone.SHA256[:2] + "/" + backbone.SHA256,
 		"download_hint": "Git LFS release weight is verified and mirrored into the S3-compatible ArtifactStore.",
-		"description":   "Phase 1 approved DINOv3 ViT-S/16 pretrained backbone.",
+		"description":   backbone.DisplayName + "，冻结特征提取后训练轻量分类头。",
 	}
 }
 
@@ -137,17 +289,15 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	if request.Body == nil {
 		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "request body is required"))}, nil
 	}
-	extractor := "color_stats"
-	if request.Body.Extractor != nil {
-		extractor = string(*request.Body.Extractor)
+	backbone, colorStats, err := resolveTrainingBackbone(request.Body)
+	if err != nil {
+		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), err.Error()))}, nil
 	}
-	backboneByExtractor := map[string]string{
-		"color_stats": "color_stats_v1", "dinov3_vits": "dinov3_vits16",
-		"dinov3_vitb": "dinov3_vitb16", "dinov3_vitl": "dinov3_vitl16",
-	}
-	backboneID := backboneByExtractor[extractor]
-	if request.Body.BackboneId != nil && *request.Body.BackboneId != "" {
-		backboneID = *request.Body.BackboneId
+	extractor := backbone.LegacyExtractor
+	backboneID := backbone.Key
+	if colorStats {
+		extractor = "color_stats"
+		backboneID = "color_stats_v1"
 	}
 	maxAttempts := 3
 	if request.Body.MaxAttempts != nil {
@@ -157,32 +307,39 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	if request.Body.FeatureBatchSize != nil {
 		featureBatchSize = *request.Body.FeatureBatchSize
 	}
-	featurePool := "cls"
+	featurePool := backbone.Pooling
+	if colorStats {
+		featurePool = "model"
+	}
 	if request.Body.FeaturePool != nil {
 		featurePool = string(*request.Body.FeaturePool)
 	}
 	imageSize := 0
 	if request.Body.ImageSize != nil {
 		imageSize = *request.Body.ImageSize
-	} else if extractor != "color_stats" {
-		imageSize = 448
+	} else if !colorStats {
+		imageSize = backbone.InputSize
 	}
-	if imageSize != 0 && imageSize%16 != 0 {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "image_size must be divisible by 16 for DINOv3 patch16 backbones"))}, nil
+	if !colorStats && backbone.Architecture == "vit_small_patch16" && imageSize%16 != 0 {
+		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "image_size must be divisible by 16 for ViT-S/16 backbones"))}, nil
 	}
 	extractorConfig := map[string]any{"type": extractor, "backbone_id": backboneID}
-	if extractor != "color_stats" {
-		modelByExtractor := map[string]string{
-			"dinov3_vits": "vit_small_patch16_dinov3", "dinov3_vitb": "vit_base_patch16_dinov3",
-			"dinov3_vitl": "vit_large_patch16_dinov3",
-		}
+	if !colorStats {
 		extractorConfig = map[string]any{
-			"type": "timm_dinov3", "preset": extractor, "model_name": modelByExtractor[extractor],
+			"type": "timm", "preset": backbone.Key, "backbone_key": backbone.Key, "model_name": backbone.ModelName,
 			"pretrained": true, "backbone_id": backboneID, "feature_pool": featurePool, "image_size": imageSize,
+			"architecture": backbone.Architecture, "pretraining_method": backbone.PretrainingMethod,
+			"pretraining_dataset": backbone.PretrainingDataset, "feature_dim": backbone.FeatureDim,
+			"parameter_count": backbone.ParameterCount, "pretrained_sha256": backbone.SHA256,
 		}
 	}
 	if request.Body.ExtractorConfig != nil {
 		for key, value := range map[string]any(*request.Body.ExtractorConfig) {
+			if !colorStats && immutableExtractorField(key) {
+				if current, exists := extractorConfig[key]; !exists || current != value {
+					return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "extractor_config cannot override managed backbone identity: "+key))}, nil
+				}
+			}
 			extractorConfig[key] = value
 		}
 	}
@@ -227,6 +384,38 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	return openapi.CreateTrainingRun202JSONResponse{TrainingRunResponseJSONResponse: openapi.TrainingRunResponseJSONResponse(openapi.TrainingRunEnvelope{TrainingRun: openapi.FreeFormObject(readModel)})}, nil
 }
 
+func resolveTrainingBackbone(request *openapi.CreateTrainingRun) (modelcatalog.Backbone, bool, error) {
+	key := modelcatalog.DINOv3ViTSKey
+	if request.BackboneKey != nil {
+		key = string(*request.BackboneKey)
+	} else if request.Extractor != nil {
+		key = string(*request.Extractor)
+	} else if request.BackboneId != nil && *request.BackboneId != "" {
+		key = *request.BackboneId
+	}
+	if key == "color_stats" || key == "color_stats_v1" {
+		return modelcatalog.Backbone{}, true, nil
+	}
+	if key == "dinov3_vits16" {
+		key = modelcatalog.DINOv3ViTSKey
+	}
+	backbone, exists := modelcatalog.Resolve(key)
+	if !exists {
+		return modelcatalog.Backbone{}, false, errors.New("backbone_key is not approved for Phase 2")
+	}
+	return backbone, false, nil
+}
+
+func immutableExtractorField(key string) bool {
+	switch key {
+	case "type", "preset", "backbone_key", "model_name", "pretrained", "backbone_id", "architecture",
+		"pretraining_method", "pretraining_dataset", "feature_dim", "parameter_count", "pretrained_sha256", "checkpoint_path":
+		return true
+	default:
+		return false
+	}
+}
+
 func (server *Server) GetTrainingRun(ctx context.Context, request openapi.GetTrainingRunRequestObject) (openapi.GetTrainingRunResponseObject, error) {
 	item, err := server.trainingRun(ctx, request.RunId.String())
 	if errors.Is(err, ErrReadModelNotFound) {
@@ -236,6 +425,30 @@ func (server *Server) GetTrainingRun(ctx context.Context, request openapi.GetTra
 		return nil, err
 	}
 	return openapi.GetTrainingRun200JSONResponse{TrainingRunResponseJSONResponse: openapi.TrainingRunResponseJSONResponse(openapi.TrainingRunEnvelope{TrainingRun: openapi.FreeFormObject(item)})}, nil
+}
+
+func (server *Server) GetTrainingRunMetrics(ctx context.Context, request openapi.GetTrainingRunMetricsRequestObject) (openapi.GetTrainingRunMetricsResponseObject, error) {
+	query := MetricsQuery{Limit: 1000}
+	if request.Params.AttemptId != nil {
+		query.AttemptID = request.Params.AttemptId.String()
+	}
+	if request.Params.MetricName != nil {
+		query.MetricName = *request.Params.MetricName
+	}
+	if request.Params.AfterId != nil {
+		query.AfterID = *request.Params.AfterId
+	}
+	if request.Params.Limit != nil {
+		query.Limit = *request.Params.Limit
+	}
+	payload, err := server.reads.GetTrainingRunMetrics(ctx, request.RunId.String(), query)
+	if errors.Is(err, ErrReadModelNotFound) {
+		return openapi.GetTrainingRunMetrics404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", "training run not found"))}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return openapi.GetTrainingRunMetrics200JSONResponse(openapi.FreeFormObject(payload)), nil
 }
 
 func (server *Server) PauseTrainingRun(ctx context.Context, request openapi.PauseTrainingRunRequestObject) (openapi.PauseTrainingRunResponseObject, error) {
@@ -313,9 +526,23 @@ func (server *Server) HeartbeatTrainingJob(ctx context.Context, request openapi.
 }
 
 func (server *Server) ReportTrainingProgress(ctx context.Context, request openapi.ReportTrainingProgressRequestObject) (openapi.ReportTrainingProgressResponseObject, error) {
+	metricPoints := make([]training.MetricPoint, 0)
+	if request.Body.MetricPoints != nil {
+		metricPoints = make([]training.MetricPoint, 0, len(*request.Body.MetricPoints))
+		for _, item := range *request.Body.MetricPoints {
+			point := training.MetricPoint{Name: item.Name, Step: item.Step, Value: item.Value}
+			if item.RecordedAt != nil {
+				point.RecordedAt = *item.RecordedAt
+			}
+			if item.Context != nil {
+				point.Context = map[string]any(*item.Context)
+			}
+			metricPoints = append(metricPoints, point)
+		}
+	}
 	err := server.lifecycle.Progress(ctx, training.ProgressCommand{
 		JobID: request.JobId.String(), AttemptID: request.Body.AttemptId.String(), ExecutionEpoch: request.Body.ExecutionEpoch,
-		Progress: map[string]any(request.Body.Progress),
+		Progress: map[string]any(request.Body.Progress), MetricPoints: metricPoints,
 	})
 	if err != nil {
 		envelope := errorEnvelope(ctx, string(training.ErrorCode(err)), err.Error())
@@ -436,6 +663,18 @@ func freeFormList(items []map[string]any) []openapi.FreeFormObject {
 	return result
 }
 
+func jsonValue(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var result any
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return nil
+	}
+	return result
+}
+
 type emptyReadModels struct{}
 
 func (emptyReadModels) ListDatasets(context.Context) ([]map[string]any, error) {
@@ -454,6 +693,9 @@ func (emptyReadModels) ListTrainingRuns(context.Context) ([]map[string]any, erro
 	return []map[string]any{}, nil
 }
 func (emptyReadModels) GetTrainingRun(context.Context, string) (map[string]any, error) {
+	return nil, ErrReadModelNotFound
+}
+func (emptyReadModels) GetTrainingRunMetrics(context.Context, string, MetricsQuery) (map[string]any, error) {
 	return nil, ErrReadModelNotFound
 }
 func (emptyReadModels) JobIDForRun(context.Context, string) (string, error) {

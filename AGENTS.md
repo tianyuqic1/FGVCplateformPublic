@@ -1,6 +1,6 @@
 # FineVision Agent Guide
 
-This file governs work in the entire repository. Phase 1 uses a Go Control Plane and independent Go LLMGateway while retaining Python only for ML/data compute. The Compose release surface no longer starts FastAPI. Historical Python control-plane modules remain only as migration-contract fixtures and must not receive new features or writes.
+This file governs work in the entire repository. Phase 1 uses a Go Control Plane and independent Go LLMGateway while retaining Python only for ML/data compute. Phase 2 adds the approved A-style research workbench, metric history, governed Model Version comparison, and two ImageNet pretrained backbones without changing that ownership boundary. The Compose release surface no longer starts FastAPI. Historical Python control-plane modules remain only as migration-contract fixtures and must not receive new features or writes.
 
 ## Read Before Changing Code
 
@@ -9,9 +9,10 @@ Read the following in order:
 1. [`CONTEXT.md`](CONTEXT.md) for canonical domain terms.
 2. [`docs/TECHNICAL_ARCHITECTURE.md`](docs/TECHNICAL_ARCHITECTURE.md) for the target stack and engineering rules.
 3. [`docs/REFACTOR_PHASE1_PLAN.md`](docs/REFACTOR_PHASE1_PLAN.md) for migration order, lifecycle semantics, gates, and acceptance criteria.
-4. The relevant current-state document, especially [`docs/CONTROL_PLANE_API.md`](docs/CONTROL_PLANE_API.md) or [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md).
+4. [`docs/REFACTOR_PHASE2_PLAN.md`](docs/REFACTOR_PHASE2_PLAN.md) for the approved frontend direction, metric history, Model Version, and pretrained backbone scope.
+5. The relevant current-state document, especially [`docs/CONTROL_PLANE_API.md`](docs/CONTROL_PLANE_API.md) or [`docs/DATABASE_DESIGN.md`](docs/DATABASE_DESIGN.md).
 
-When documents conflict, user instructions take precedence, followed by this file, the target technical architecture, the Phase 1 plan, and then current-state documents. Preserve explicit “current” versus “target” labels.
+When documents conflict, user instructions take precedence, followed by this file, the target technical architecture, the applicable Phase plan, and then current-state documents. Preserve explicit “current” versus “target” labels.
 
 ## Architecture Invariants
 
@@ -22,6 +23,8 @@ When documents conflict, user instructions take precedence, followed by this fil
 - ArtifactStore owns large bytes. PostgreSQL stores canonical URI, SHA-256, `size_bytes`, content type, identity, status, and relationships.
 - Fine-R1 has been removed from runtime, routes, dependencies, UI, scripts, and the current schema. Do not reintroduce Fine-R1 features or compatibility layers. Historical Alembic revisions remain immutable; the Phase 1 forward migration removes their tables.
 - External LLM calls belong in the independent Go LLMGateway. LLM Assistance remains advisory and cannot set final labels, submit human reviews, activate policies, or trigger training.
+- Phase 2 metric history is append-only PostgreSQL state exposed by the Go Control Plane. RabbitMQ dispatches Training Jobs; it does not stream chart data or own metric history.
+- FineVision remains the sole Training Run and Model Version fact source. Do not add MLflow Tracking Server, MLflow Model Registry, TensorBoard, or another registry/tracking backend in Phase 2.
 
 ## Go Rules
 
@@ -68,7 +71,18 @@ Go implementation rules:
 - Integrity mismatch fails closed and must not create a succeeded Job or Model Version.
 - Keep both LocalFilesystem and S3 ArtifactStore adapters passing the same interface contract tests. Production new writes use S3-compatible storage.
 - Git LFS is only for approved immutable pretrained weights. Dataset files, features, trained heads, reports, and uploaded images belong in ArtifactStore.
-- The approved Phase 1 weight set contains DINOv3 ViT-S only. Keep `weights/manifest.json`, the LFS pointer, the vendored upstream license, and the MinIO promotion checksum consistent.
+- The approved Phase 1 weight set contains DINOv3 ViT-S only. Phase 2 may add only ImageNet ViT-S and ImageNet ResNet-50 as defined in the Phase 2 plan. Keep `weights/manifest.json`, every LFS pointer, vendored upstream licenses, and MinIO promotion checksums consistent.
+
+## Phase 2 Frontend And Model Rules
+
+- The approved visual direction is A “Research Experiment Workbench”: light gray-blue canvas, white panels, restrained borders/shadows, indigo primary actions, and semantic status colors.
+- Keep React, Vite, and React Router. Use Apache ECharts only as a renderer; Training Metric Points come from the Go Control Plane API.
+- Production pages and components must not import `frontend/src/prototypes`. Migrate the approved shape into semantic tokens, a shared Shell, design-system components, and domain feature modules, then remove the prototype route after visual regression handoff.
+- Split route pages from the legacy monolithic `pages.jsx` by feature. DTO-to-view-model conversion belongs to the owning feature, not to generic UI components.
+- The training selector exposes exactly DINOv3 ViT-S, ImageNet ViT-S, and ImageNet ResNet-50. Do not add ViT-B/L, ResNet-18/101, ConvNeXt, Swin, or full-backbone fine-tuning in Phase 2.
+- Dynamic charts use cursor-based incremental polling and stop at terminal state. Do not put per-epoch metrics on RabbitMQ or introduce WebSocket/SSE without a revised plan or ADR.
+- Model comparisons must surface comparability and N/A explicitly. Never rank metrics across incompatible Dataset Versions or silently replace missing values with zero.
+- `champion` and `challenger` are Dataset-scoped mutable Model Aliases. Promotion is explicit, transactional, audited, and never based on accuracy alone.
 
 ## HTTP, gRPC, And Message Contracts
 
@@ -105,6 +119,8 @@ npm run build
 npm run smoke:api-client
 npm run smoke:routes
 ```
+
+For Phase 2 frontend work, also cover incremental metric adapters, terminal polling, comparison warnings/N/A, stable `backbone_key` submission, keyboard navigation, responsive layout, and approved A-style visual regression.
 
 For lifecycle, messaging, storage, or concurrency changes, also run integration/fault tests covering duplicate dispatch, relay crash, worker lease expiry, stale epoch, cancel/complete races, idempotent completion, and corrupted Artifact bytes.
 

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"sync"
@@ -118,6 +119,18 @@ type AuditEvent struct {
 	CreatedAt time.Time
 }
 
+type MetricPoint struct {
+	ID             int64
+	TrainingRunID  string
+	AttemptID      string
+	ExecutionEpoch int64
+	Name           string
+	Step           int64
+	Value          float64
+	RecordedAt     time.Time
+	Context        map[string]any
+}
+
 type OutboxEvent struct {
 	MessageID          string
 	EventType          string
@@ -134,6 +147,7 @@ type Aggregate struct {
 	Events    []AuditEvent
 	Outbox    []OutboxEvent
 	Artifacts []artifact.Descriptor
+	Metrics   []MetricPoint
 }
 
 type Repository interface {
@@ -197,6 +211,7 @@ type ProgressCommand struct {
 	AttemptID      string
 	ExecutionEpoch int64
 	Progress       map[string]any
+	MetricPoints   []MetricPoint
 }
 
 type CompleteCommand struct {
@@ -339,10 +354,43 @@ func (service *Service) Progress(ctx context.Context, command ProgressCommand) e
 		if _, err := currentAttempt(aggregate, command.AttemptID, command.ExecutionEpoch); err != nil {
 			return err
 		}
+		for _, point := range command.MetricPoints {
+			if err := validateMetricPoint(point); err != nil {
+				return err
+			}
+			point.TrainingRunID = aggregate.Run.ID
+			point.AttemptID = command.AttemptID
+			point.ExecutionEpoch = command.ExecutionEpoch
+			if point.RecordedAt.IsZero() {
+				point.RecordedAt = now
+			} else {
+				point.RecordedAt = point.RecordedAt.UTC()
+			}
+			point.Context = cloneMap(point.Context)
+			if !containsMetricPoint(aggregate.Metrics, point) {
+				aggregate.Metrics = append(aggregate.Metrics, point)
+			}
+		}
 		aggregate.Run.Progress = cloneMap(command.Progress)
 		aggregate.Run.UpdatedAt, aggregate.Job.UpdatedAt = now, now
 		return nil
 	})
+}
+
+func validateMetricPoint(point MetricPoint) error {
+	if strings.TrimSpace(point.Name) == "" || len(point.Name) > 100 || point.Step < 0 || math.IsNaN(point.Value) || math.IsInf(point.Value, 0) {
+		return domainError(CodeValidationFailed, "metric name, step, and finite value are required")
+	}
+	return nil
+}
+
+func containsMetricPoint(points []MetricPoint, candidate MetricPoint) bool {
+	for _, point := range points {
+		if point.AttemptID == candidate.AttemptID && point.Name == candidate.Name && point.Step == candidate.Step {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *Service) Pause(ctx context.Context, jobID string) error {
@@ -421,7 +469,7 @@ func (service *Service) Complete(ctx context.Context, command CompleteCommand) (
 			return domainError(CodeValidationFailed, "completion key, result digest, and artifacts are required")
 		}
 		for _, descriptor := range command.Artifacts {
-			if err := validateDescriptor(descriptor, aggregate.Run.ID, attempt.ID); err != nil {
+			if err := validateDescriptor(descriptor, aggregate.Run.DatasetVersionID, aggregate.Run.ID, attempt.ID); err != nil {
 				return err
 			}
 		}
@@ -510,7 +558,7 @@ func currentAttempt(aggregate *Aggregate, attemptID string, epoch int64) (*Attem
 	return attempt, nil
 }
 
-func validateDescriptor(descriptor artifact.Descriptor, runID, attemptID string) error {
+func validateDescriptor(descriptor artifact.Descriptor, datasetVersionID, runID, attemptID string) error {
 	parsed, err := url.Parse(descriptor.URI)
 	if err != nil || (parsed.Scheme != "s3" && parsed.Scheme != "file") || parsed.Path == "" {
 		return domainError(CodeValidationFailed, "artifact URI must be canonical s3:// or file://")
@@ -521,10 +569,13 @@ func validateDescriptor(descriptor artifact.Descriptor, runID, attemptID string)
 	if descriptor.ArtifactID == "" || descriptor.ArtifactType == "" || descriptor.ContentType == "" || descriptor.Producer == "" || descriptor.SchemaVersion != 1 {
 		return domainError(CodeValidationFailed, "artifact identity, type, content type, producer, and schema version are required")
 	}
-	if descriptor.TrainingRunID != "" && descriptor.TrainingRunID != runID {
+	if descriptor.DatasetVersionID != datasetVersionID {
+		return domainError(CodeValidationFailed, "artifact Dataset Version lineage does not match")
+	}
+	if descriptor.TrainingRunID != runID {
 		return domainError(CodeValidationFailed, "artifact training run lineage does not match")
 	}
-	if descriptor.AttemptID != "" && descriptor.AttemptID != attemptID {
+	if descriptor.AttemptID != attemptID {
 		return domainError(CodeValidationFailed, "artifact attempt lineage does not match")
 	}
 	return nil
@@ -638,5 +689,10 @@ func cloneAggregate(source *Aggregate) *Aggregate {
 	result.Events = append([]AuditEvent(nil), source.Events...)
 	result.Outbox = append([]OutboxEvent(nil), source.Outbox...)
 	result.Artifacts = append([]artifact.Descriptor(nil), source.Artifacts...)
+	result.Metrics = make([]MetricPoint, len(source.Metrics))
+	for index, point := range source.Metrics {
+		result.Metrics[index] = point
+		result.Metrics[index].Context = cloneMap(point.Context)
+	}
 	return &result
 }

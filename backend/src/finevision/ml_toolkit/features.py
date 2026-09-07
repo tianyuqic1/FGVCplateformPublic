@@ -15,26 +15,60 @@ from finevision.ml_toolkit.artifacts import write_feature_artifact
 from finevision.schemas.artifacts import DatasetManifest, FeatureArtifact
 
 
-DINOV3_MODEL_PRESETS: dict[str, dict[str, str]] = {
-    "dinov3_vits": {
-        "backbone_id": "dinov3_vits16",
+BACKBONE_SPECS: dict[str, dict[str, Any]] = {
+    "dinov3_vits16_lvd1689m": {
+        "legacy_extractor": "dinov3_vits",
+        "backbone_id": "dinov3_vits16_lvd1689m",
         "model_name": "vit_small_patch16_dinov3",
+        "repo_id": "timm/vit_small_patch16_dinov3.lvd1689m",
+        "architecture": "vit_small_patch16",
+        "pretraining_method": "DINOv3",
+        "pretraining_dataset": "LVD-1689M",
+        "image_size": 224,
+        "feature_dim": 384,
+        "feature_pool": "cls",
+        "weight_env": "FINEVISION_DINOV3_VITS_WEIGHT",
     },
-    "dinov3_vitb": {
-        "backbone_id": "dinov3_vitb16",
-        "model_name": "vit_base_patch16_dinov3",
+    "imagenet_vits16_augreg_in21k_ft_in1k": {
+        "legacy_extractor": "imagenet_vits",
+        "backbone_id": "imagenet_vits16_augreg_in21k_ft_in1k",
+        "model_name": "vit_small_patch16_224.augreg_in21k_ft_in1k",
+        "repo_id": "timm/vit_small_patch16_224.augreg_in21k_ft_in1k",
+        "architecture": "vit_small_patch16",
+        "pretraining_method": "supervised",
+        "pretraining_dataset": "ImageNet-21K → ImageNet-1K",
+        "image_size": 224,
+        "feature_dim": 384,
+        "feature_pool": "model",
+        "weight_env": "FINEVISION_IMAGENET_VITS_WEIGHT",
     },
-    "dinov3_vitl": {
-        "backbone_id": "dinov3_vitl16",
-        "model_name": "vit_large_patch16_dinov3",
+    "imagenet_resnet50_a1_in1k": {
+        "legacy_extractor": "imagenet_resnet50",
+        "backbone_id": "imagenet_resnet50_a1_in1k",
+        "model_name": "resnet50.a1_in1k",
+        "repo_id": "timm/resnet50.a1_in1k",
+        "architecture": "resnet50",
+        "pretraining_method": "supervised",
+        "pretraining_dataset": "ImageNet-1K",
+        "image_size": 288,
+        "feature_dim": 2048,
+        "feature_pool": "model",
+        "weight_env": "FINEVISION_IMAGENET_RESNET50_WEIGHT",
     },
 }
 
+BACKBONE_ALIASES = {
+    str(spec["legacy_extractor"]): key for key, spec in BACKBONE_SPECS.items()
+}
+# Compatibility export for existing compute callers. Its contents are now the
+# Phase 2 allow-list, not the historical ViT-S/B/L family.
+DINOV3_MODEL_PRESETS = BACKBONE_SPECS
 
-def _dinov3_weight_info(preset: str, config: dict[str, str], hub_root: Path) -> dict[str, Any]:
-    model_name = config["model_name"]
-    repo_id = f"timm/{model_name}.lvd1689m"
-    repo_dir = hub_root / f"models--timm--{model_name}.lvd1689m"
+
+def _weight_info(preset: str, config: dict[str, Any], hub_root: Path) -> dict[str, Any]:
+    model_name = str(config["model_name"])
+    repo_id = str(config["repo_id"])
+    repo_dir = hub_root / f"models--{repo_id.replace('/', '--')}"
     complete_files = [
         path
         for path in (repo_dir / "blobs").glob("*")
@@ -56,7 +90,7 @@ def _dinov3_weight_info(preset: str, config: dict[str, str], hub_root: Path) -> 
 
     return {
         "preset": preset,
-        "extractor": preset,
+        "extractor": config["legacy_extractor"],
         "backbone_id": config["backbone_id"],
         "model_name": model_name,
         "repo_id": repo_id,
@@ -70,23 +104,23 @@ def _dinov3_weight_info(preset: str, config: dict[str, str], hub_root: Path) -> 
         "incomplete_file_count": len(incomplete_files),
         "incomplete_size_bytes": incomplete_size,
         "partial_bytes": incomplete_size,
-        "description": _dinov3_weight_description(preset),
+        "description": _weight_description(preset),
         "download_hint": "cached locally" if complete_files else "download with timm/Hugging Face Hub",
     }
 
 
-def _dinov3_weight_description(preset: str) -> str:
+def _weight_description(preset: str) -> str:
     descriptions = {
-        "dinov3_vits": "ViT-S/16 is the recommended MVP default: fast feature extraction and strong CUB baseline after CLS pooling.",
-        "dinov3_vitb": "ViT-B/16 is the middle option for later comparison; it is larger and may need a fresh Hugging Face download.",
-        "dinov3_vitl": "ViT-L/16 is the heavier accuracy-oriented option; use when GPU memory and extraction time are acceptable.",
+        "dinov3_vits16_lvd1689m": "ViT-S/16 self-supervised with DINOv3 on LVD-1689M; CLS pooled frozen features.",
+        "imagenet_vits16_augreg_in21k_ft_in1k": "ViT-S/16 supervised on ImageNet-21K then fine-tuned on ImageNet-1K.",
+        "imagenet_resnet50_a1_in1k": "ResNet-50 supervised on ImageNet-1K; global pooled frozen features.",
     }
     return descriptions[preset]
 
 
 def inspect_dinov3_weight_cache(cache_root: str | Path | None = None) -> dict[str, Any]:
     hub_root = _resolve_huggingface_hub_cache(cache_root)
-    weights = [_dinov3_weight_info(preset, config, hub_root) for preset, config in DINOV3_MODEL_PRESETS.items()]
+    weights = [_weight_info(preset, config, hub_root) for preset, config in BACKBONE_SPECS.items()]
 
     return {
         "cache_root": str(hub_root),
@@ -96,18 +130,19 @@ def inspect_dinov3_weight_cache(cache_root: str | Path | None = None) -> dict[st
 
 
 def delete_dinov3_weight_cache(preset: str, cache_root: str | Path | None = None) -> dict[str, Any]:
-    if preset not in DINOV3_MODEL_PRESETS:
-        raise ValueError(f"Unsupported DINOv3 weight preset: {preset}")
+    preset = BACKBONE_ALIASES.get(preset, preset)
+    if preset not in BACKBONE_SPECS:
+        raise ValueError(f"Unsupported pretrained weight preset: {preset}")
 
     hub_root = _resolve_huggingface_hub_cache(cache_root)
-    config = DINOV3_MODEL_PRESETS[preset]
-    before = _dinov3_weight_info(preset, config, hub_root)
+    config = BACKBONE_SPECS[preset]
+    before = _weight_info(preset, config, hub_root)
     repo_dir = Path(before["cache_dir"])
     deleted = repo_dir.exists()
     if deleted:
         shutil.rmtree(repo_dir)
 
-    after = _dinov3_weight_info(preset, config, hub_root)
+    after = _weight_info(preset, config, hub_root)
     return {
         "deleted": deleted,
         "preset": preset,
@@ -134,14 +169,16 @@ def dinov3_extractor_config(
     image_size: int | None = None,
     feature_pool: str = "cls",
 ) -> dict[str, object]:
-    preset = DINOV3_MODEL_PRESETS[extractor]
+    key = BACKBONE_ALIASES.get(extractor, extractor)
+    preset = BACKBONE_SPECS[key]
     config: dict[str, object] = {
-        "type": "timm_dinov3",
-        "preset": extractor,
+        "type": "timm",
+        "preset": key,
+        "backbone_key": key,
         "model_name": preset["model_name"],
         "pretrained": True,
         "backbone_id": backbone_id or preset["backbone_id"],
-        "feature_pool": feature_pool,
+        "feature_pool": feature_pool or str(preset["feature_pool"]),
     }
     if image_size is not None:
         config["image_size"] = image_size
@@ -183,20 +220,20 @@ class ColorStatsExtractor:
 
 
 @dataclass
-class TimmDinoV3Extractor:
-    """DINOv3 feature extractor backed by timm.
+class TimmFeatureExtractor:
+    """Frozen timm backbone for the three Phase 2 managed weight identities.
 
-    The default model uses ViT-B/16. The heavy dependencies are imported lazily
-    so ordinary toolkit tests do not require torch/timm or model downloads.
+    Heavy dependencies are imported lazily so CRUD and ordinary toolkit tests
+    do not require torch/timm or a network connection.
     """
 
-    model_name: str = "vit_base_patch16_dinov3"
+    model_name: str = "vit_small_patch16_dinov3"
     pretrained: bool = True
     device: str = "cpu"
     batch_size: int = 8
     image_size: int | None = None
     feature_pool: str = "cls"
-    backbone_id: str = "dinov3_vitb16"
+    backbone_id: str = "dinov3_vits16_lvd1689m"
     checkpoint_path: str | None = None
     config: dict[str, object] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
@@ -207,7 +244,7 @@ class TimmDinoV3Extractor:
         # Runtime fields such as device and batch_size do not change feature
         # semantics; keeping them out lets cache reuse survive tuning.
         self.config = {
-            "type": "timm_dinov3",
+            "type": "timm",
             "model_name": self.model_name,
             "pretrained": self.pretrained,
             "backbone_id": self.backbone_id,
@@ -223,20 +260,32 @@ class TimmDinoV3Extractor:
             from timm.data import create_transform, resolve_model_data_config
         except ImportError as exc:
             raise RuntimeError(
-                "DINOv3 extraction requires optional dependencies. "
+                "Managed timm extraction requires optional dependencies. "
                 "Install with `uv sync --extra dinov3 --group dev`."
             ) from exc
 
         if self.device.startswith("cuda") and not torch.cuda.is_available():
-            raise RuntimeError("DINOv3 extraction requested cuda, but torch.cuda.is_available() is false.")
+            raise RuntimeError("Managed timm extraction requested cuda, but torch.cuda.is_available() is false.")
 
         if self._model is None or self._transform is None:
             model = timm.create_model(
                 self.model_name,
                 pretrained=self.pretrained if self.checkpoint_path is None else False,
                 num_classes=0,
-                checkpoint_path=self.checkpoint_path or "",
             )
+            if self.checkpoint_path is not None:
+                from safetensors.torch import load_file
+
+                incompatible = model.load_state_dict(load_file(self.checkpoint_path), strict=False)
+                allowed_classifier_prefixes = ("head.", "fc.", "classifier.")
+                unsupported = [
+                    key for key in incompatible.unexpected_keys if not key.startswith(allowed_classifier_prefixes)
+                ]
+                if incompatible.missing_keys or unsupported:
+                    raise RuntimeError(
+                        "Managed checkpoint is incompatible with the approved backbone: "
+                        f"missing={incompatible.missing_keys}, unexpected={unsupported}"
+                    )
             model.eval().to(self.device)
             data_config = resolve_model_data_config(model)
             if self.image_size is not None:
@@ -249,7 +298,7 @@ class TimmDinoV3Extractor:
             import torch
         except ImportError as exc:
             raise RuntimeError(
-                "DINOv3 extraction requires optional dependencies. "
+                "Managed timm extraction requires optional dependencies. "
                 "Install with `uv sync --extra dinov3 --group dev`."
             ) from exc
 
@@ -272,7 +321,7 @@ class TimmDinoV3Extractor:
                 elif self.feature_pool == "model":
                     output = model(tensor)
                 else:
-                    raise ValueError(f"Unsupported DINOv3 feature_pool: {self.feature_pool}")
+                    raise ValueError(f"Unsupported managed feature_pool: {self.feature_pool}")
                 if isinstance(output, (tuple, list)):
                     output = output[0]
                 batches.append(output.detach().cpu().float().numpy())
@@ -281,36 +330,43 @@ class TimmDinoV3Extractor:
         return np.vstack(batches).astype(np.float32)
 
 
+# Kept as a source-compatible name for existing compute tests and stored
+# extractor configs. New code should use TimmFeatureExtractor.
+TimmDinoV3Extractor = TimmFeatureExtractor
+
+
 def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any] | None = None) -> ImageFeatureExtractor:
     merged = {**config, **(overrides or {})}
     extractor_type = str(merged.get("type") or "color_stats")
     if extractor_type == "color_stats":
         return ColorStatsExtractor(bins=int(merged.get("bins", 8)))
-    if extractor_type in {"timm_dinov3", *DINOV3_MODEL_PRESETS.keys()}:
-        preset_name = str(merged.get("preset") or extractor_type)
-        preset = DINOV3_MODEL_PRESETS.get(preset_name, DINOV3_MODEL_PRESETS["dinov3_vitb"])
-        return TimmDinoV3Extractor(
-            model_name=str(merged.get("model_name", preset["model_name"])),
+    requested = str(merged.get("backbone_key") or merged.get("preset") or extractor_type)
+    preset_name = BACKBONE_ALIASES.get(requested, requested)
+    if extractor_type in {"timm", "timm_dinov3", *BACKBONE_SPECS.keys(), *BACKBONE_ALIASES.keys()}:
+        if preset_name not in BACKBONE_SPECS:
+            raise ValueError(f"Unsupported Phase 2 backbone: {preset_name}")
+        preset = BACKBONE_SPECS[preset_name]
+        model_name = str(merged.get("model_name", preset["model_name"]))
+        if model_name != preset["model_name"]:
+            raise ValueError("Managed backbone model_name does not match backbone_key")
+        return TimmFeatureExtractor(
+            model_name=model_name,
             pretrained=bool(merged.get("pretrained", True)),
             device=str(merged.get("device", "cpu")),
             batch_size=int(merged.get("batch_size", 8)),
-            image_size=int(merged["image_size"]) if merged.get("image_size") is not None else None,
-            feature_pool=str(merged.get("feature_pool") or "model"),
+            image_size=int(merged.get("image_size", preset["image_size"])),
+            feature_pool=str(merged.get("feature_pool") or preset["feature_pool"]),
             backbone_id=str(merged.get("backbone_id", preset["backbone_id"])),
-            checkpoint_path=_managed_checkpoint_path(merged, str(merged.get("model_name", preset["model_name"]))),
+            checkpoint_path=_managed_checkpoint_path(merged, preset_name),
         )
     raise ValueError(f"Unsupported extractor config type: {extractor_type}")
 
 
-def _managed_checkpoint_path(config: dict[str, Any], model_name: str) -> str | None:
+def _managed_checkpoint_path(config: dict[str, Any], backbone_key: str) -> str | None:
     explicit = str(config.get("checkpoint_path") or "").strip()
     if explicit:
         return explicit
-    environment_key = {
-        "vit_small_patch16_dinov3": "FINEVISION_DINOV3_VITS_WEIGHT",
-        "vit_base_patch16_dinov3": "FINEVISION_DINOV3_VITB_WEIGHT",
-        "vit_large_patch16_dinov3": "FINEVISION_DINOV3_VITL_WEIGHT",
-    }.get(model_name)
+    environment_key = str(BACKBONE_SPECS.get(backbone_key, {}).get("weight_env") or "")
     if environment_key:
         configured = os.environ.get(environment_key, "").strip()
         if configured:

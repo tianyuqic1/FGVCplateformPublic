@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	postgresadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/postgres"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 )
 
@@ -39,8 +41,16 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 
 	service := training.NewService(postgresadapter.NewTrainingRepository(pool), time.Now, 2*time.Minute)
 	created, err := service.Create(ctx, training.CreateCommand{
-		DatasetID: datasetID.String(), DatasetVersionID: versionID.String(), BackboneID: "dinov3_vits16",
-		Payload:     map[string]any{"extractor": "dinov3_vits", "head_config": map[string]any{"head_type": "ridge_linear"}},
+		DatasetID: datasetID.String(), DatasetVersionID: versionID.String(), BackboneID: "dinov3_vits16_lvd1689m",
+		Payload: map[string]any{
+			"extractor": "dinov3_vits",
+			"extractor_config": map[string]any{
+				"backbone_key": "dinov3_vits16_lvd1689m", "architecture": "vit_small_patch16",
+				"pretraining_method": "DINOv3", "pretraining_dataset": "LVD-1689M",
+				"image_size": 224, "feature_dim": 384, "parameter_count": 21588480, "feature_pool": "cls",
+			},
+			"head_config": map[string]any{"head_type": "torch_linear_adam", "epochs": 2},
+		},
 		MaxAttempts: 2,
 	})
 	if err != nil {
@@ -52,6 +62,16 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	}
 	claim, err := service.Claim(ctx, training.ClaimCommand{JobID: created.JobID, DispatchGeneration: 1, WorkerID: "integration-worker"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Progress(ctx, training.ProgressCommand{
+		JobID: created.JobID, AttemptID: claim.AttemptID, ExecutionEpoch: claim.ExecutionEpoch,
+		Progress: map[string]any{"current_stage": "head"},
+		MetricPoints: []training.MetricPoint{
+			{Name: "train_loss", Step: 1, Value: 0.8},
+			{Name: "eval_accuracy", Step: 1, Value: 0.75},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("model")))
@@ -72,5 +92,37 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	var modelCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM model_versions WHERE id=$1 AND model_artifact_id=$2`, completed.ModelVersionID, modelArtifactID).Scan(&modelCount); err != nil || modelCount != 1 {
 		t.Fatalf("model count/error = %d/%v", modelCount, err)
+	}
+	canDelete, err := artifact.NewGarbageCollectionGuard(postgresadapter.NewArtifactReferences(pool)).CanDeletePhysicalObject(ctx, digest, modelArtifactID)
+	if err != nil || canDelete {
+		t.Fatalf("referenced model artifact must not be physically deleted: allowed=%t error=%v", canDelete, err)
+	}
+	metricRead, err := postgresadapter.NewReadModels(pool).GetTrainingRunMetrics(ctx, created.TrainingRunID, httpapi.MetricsQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if points := metricRead["metric_points"].([]map[string]any); len(points) != 2 || metricRead["next_cursor"].(int64) <= 0 {
+		t.Fatalf("metric read = %#v", metricRead)
+	}
+	registry := modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool))
+	version, err := registry.Get(ctx, completed.ModelVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version.BackboneKey != "dinov3_vits16_lvd1689m" || version.FeatureDim == nil || *version.FeatureDim != 384 ||
+		version.EvaluationContext["protocol_fingerprint"] == "" || len(version.Events) != 1 {
+		t.Fatalf("model version metadata = %#v", version)
+	}
+	staging, err := registry.Promote(ctx, completed.ModelVersionID, modelregistry.StatusStaging, "integration-test", "quality gate passed")
+	if err != nil || staging.Status != modelregistry.StatusStaging {
+		t.Fatalf("staging/error = %#v/%v", staging, err)
+	}
+	production, err := registry.Promote(ctx, completed.ModelVersionID, modelregistry.StatusProduction, "integration-test", "release approved")
+	if err != nil || production.Status != modelregistry.StatusProduction {
+		t.Fatalf("production/error = %#v/%v", production, err)
+	}
+	alias, err := registry.SetAlias(ctx, version.DatasetID, "champion", completed.ModelVersionID, "integration-test", "best approved baseline")
+	if err != nil || alias.Alias != "champion" {
+		t.Fatalf("alias/error = %#v/%v", alias, err)
 	}
 }

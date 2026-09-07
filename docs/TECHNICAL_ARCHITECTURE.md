@@ -13,6 +13,7 @@
 文档关系：
 
 - [`REFACTOR_PHASE1_PLAN.md`](REFACTOR_PHASE1_PLAN.md) 定义迁移顺序、状态语义、验收标准和回滚方案。
+- [`REFACTOR_PHASE2_PLAN.md`](REFACTOR_PHASE2_PLAN.md) 定义已批准但尚待实施的前端视觉、Training Metric Point、Model Version 比较与 ImageNet backbone 扩展；它不改变本文的 Go/Python 所有权边界。
 - [`CONTEXT.md`](../CONTEXT.md) 定义 FineVision 领域语言。
 - [`CONTROL_PLANE_API.md`](CONTROL_PLANE_API.md) 与 [`DATABASE_DESIGN.md`](DATABASE_DESIGN.md) 同时保留历史 Python contract 与 Phase 1 Go/internal contract；出现冲突时以 OpenAPI、Protobuf、当前 Alembic head 和本文档为准。
 
@@ -379,3 +380,57 @@ npm run smoke:routes
 9. 删除 FastAPI Control Plane 和所有 Fine-R1 vertical slice。
 
 每一步必须满足 [`REFACTOR_PHASE1_PLAN.md`](REFACTOR_PHASE1_PLAN.md) 对应退出条件，禁止用一次性“大爆炸”替换整个后端。
+
+## 13. Phase 2 已实现扩展
+
+Phase 2 保持以上 Go/Python 所有权边界，并在现有事实源上增加以下能力。
+
+### 13.1 Training Metric
+
+- Python `torch_linear_adam` 每个 epoch 通过 `ReportProgress` 上报 `train_loss` 与
+  `eval_accuracy`；每个点携带 `attempt_id`、`step` 和上下文。
+- Go 在 fencing 校验后把指标追加到 `training_metric_points`，唯一键保证重复 RPC 幂等；过期
+  attempt 不能污染新曲线。
+- `GET /api/training-runs/{run_id}/metrics` 使用 cursor 增量读取并返回 `poll_after_ms`。前端以
+  2 秒为默认周期，终态后停止轮询，Ridge Linear 不生成伪造曲线。
+- ECharts 只是渲染 adapter；PostgreSQL 与 Go API 仍是 Metric 事实源。
+
+### 13.2 Model Version Registry
+
+- `go/internal/modelregistry` 拥有 candidate → staging → production、archive、alias 和比较规则。
+- `champion` 只能指向 production，`challenger` 只能指向 candidate/staging；alias 在 Dataset
+  作用域内唯一，并在同一事务中重指向和写入审计事件。
+- 比较请求接受 2–5 个版本。只有 Dataset Version、evaluation split 和 protocol fingerprint
+  都一致时才标记为可比较；缺失指标返回 N/A 语义，不转换成 0。
+- PostgreSQL 保存 backbone、预训练来源、Feature 维度、输入尺寸、参数量、head 类型和评估上下文，
+  供列表、详情和比较页使用。
+
+### 13.3 受管 Backbone 与 Artifact 两层管理
+
+`go/internal/modelcatalog` 固定三项可选身份：
+
+```text
+dinov3_vits16_lvd1689m
+imagenet_vits16_augreg_in21k_ft_in1k
+imagenet_resnet50_a1_in1k
+```
+
+权重由 Git LFS 发布，以 immutable upstream revision、许可证、SHA-256 和大小登记在
+`weights/manifest.json`。Compose 的 `pretrained-weight-init` 将其校验后提升到 MinIO；Training
+Worker 与 Inference Runtime 只按稳定 key 按需 materialize。
+
+训练产物同时具备两层身份：
+
+1. 逻辑层：Artifact Record 绑定 Dataset Version、Training Run、attempt 和 Model Version。
+2. 物理层：MinIO 使用 `compute/{artifact_type}/{sha-prefix}/{sha256}` 一类内容寻址 key 保存字节。
+
+Inference Runtime 要求 Model Bundle、Model、Feature/Strategy Artifact 的逻辑 scope 完全一致，
+并逐个验证 SHA-256 与大小。引用安全 GC 只有在没有任何 Artifact Record 或训练/模型/推理关系
+引用同一 SHA 时才允许删除物理对象。
+
+### 13.4 前端结构
+
+- A「科研实验工作台」已落实为 `frontend/src/design-system` 的语义 token、通用组件和图表 adapter。
+- Training 与 Model Version 页面分别位于 `frontend/src/features/training` 和
+  `frontend/src/features/model-versions`，生产 route 不依赖原型目录。
+- 桌面端使用固定导航和高密度工作区；窄屏切换为图标导航与纵向 panel，表格保留横向滚动能力。
