@@ -20,7 +20,7 @@ const searchItems = [
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
-  { label: "权重管理", hint: "DINOv3 ViT-S/B/L 缓存状态和删除", to: "/weights" },
+  { label: "权重管理", hint: "DINOv3 / ImageNet ViT-S 与 ResNet-50", to: "/weights" },
   { label: "人工复核", hint: "待复核、历史、人工提交", to: "/review?status=pending" },
   { label: "复核历史", hint: "已进入反馈池的复核记录", to: "/review?status=feedbacked" },
   { label: "反馈池", hint: "训练候选、OOD、坏图、争议", to: "/feedback" },
@@ -77,10 +77,10 @@ export function AppShell({ title, crumb, children, onToast }) {
           </div>
           <div>
             <strong>FineVision</strong>
-            <span className="small">视觉分类工作台</span>
+            <span className="small">Research Console</span>
           </div>
         </div>
-        <div className="nav-caption">导航</div>
+        <div className="nav-caption">Workspace</div>
         <nav className="nav-section">
           {navItems.map((item) => (
             <NavLink className={`nav-button ${active === item.id ? "active" : ""}`} key={item.id} to={item.to}>
@@ -91,12 +91,12 @@ export function AppShell({ title, crumb, children, onToast }) {
         </nav>
         <div className="sidebar-card">
           <Icon name="ShieldCheck" size={18} />
-          <h3>当前能力</h3>
-          <p className="small">聚焦 CLS 训练、推理、复核和权重管理；生产发布需完成门禁后再操作</p>
+          <h3>受治理的实验</h3>
+          <p className="small">Training Run、Metric、Model Version 与 Artifact 均由 FineVision 统一追踪。</p>
           <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
             <i />
           </div>
-          <div className="row-meta">候选模型评估流程</div>
+          <div className="row-meta">Phase 2 · Registry active</div>
         </div>
       </aside>
       <main className="main">
@@ -110,6 +110,7 @@ export function AppShell({ title, crumb, children, onToast }) {
               <label className="search-box">
                 <Icon name="Search" size={16} />
                 <input
+                  aria-label="全局搜索"
                   value={searchQuery}
                   onBlur={() => window.setTimeout(() => setSearchFocused(false), 120)}
                   onChange={(event) => setSearchQuery(event.target.value)}
@@ -136,10 +137,6 @@ export function AppShell({ title, crumb, children, onToast }) {
             <button className="secondary-button" onClick={() => navigate("/inference")}>
               <Icon name="ImageUp" size={16} />
               推理
-            </button>
-            <button className="primary-button" onClick={() => navigate("/training?create=1")}>
-              <Icon name="Play" size={16} />
-              新建训练
             </button>
           </div>
         </header>

@@ -33,7 +33,6 @@ from finevision.api.llm import (
 from finevision.api.review_store import DatabaseReviewStore, FeedbackItemRecord
 from finevision.api.store import create_stores
 from finevision.api.training_store import DatabaseTrainingStore
-from finevision.api.vlm_review_store import DatabaseVLMReviewStore
 from finevision.ml_toolkit.datasets import EXPLICIT_SPLITS, IMAGE_EXTENSIONS, scan_imagefolder
 from finevision.ml_toolkit.features import (
     DINOV3_MODEL_PRESETS,
@@ -110,15 +109,6 @@ class ReviewAssistanceRequest(BaseModel):
     question: str | None = Field(default=None, max_length=1200)
 
 
-class CreateVLMReviewRunRequest(BaseModel):
-    mode: Literal["assisted", "auto"] = "assisted"
-    dataset_id: str | None = Field(default=None, min_length=1)
-    inference_run_id: str | None = Field(default=None, min_length=1)
-    limit: int = Field(default=20, ge=1, le=500)
-    risk_acknowledged: bool = False
-    created_by: str | None = Field(default="local-operator", max_length=200)
-
-
 class DatasetCardRequest(BaseModel):
     dataset_card: dict[str, Any] = Field(default_factory=dict)
 
@@ -171,7 +161,6 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
     api.state.training_store = training_store
     api.state.inference_store = DatabaseInferenceStore(database_engine) if database_engine is not None else None
     api.state.review_store = DatabaseReviewStore(database_engine) if database_engine is not None else None
-    api.state.vlm_review_store = DatabaseVLMReviewStore(database_engine) if database_engine is not None else None
     api.state.abstention_store = DatabaseAbstentionStore(database_engine) if database_engine is not None else None
     api.state.upload_dir = Path(os.environ.get("FINEVISION_UPLOAD_DIR", ".finevision-api/uploads"))
     api.state.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -757,92 +746,6 @@ def create_app(metadata_dir: str | Path | None = None, database_url: str | None 
             "assistance": assistance,
             "review_item": _review_item_payload(updated),
         }
-
-    @api.post("/api/vlm-review-runs", status_code=status.HTTP_202_ACCEPTED)
-    def create_vlm_review_run(request: CreateVLMReviewRunRequest) -> dict[str, object]:
-        vlm_store: DatabaseVLMReviewStore | None = api.state.vlm_review_store
-        if vlm_store is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="VLM review runs require DATABASE_URL-backed persistence",
-            )
-        if request.mode == "auto" and not request.risk_acknowledged:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Auto review requires explicit risk acknowledgement",
-            )
-        if request.mode == "auto" and os.environ.get("FINEVISION_FINER1_AUTO_ENABLED", "").lower() != "true":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Auto review is disabled until a target-dataset shadow benchmark passes",
-            )
-        try:
-            run = vlm_store.create_run(
-                mode=request.mode,
-                limit=request.limit,
-                dataset_id=request.dataset_id,
-                inference_run_id=request.inference_run_id,
-                model_id=os.environ.get("FINEVISION_FINER1_MODEL_ID", "Fine-R1-3B"),
-                model_revision=os.environ.get(
-                    "FINEVISION_FINER1_MODEL_REVISION",
-                    "6da43fdd30df0101bbb81f4ae5ad9e6117bf3619",
-                ),
-                prompt_version=os.environ.get("FINEVISION_FINER1_PROMPT_VERSION", "finevision-finer1-v1.1"),
-                config={
-                    "risk_acknowledged": request.risk_acknowledged,
-                    "candidate_source": "dinov3_top_k",
-                    "reject_ood_allowed": False,
-                    "auto_gate_policy": "finevision-finer1-auto-gate-v1",
-                },
-                created_by=request.created_by,
-            )
-        except ValueError as exc:
-            message = str(exc)
-            code = status.HTTP_409_CONFLICT if message.startswith("No eligible") else status.HTTP_404_NOT_FOUND
-            raise HTTPException(status_code=code, detail=message) from exc
-        return {"vlm_review_run": run.to_dict()}
-
-    @api.get("/api/vlm-review-runs")
-    def list_vlm_review_runs(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, object]:
-        vlm_store: DatabaseVLMReviewStore | None = api.state.vlm_review_store
-        if vlm_store is None:
-            return {"vlm_review_runs": []}
-        return {"vlm_review_runs": [item.to_dict() for item in vlm_store.list_runs(limit=limit)]}
-
-    @api.get("/api/vlm-review-capabilities")
-    def get_vlm_review_capabilities() -> dict[str, object]:
-        return {
-            "assisted_enabled": True,
-            "auto_enabled": os.environ.get("FINEVISION_FINER1_AUTO_ENABLED", "").lower() == "true",
-            "auto_enablement_policy": "target_dataset_shadow_benchmark",
-            "reject_ood_allowed": False,
-        }
-
-    @api.get("/api/vlm-review-runs/{run_id}")
-    def get_vlm_review_run(run_id: str) -> dict[str, object]:
-        vlm_store: DatabaseVLMReviewStore | None = api.state.vlm_review_store
-        if vlm_store is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VLM review run not found")
-        run = vlm_store.get_run(run_id)
-        if run is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VLM review run not found")
-        return {
-            "vlm_review_run": run.to_dict(),
-            "results": [item.to_dict() for item in vlm_store.list_results(run_id)],
-        }
-
-    @api.post("/api/vlm-review-runs/{run_id}/cancel")
-    def cancel_vlm_review_run(run_id: str) -> dict[str, object]:
-        vlm_store: DatabaseVLMReviewStore | None = api.state.vlm_review_store
-        if vlm_store is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VLM review run not found")
-        try:
-            run = vlm_store.cancel_run(run_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        return {"vlm_review_run": run.to_dict()}
 
     @api.post("/api/llm/assist")
     def generate_llm_assistance(request: LLMAssistanceRequest) -> dict[str, object]:

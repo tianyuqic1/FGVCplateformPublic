@@ -11,7 +11,13 @@ from finevision.api.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.artifacts import load_feature_artifact
 from finevision.ml_toolkit.calibration import fit_temperature_scaling
 from finevision.ml_toolkit.datasets import scan_imagefolder
-from finevision.ml_toolkit.features import DINOV3_MODEL_PRESETS, ColorStatsExtractor, build_extractor_from_config, extract_features
+from finevision.ml_toolkit.features import (
+    BACKBONE_ALIASES,
+    BACKBONE_SPECS,
+    ColorStatsExtractor,
+    build_extractor_from_config,
+    extract_features,
+)
 from finevision.ml_toolkit.thresholds import estimate_margin_threshold, select_threshold_strategy, sweep_confidence_thresholds
 from finevision.ml_toolkit.training import train_linear_head
 
@@ -244,13 +250,24 @@ def _build_extractor(payload: dict[str, Any]):
     extractor_name = str(payload.get("extractor") or "color_stats")
     if extractor_name == "color_stats":
         return ColorStatsExtractor()
-    if extractor_name in DINOV3_MODEL_PRESETS:
-        config = dict(payload.get("extractor_config") or {"type": extractor_name})
+    backbone_key = str(payload.get("backbone_id") or BACKBONE_ALIASES.get(extractor_name, extractor_name))
+    backbone_key = BACKBONE_ALIASES.get(backbone_key, backbone_key)
+    if backbone_key in BACKBONE_SPECS:
+        config = dict(payload.get("extractor_config") or {"type": "timm", "backbone_key": backbone_key})
         return build_extractor_from_config(
             config,
             overrides={
-                "device": str(payload.get("device") or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")),
-                "batch_size": int(payload.get("batch_size") or os.environ.get("FINEVISION_DINOV3_BATCH_SIZE", "8")),
+                "backbone_key": backbone_key,
+                "device": str(
+                    payload.get("device")
+                    or os.environ.get("FINEVISION_COMPUTE_DEVICE")
+                    or os.environ.get("FINEVISION_DINOV3_DEVICE", "cpu")
+                ),
+                "batch_size": int(
+                    payload.get("batch_size")
+                    or os.environ.get("FINEVISION_FEATURE_BATCH_SIZE")
+                    or os.environ.get("FINEVISION_DINOV3_BATCH_SIZE", "8")
+                ),
             },
         )
     raise ValueError(f"Unsupported extractor: {extractor_name}")
@@ -312,6 +329,7 @@ def _update_training_progress(
     *,
     note: str | None = None,
     stage_percent: int | float | None = None,
+    latest_metrics: dict[str, float] | None = None,
 ) -> None:
     stages = []
     seen_current = False
@@ -345,14 +363,14 @@ def _update_training_progress(
         stages.append(current)
 
     current_stage = "completed" if stage_id == "completed" else stage_id
-    training_store.update_progress(
-        run_id,
-        {
-            "current_stage": current_stage,
-            "overall_percent": round(min(100.0, overall), 1),
-            "stages": stages,
-        },
-    )
+    payload: dict[str, Any] = {
+        "current_stage": current_stage,
+        "overall_percent": round(min(100.0, overall), 1),
+        "stages": stages,
+    }
+    if latest_metrics:
+        payload["latest_metrics"] = {str(key): float(value) for key, value in latest_metrics.items()}
+    training_store.update_progress(run_id, payload)
 
 
 def _feature_progress_callback(training_store: TrainingStoreLike, run_id: str):
@@ -380,17 +398,11 @@ def _feature_progress_callback(training_store: TrainingStoreLike, run_id: str):
 
 
 def _head_progress_callback(training_store: TrainingStoreLike, run_id: str):
-    last_percent = -1
-
     def update(epoch: int, epochs: int, metrics: dict[str, float]) -> None:
-        nonlocal last_percent
         _check_training_control(training_store, run_id)
         if epochs <= 0:
             return
         percent = int((epoch / epochs) * 100)
-        if percent < 100 and percent - last_percent < 5:
-            return
-        last_percent = percent
         _update_training_progress(
             training_store,
             run_id,
@@ -398,6 +410,7 @@ def _head_progress_callback(training_store: TrainingStoreLike, run_id: str):
             "running",
             note=f"epoch {epoch}/{epochs} · loss {metrics.get('train_loss', 0.0):.4f} · acc {metrics.get('eval_accuracy', 0.0):.3f}",
             stage_percent=percent,
+            latest_metrics=metrics,
         )
 
     return update

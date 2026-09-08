@@ -20,7 +20,7 @@ async function fetchJson(path, { method = "GET", body, signal } = {}) {
     let detail = `${response.status} ${method} ${path}`;
     try {
       const payload = await response.json();
-      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      const message = payload?.error?.message ?? (typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message);
       detail = message ? `${detail}: ${message}` : detail;
     } catch {
       // Keep the HTTP status fallback when the response body is not JSON.
@@ -151,42 +151,6 @@ export async function getDataset(datasetId) {
   });
 }
 
-export async function getDatasetCard(datasetVersionId) {
-  return withTimeout(async (signal) => {
-    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card`, { signal });
-    return normalizeDatasetCard(payload?.dataset_card);
-  });
-}
-
-export async function updateDatasetCard(datasetVersionId, datasetCard) {
-  return withTimeout(async (signal) => {
-    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card`, {
-      method: "PUT",
-      body: {
-        dataset_card: {
-          task: datasetCard.task,
-          domain: datasetCard.domain,
-          summary: datasetCard.summary,
-          known_confusions: datasetCard.knownConfusions,
-          ood_policy: datasetCard.oodPolicy,
-          review_guidance: datasetCard.reviewGuidance,
-        },
-      },
-      signal,
-    });
-    return normalizeDatasetCard(payload?.dataset_card);
-  }, 10000);
-}
-
-export async function generateDatasetCard(datasetVersionId) {
-  return withTimeout(async (signal) => {
-    const payload = await fetchJson(`/api/dataset-versions/${encodeURIComponent(datasetVersionId)}/card/generate`, {
-      method: "POST",
-      signal,
-    });
-    return normalizeDatasetCard(payload?.dataset_card);
-  }, 180000);
-}
 
 export async function listDatasetSamplePreviews(datasetVersionId, limit = 6) {
   return withTimeout(async (signal) => {
@@ -220,7 +184,7 @@ export async function uploadImagefolder(input) {
     let detail = `${response.status} POST /api/datasets/upload-imagefolder`;
     try {
       const payload = await response.json();
-      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
+      const message = payload?.error?.message ?? (typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message);
       detail = message ? `${detail}: ${message}` : detail;
     } catch {
       // Keep the HTTP status fallback when the response body is not JSON.

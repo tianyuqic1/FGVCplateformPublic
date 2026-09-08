@@ -1,0 +1,144 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5/pgxpool"
+	computev1 "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/einocard"
+	grpcadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/grpc"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/llmgatewayclient"
+	postgresadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/postgres"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/s3artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+	configuration, err := config.LoadControlPlane()
+	if err != nil {
+		slog.Error("invalid control plane configuration", "error", err)
+		os.Exit(1)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	pool, err := pgxpool.New(ctx, configuration.DatabaseURL)
+	if err != nil {
+		slog.Error("connect PostgreSQL", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		slog.Error("ping PostgreSQL", "error", err)
+		os.Exit(1)
+	}
+	repository := postgresadapter.NewTrainingRepository(pool)
+	awsConfiguration, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(configuration.S3Region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(configuration.S3AccessKey, configuration.S3SecretKey, "")),
+	)
+	if err != nil {
+		slog.Error("configure S3-compatible ArtifactStore", "error", err)
+		os.Exit(1)
+	}
+	s3Client := s3.NewFromConfig(awsConfiguration, func(options *s3.Options) {
+		options.BaseEndpoint = aws.String(configuration.S3Endpoint)
+		options.UsePathStyle = true
+	})
+	artifactVerifier := s3artifact.New(s3Client, configuration.ArtifactBucket, "")
+	lifecycle := training.NewServiceWithVerifier(repository, artifactVerifier, time.Now, configuration.LeaseTTL)
+	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second})
+	llmApplication := llm.NewApplication(llmGateway)
+	cardGenerator, err := einocard.New(ctx, llmGateway)
+	if err != nil {
+		slog.Error("compile dataset card workflow")
+		os.Exit(1)
+	}
+	cards := &datasetcard.Service{Repository: &postgresadapter.DatasetCardRepository{Pool: pool}, Generator: cardGenerator}
+	computeAddress := os.Getenv("FINEVISION_COMPUTE_GRPC")
+	if computeAddress == "" {
+		computeAddress = "python-inference-runtime:9100"
+	}
+	computeConnection, err := grpc.NewClient(computeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		slog.Error("connect compute runtime", "error", err)
+		os.Exit(1)
+	}
+	defer computeConnection.Close()
+	datasetImport := &dataset.Service{Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
+	server := &http.Server{
+		Addr: configuration.HTTPAddress,
+		Handler: httpapi.NewRouter(httpapi.Dependencies{
+			DatasetCards:  cards,
+			DatasetImport: datasetImport,
+			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
+			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)),
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	listener, err := net.Listen("tcp", configuration.GRPCAddress)
+	if err != nil {
+		slog.Error("listen for internal gRPC", "error", err)
+		os.Exit(1)
+	}
+	grpcServer := grpc.NewServer()
+	computev1.RegisterTrainingLifecycleServer(grpcServer, grpcadapter.NewTrainingLifecycleServer(lifecycle))
+	go func() {
+		if err := grpcServer.Serve(listener); err != nil {
+			slog.Error("internal gRPC stopped", "error", err)
+			stop()
+		}
+	}()
+	go runReaper(ctx, lifecycle)
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		grpcServer.GracefulStop()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+	slog.Info("starting FineVision Go Control Plane", "address", configuration.HTTPAddress)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("control plane stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func runReaper(ctx context.Context, lifecycle *training.Service) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reaped, err := lifecycle.ReapExpired(ctx, 100)
+			if err != nil {
+				slog.Error("reap expired training attempts", "error", err)
+				continue
+			}
+			if len(reaped) > 0 {
+				slog.Warn("requeued expired training attempts", "count", len(reaped))
+			}
+		}
+	}
+}

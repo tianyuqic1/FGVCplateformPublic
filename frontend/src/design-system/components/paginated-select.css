@@ -1,0 +1,20 @@
+.fv-paginated-select { position: relative; min-width: 0; width: 100%; }
+.fv-select-trigger { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 11px; border: 1px solid var(--border-subtle); border-radius: 9px; background: #fff; text-align: left; cursor: pointer; color: var(--text-primary); }
+.fv-select-trigger > span { min-width: 0; }
+.fv-select-trigger svg { flex-shrink: 0; }
+.fv-select-trigger strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.fv-select-trigger small, .fv-select-options small { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px var(--font-mono); color: var(--text-muted); }
+.fv-select-trigger[aria-expanded="true"], .fv-paginated-select button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 2px; }
+.fv-select-menu { position: absolute; z-index: 50; top: 100%; left: 0; width: 100%; min-width: min(260px, 80vw); margin-top: 6px; padding: 8px; background: #fff; border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: var(--shadow-float); }
+.fv-select-menu > input { box-sizing: border-box; width: 100%; min-height: 34px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: #fff; }
+.fv-select-options { max-height: 270px; overflow-y: auto; margin-top: 6px; }
+.fv-select-options button { width: 100%; padding: 10px; display: block; text-align: left; background: transparent; border: 0; border-radius: 7px; cursor: pointer; color: var(--text-primary); }
+.fv-select-options button:hover, .fv-select-options button[aria-pressed="true"] { background: var(--surface-selected); }
+.fv-select-options strong { font-size: 12px; overflow-wrap: anywhere; }
+.fv-select-options span { display: block; margin-top: 5px; font-size: 10px; color: var(--text-secondary); }
+.fv-select-options p { padding: 12px; font-size: 12px; color: var(--text-muted); }
+.fv-select-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding-top: 8px; margin-top: 6px; border-top: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.fv-select-pagination > span:first-child { margin-right: auto; }
+.fv-select-pagination button { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border-subtle); border-radius: 6px; background: #f5f7ff; color: var(--action-primary); cursor: pointer; }
+.fv-paginated-select button:disabled { opacity: .45; cursor: not-allowed; }
+.training-queue-filters > .fv-paginated-select { flex: 1 1 150px; width: 150px; }

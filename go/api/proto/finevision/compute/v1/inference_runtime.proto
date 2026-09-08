@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package finevision.compute.v1;
+
+option go_package = "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1";
+
+import "finevision/compute/v1/artifact.proto";
+import "google/protobuf/struct.proto";
+
+service InferenceRuntime {
+  rpc Predict(PredictRequest) returns (Prediction);
+  rpc EvictCache(EvictCacheRequest) returns (EvictCacheResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message PredictRequest {
+  string request_id = 1;
+  ArtifactDescriptor model_bundle = 2;
+  ArtifactDescriptor input_image = 3;
+  google.protobuf.Struct policy = 4;
+}
+
+message Prediction {
+  repeated LabelScore top_k = 1;
+  string decision = 2;
+  double confidence = 3;
+  double margin = 4;
+  double ood_score = 5;
+  repeated string reasons = 6;
+  google.protobuf.Struct evidence = 7;
+}
+
+message LabelScore { string label = 1; double score = 2; }
+message EvictCacheRequest { string sha256 = 1; }
+message EvictCacheResponse { bool evicted = 1; }
+message HealthRequest {}
+message HealthResponse { string status = 1; }

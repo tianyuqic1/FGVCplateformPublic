@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from finevision.api import create_app
 from finevision.ml_toolkit.features import (
@@ -13,14 +14,14 @@ from finevision.ml_toolkit.features import (
 )
 
 
-def test_inspect_dinov3_weight_cache_reports_cached_partial_and_missing(tmp_path: Path, monkeypatch) -> None:
+def test_inspect_weight_cache_reports_the_three_phase_two_backbones(tmp_path: Path, monkeypatch) -> None:
     hub_cache = tmp_path / "hub"
     small_blobs = hub_cache / "models--timm--vit_small_patch16_dinov3.lvd1689m" / "blobs"
-    base_blobs = hub_cache / "models--timm--vit_base_patch16_dinov3.lvd1689m" / "blobs"
+    resnet_blobs = hub_cache / "models--timm--resnet50.a1_in1k" / "blobs"
     small_blobs.mkdir(parents=True)
-    base_blobs.mkdir(parents=True)
+    resnet_blobs.mkdir(parents=True)
     (small_blobs / "model").write_bytes(b"complete")
-    (base_blobs / "model.incomplete").write_bytes(b"partial")
+    (resnet_blobs / "model.incomplete").write_bytes(b"partial")
     monkeypatch.setenv("HF_HUB_CACHE", str(hub_cache))
     monkeypatch.setenv("HF_TOKEN", "hf-test")
 
@@ -29,12 +30,12 @@ def test_inspect_dinov3_weight_cache_reports_cached_partial_and_missing(tmp_path
 
     assert payload["cache_root"] == str(hub_cache)
     assert payload["hf_token_configured"] is True
-    assert by_preset["dinov3_vits"]["cache_status"] == "cached"
-    assert "ViT-S/16" in by_preset["dinov3_vits"]["description"]
-    assert by_preset["dinov3_vits"]["complete_size_bytes"] == len(b"complete")
-    assert by_preset["dinov3_vitb"]["cache_status"] == "partial"
-    assert by_preset["dinov3_vitb"]["incomplete_size_bytes"] == len(b"partial")
-    assert by_preset["dinov3_vitl"]["cache_status"] == "missing"
+    assert by_preset["dinov3_vits16_lvd1689m"]["cache_status"] == "cached"
+    assert "ViT-S/16" in by_preset["dinov3_vits16_lvd1689m"]["description"]
+    assert by_preset["dinov3_vits16_lvd1689m"]["complete_size_bytes"] == len(b"complete")
+    assert by_preset["imagenet_resnet50_a1_in1k"]["cache_status"] == "partial"
+    assert by_preset["imagenet_resnet50_a1_in1k"]["incomplete_size_bytes"] == len(b"partial")
+    assert by_preset["imagenet_vits16_augreg_in21k_ft_in1k"]["cache_status"] == "missing"
 
 
 def test_model_weights_api_returns_cache_status(tmp_path: Path, monkeypatch) -> None:
@@ -50,7 +51,11 @@ def test_model_weights_api_returns_cache_status(tmp_path: Path, monkeypatch) -> 
     payload = response.json()
     assert payload["cache_root"] == str(hub_cache)
     assert payload["hf_token_configured"] is False
-    assert {item["preset"] for item in payload["weights"]} == {"dinov3_vits", "dinov3_vitb", "dinov3_vitl"}
+    assert {item["preset"] for item in payload["weights"]} == {
+        "dinov3_vits16_lvd1689m",
+        "imagenet_vits16_augreg_in21k_ft_in1k",
+        "imagenet_resnet50_a1_in1k",
+    }
 
 
 def test_delete_dinov3_weight_cache_removes_known_repo_dir(tmp_path: Path, monkeypatch) -> None:
@@ -93,25 +98,27 @@ def test_model_weights_api_rejects_unknown_weight(tmp_path: Path, monkeypatch) -
 
 
 def test_dinov3_image_size_is_part_of_feature_config() -> None:
-    config = dinov3_extractor_config("dinov3_vitl", image_size=448)
+    config = dinov3_extractor_config("dinov3_vits", image_size=448)
     extractor = build_extractor_from_config(config, {"device": "cpu", "batch_size": 2})
 
     assert extractor.config["image_size"] == 448
-    assert extractor.config["model_name"] == "vit_large_patch16_dinov3"
+    assert extractor.config["model_name"] == "vit_small_patch16_dinov3"
     assert extractor.config["feature_pool"] == "cls"
 
 
-def test_legacy_dinov3_config_keeps_model_pooling_for_artifact_compatibility() -> None:
+def test_imagenet_vits_config_uses_model_pooling_and_rejects_unapproved_backbone() -> None:
     extractor = build_extractor_from_config(
         {
-            "type": "timm_dinov3",
-            "preset": "dinov3_vitl",
-            "model_name": "vit_large_patch16_dinov3",
+            "type": "timm",
+            "backbone_key": "imagenet_vits16_augreg_in21k_ft_in1k",
+            "model_name": "vit_small_patch16_224.augreg_in21k_ft_in1k",
             "pretrained": True,
-            "backbone_id": "dinov3_vitl16",
-            "image_size": 448,
         },
         {"device": "cpu", "batch_size": 2},
     )
 
     assert extractor.config["feature_pool"] == "model"
+    assert extractor.config["image_size"] == 224
+
+    with pytest.raises(ValueError, match="Unsupported Phase 2 backbone"):
+        build_extractor_from_config({"type": "timm", "backbone_key": "dinov3_vitb"})

@@ -2,20 +2,18 @@ import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell.jsx";
 import { Icon } from "./components/icons.jsx";
+import { ModelComparisonPage, ModelVersionDetailPage, ModelVersionsPage } from "./features/model-versions/ModelVersionPages.jsx";
+import { TrainingDetailPage, TrainingPage } from "./features/training/TrainingPages.jsx";
 import {
   DashboardPage,
   DatasetDetailPage,
   DatasetsPage,
   InferencePage,
   FeedbackPage,
-  ModelDetailPage,
-  ModelsPage,
   PipelineRunPage,
   PipelinesPage,
   ReviewDetailPage,
   ReviewPage,
-  TrainingDetailPage,
-  TrainingPage,
   WeightManagementPage,
 } from "./pages/pages.jsx";
 
@@ -53,6 +51,7 @@ function titleForPath(pathname) {
   if (pathname.startsWith("/review/")) return "复核详情";
   if (pathname === "/review") return "人工复核";
   if (pathname === "/feedback") return "反馈池";
+  if (pathname === "/models/compare") return "模型性能对比";
   if (pathname.startsWith("/models/")) return "模型详情";
   if (pathname === "/models") return "模型版本";
   if (pathname.startsWith("/pipelines/")) return "流水线运行";
@@ -70,6 +69,7 @@ function crumbForPath(pathname) {
   if (pathname.startsWith("/review/")) return "复核 / 样本详情";
   if (pathname === "/review") return "复核队列";
   if (pathname === "/feedback") return "复核 / 反馈池";
+  if (pathname === "/models/compare") return "模型 / 性能对比";
   if (pathname.startsWith("/models/")) return "模型 / 版本详情";
   if (pathname === "/models") return "模型注册表";
   if (pathname.startsWith("/pipelines/")) return "流水线 / 运行详情";
@@ -136,8 +136,9 @@ export default function App() {
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
           <Route path="/feedback" element={<FeedbackPage showToast={showToast} />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/models/:modelId" element={<ModelDetailPage showToast={showToast} />} />
+          <Route path="/models" element={<ModelVersionsPage />} />
+          <Route path="/models/compare" element={<ModelComparisonPage />} />
+          <Route path="/models/:modelId" element={<ModelVersionDetailPage showToast={showToast} />} />
           <Route path="/pipelines" element={<PipelinesPage />} />
           <Route path="/pipelines/:pipelineRunId" element={<PipelineRunPage showToast={showToast} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

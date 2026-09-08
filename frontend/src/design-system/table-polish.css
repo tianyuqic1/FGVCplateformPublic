@@ -1,0 +1,61 @@
+/* Shared A-workbench finishing: stable columns, readable IDs and contained scrolling. */
+.panel, .fv-panel, .grid > *, .fv-training-layout > *, .fv-model-detail-grid > * { min-width: 0; }
+.panel-title, .fv-panel-head, .fv-page-heading { flex-wrap: wrap; gap: 12px; }
+.panel-title > div, .fv-panel-head > div, .fv-page-heading > div { min-width: 0; }
+.toolbar, .fv-heading-actions { flex-wrap: wrap; row-gap: 10px; }
+.review-filter-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.review-filter-bar > .tabs { flex: 1 1 100%; }
+.review-filter-bar .filter-select { min-width: 0; max-width: 100%; flex-wrap: wrap; }
+.review-filter-bar input, .review-filter-bar select { max-width: 100%; }
+.review-filter-bar > button { flex-shrink: 0; }
+.status-chip, .fv-status { white-space: nowrap; flex-shrink: 0; }
+
+.dataset-status-table { overflow-x: auto; border-radius: 10px; scrollbar-width: thin; }
+.dataset-status-table .data-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.5fr) minmax(50px, .45fr) minmax(66px, .55fr) minmax(130px, 1fr) 80px 24px;
+  min-width: 580px;
+  gap: 16px;
+  padding: 12px 16px;
+  min-height: 64px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.dataset-status-table .data-row > * { min-width: 0; }
+.dataset-status-table .data-row > :nth-child(2),
+.dataset-status-table .data-row > :nth-child(3) { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dataset-status-table .data-row > :nth-child(5) { text-align: center; }
+.dataset-status-table .data-row.head { min-height: 42px; padding-block: 10px; font-size: 11px; font-weight: 600; background: #f7f9fc; color: #64748b; }
+.dataset-status-table strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.dataset-status-table .row-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.dataset-status-table .dataset-version { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; font-family: var(--font-mono); font-size: 11px; }
+.dataset-status-table .icon-button { width: 24px; height: 28px; border: 0; background: transparent; color: #94a3b8; }
+.dataset-status-table .data-row:nth-child(odd):not(.head) { background: #fbfcfe; }
+.dataset-status-table .data-row:not(.head):hover { background: #eef3ff; }
+.dataset-status-table .data-row:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
+
+.fv-table-wrap { max-width: 100%; border-radius: 9px; border: 1px solid var(--border-subtle); scrollbar-width: thin; }
+.fv-table { font-size: 12px; line-height: 1.55; }
+.fv-table th { padding: 12px 16px; font-size: 11px; font-weight: 600; color: #64748b; background: #f7f9fc; text-transform: none; }
+.fv-table td { padding: 14px 16px; font-variant-numeric: tabular-nums; }
+.fv-table tbody tr:nth-child(even) td { background: #fbfcfe; }
+.fv-table tbody tr:hover td { background: #eef3ff; }
+.fv-table td > a { min-width: 160px; max-width: 230px; }
+.fv-table td > a > strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fv-table .fv-code { max-width: 180px; font-size: 11px; }
+.fv-table .fv-cell-note { max-width: 220px; white-space: normal; font-size: 11px; }
+.fv-table input[type="checkbox"] { width: 16px; height: 16px; vertical-align: middle; }
+.fv-table tbody th { border-top: 1px solid #edf0f4; }
+.fv-table .numeric { text-align: right; }
+.fv-definition-list > div { align-items: baseline; padding-block: 12px; }
+.fv-definition-list dt, .fv-definition-list dd { font-size: 12px; line-height: 1.6; }
+.fv-definition-list dd { overflow-wrap: anywhere; }
+.fv-artifact-list small { font-size: 10px; }
+.fv-event-list li { align-items: start; line-height: 1.6; }
+.fv-event-list li > * { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .fv-table th, .fv-table td { padding: 10px 12px; }
+  .dataset-status-table .data-row { gap: 12px; padding-inline: 12px; }
+  .fv-page-heading { align-items: flex-start; }
+}

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { generateDatasetCard, updateDatasetCard, uploadImagefolder } from "../api/datasets.js";
+import { uploadImagefolder } from "../api/datasets.js";
+import { DatasetCardPanel } from "../features/datasets/DatasetCardPanel.jsx";
+import { DashboardDatasetPagination } from "../features/datasets/DashboardDatasetPagination.jsx";
+import { PaginatedSelect } from "../design-system/components/PaginatedSelect.jsx";
 import { runInference, runInferenceUpload, runInferenceUploadFolder } from "../api/inference.js";
-import { deleteModelWeight } from "../api/modelWeights.js";
 import { listReviewItems } from "../api/reviews.js";
 import { cancelTrainingRun, createTrainingRun, deleteTrainingRun, pauseTrainingRun, resumeTrainingRun } from "../api/trainingRuns.js";
 import { useDataset, useDatasetSamplePreviews, useDatasets } from "../hooks/useDatasets.js";
@@ -25,7 +27,6 @@ import {
   VisualPlaceholder,
 } from "../components/ui.jsx";
 import { PageHero } from "../components/AppShell.jsx";
-import { ReviewAutomationEntry } from "./ReviewAutomationEntry.jsx";
 
 const pipelineNodes = [
   { id: "import", title: "数据导入", description: "生成不可变 dataset version", icon: "FolderInput" },
@@ -533,7 +534,7 @@ function DatasetTable({ items = [] }) {
   }
 
   return (
-    <div className="data-table">
+    <div className="data-table dataset-status-table" tabIndex={0} role="region" aria-label="数据集列表，可横向滚动">
       <div className="data-row head">
         <div>数据集</div>
         <div>类别</div>
@@ -547,12 +548,12 @@ function DatasetTable({ items = [] }) {
         return (
           <Link className="data-row clickable" key={dataset.id} to={`/datasets/${dataset.id}`}>
             <div>
-              <strong>{dataset.name}</strong>
-              <div className="row-meta">{dataset.description}</div>
+              <strong title={dataset.name}>{dataset.name}</strong>
+              <div className="row-meta" title={dataset.description}>{dataset.description}</div>
             </div>
             <div>{dataset.classes} 类</div>
             <div>{dataset.images.toLocaleString()}</div>
-            <div>{dataset.version}</div>
+            <div className="dataset-version" title={dataset.version}>{dataset.version}</div>
             <div>
               <StatusChip tone={state.tone}>{state.label}</StatusChip>
             </div>
@@ -800,7 +801,7 @@ export function DashboardPage({ showToast }) {
       </div>
       <div className="grid two section-gap">
         <Panel title="数据集状态" caption="当前系统支持多数据集持续接入。">
-          <DatasetTable items={datasetItems} />
+          <DashboardDatasetPagination items={datasetItems}>{items => <DatasetTable items={items} />}</DashboardDatasetPagination>
         </Panel>
         <Panel title="模型发布门禁" caption="上线前必须通过的检查。">
           <div className="grid">
@@ -898,7 +899,7 @@ export function DatasetsPage({ showToast }) {
       {showImport && (
         <Panel
           title="导入本地 ImageFolder"
-          caption="选择本地分类图片文件夹，系统会校验结构，通过后复制到项目数据目录并自动导入。"
+          caption="选择本地分类图片文件夹，图片与清单经校验后存入 MinIO。当前上传上限为 10000 张、512 MiB，单张 32 MiB。"
           action={<StatusChip tone={importState.status === "failed" ? "risk" : importState.status === "succeeded" ? "default" : "info"}>{uiStateLabel(importState.status)}</StatusChip>}
         >
           <div className="field-grid">
@@ -998,7 +999,7 @@ export function DatasetsPage({ showToast }) {
       )}
       <Panel
         title="数据集列表"
-        caption={`${loading ? "正在读取数据资产" : sourceLabel} · ${visibleDatasets.length}/${datasetItems.length} 个显示 · 点击行进入数据集详情。`}
+        caption={`${loading ? "正在读取数据资产" : sourceLabel} · 共 ${datasetItems.length} 个数据集 · 每页 6 个 · 筛选结果数量见页脚。`}
         action={
           <div className="tabs">
             {[
@@ -1013,7 +1014,7 @@ export function DatasetsPage({ showToast }) {
           </div>
         }
       >
-        <DatasetTable items={visibleDatasets} />
+        <DashboardDatasetPagination key={datasetFilter} items={visibleDatasets} showStatus={false}>{items => <DatasetTable items={items} />}</DashboardDatasetPagination>
       </Panel>
     </>
   );
@@ -1236,123 +1237,6 @@ function DatasetTab({ dataset, tab, showToast }) {
   );
 }
 
-function DatasetCardPanel({ dataset, showToast }) {
-  const emptyCard = {
-    task: "image_classification",
-    domain: "general",
-    summary: "",
-    knownConfusions: [],
-    oodPolicy: "",
-    reviewGuidance: "",
-  };
-  const [card, setCard] = useState(dataset.datasetCard ?? emptyCard);
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    setCard(dataset.datasetCard ?? emptyCard);
-    setStatus("idle");
-    setError(null);
-  }, [dataset.datasetVersionId]);
-
-  function updateField(field, value) {
-    setCard((current) => ({ ...current, [field]: value }));
-  }
-
-  async function handleSave() {
-    setStatus("saving");
-    setError(null);
-    try {
-      const saved = await updateDatasetCard(dataset.datasetVersionId, card);
-      setCard(saved);
-      setStatus("saved");
-      showToast("数据集摘要已保存");
-    } catch (saveError) {
-      setError(saveError);
-      setStatus("failed");
-      showToast("数据集摘要保存失败");
-    }
-  }
-
-  async function handleGenerate() {
-    setStatus("generating");
-    setError(null);
-    try {
-      const generated = await generateDatasetCard(dataset.datasetVersionId);
-      setCard(generated);
-      setStatus("generated");
-      showToast("LLM 已按类别标签生成数据集摘要");
-    } catch (generateError) {
-      setError(generateError);
-      setStatus("failed");
-      showToast("LLM 生成数据集摘要失败");
-    }
-  }
-
-  const busy = status === "saving" || status === "generating";
-
-  return (
-    <Panel
-      title="数据集摘要"
-      caption="导入时生成草稿；可让 LLM 读取类别标签后补充领域说明，推理解释和复核建议会优先使用这里的上下文。"
-      action={<StatusChip tone={status === "failed" ? "risk" : status === "saved" || status === "generated" ? "default" : "info"}>{status === "saving" ? "保存中" : status === "generating" ? "生成中" : status === "saved" ? "已保存" : status === "generated" ? "已生成" : "可编辑"}</StatusChip>}
-    >
-      <div className="field-grid">
-        <div className="field">
-          <label>任务</label>
-          <input value={card.task ?? ""} onChange={(event) => updateField("task", event.target.value)} />
-        </div>
-        <div className="field">
-          <label>领域</label>
-          <input value={card.domain ?? ""} onChange={(event) => updateField("domain", event.target.value)} />
-        </div>
-        <div className="field full-span">
-          <label>摘要</label>
-          <textarea value={card.summary ?? ""} onChange={(event) => updateField("summary", event.target.value)} rows={3} />
-        </div>
-        <div className="field full-span">
-          <label>易混点</label>
-          <input
-            value={(card.knownConfusions ?? []).join("; ")}
-            onChange={(event) => updateField("knownConfusions", event.target.value.split(";").map((item) => item.trim()).filter(Boolean))}
-            placeholder="ship vs boat; deer vs horse"
-          />
-        </div>
-        <div className="field full-span">
-          <label>OOD 策略</label>
-          <textarea value={card.oodPolicy ?? ""} onChange={(event) => updateField("oodPolicy", event.target.value)} rows={2} />
-        </div>
-        <div className="field full-span">
-          <label>复核指引</label>
-          <textarea value={card.reviewGuidance ?? ""} onChange={(event) => updateField("reviewGuidance", event.target.value)} rows={2} />
-        </div>
-      </div>
-      <div className="chips section-gap-small">
-        <StatusChip tone="info">{card.classCount ?? dataset.classes} 类</StatusChip>
-        <StatusChip tone="info">{card.sampleCount ?? dataset.images} 张样本</StatusChip>
-        {Object.entries(card.splitTotals ?? {}).map(([split, count]) => (
-          <StatusChip tone="neutral" key={split}>{split}: {count}</StatusChip>
-        ))}
-      </div>
-      {Array.isArray(card.classPreview) && card.classPreview.length > 0 && (
-        <div className="row-meta section-gap-small">
-          class preview: {card.classPreview.slice(0, 12).join(", ")}{card.classPreviewTruncated ? " ..." : ""}
-        </div>
-      )}
-      {error && <div className="row-meta error-text section-gap-small">{error.message}</div>}
-      <div className="toolbar section-gap-small">
-        <button className="secondary-button" onClick={handleGenerate} disabled={busy}>
-          <Icon name={status === "generating" ? "LoaderCircle" : "Wand2"} size={16} />
-          LLM 生成摘要
-        </button>
-        <button className="primary-button" onClick={handleSave} disabled={busy}>
-          <Icon name={status === "saving" ? "LoaderCircle" : "Save"} size={16} />
-          保存摘要
-        </button>
-      </div>
-    </Panel>
-  );
-}
 
 function ClassRow({ title, description, label, tone = "default" }) {
   return (
@@ -1371,7 +1255,14 @@ function runTimeValue(run) {
 }
 
 function isDinoExtractor(extractor) {
-  return String(extractor).startsWith("dinov3_");
+  return [
+    "dinov3_vits",
+    "dinov3_vits16_lvd1689m",
+    "imagenet_vits",
+    "imagenet_vits16_augreg_in21k_ft_in1k",
+    "imagenet_resnet50",
+    "imagenet_resnet50_a1_in1k",
+  ].includes(String(extractor));
 }
 
 function formatBytes(bytes) {
@@ -1394,9 +1285,9 @@ function modelWeightLabel(state) {
 }
 
 function extractorShortLabel(extractor) {
-  if (extractor === "dinov3_vits") return "ViT-S";
-  if (extractor === "dinov3_vitb") return "ViT-B";
-  if (extractor === "dinov3_vitl") return "ViT-L";
+  if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "ViT-S · DINOv3";
+  if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ViT-S · ImageNet";
+  if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor)) return "ResNet-50 · ImageNet";
   return extractor;
 }
 
@@ -1461,10 +1352,10 @@ function selectRecommendedClsRun(runs, datasetVersionId = "") {
 }
 
 function weightUsageLabel(extractor) {
-  if (extractor === "dinov3_vits") return "推荐默认，用于快速 CLS 特征训练和日常验证。";
-  if (extractor === "dinov3_vitb") return "中等规模对照模型，适合后续做速度/精度折中评估。";
-  if (extractor === "dinov3_vitl") return "重型精度优先模型，适合 GPU 资源充足时跑更强基线。";
-  return "仅支持 FineVision 已登记的 DINOv3 权重。";
+  if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "DINOv3 自监督 ViT-S 基线。";
+  if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ImageNet-21K 预训练并在 ImageNet-1K 微调的 ViT-S。";
+  if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor)) return "ImageNet-1K 监督预训练 ResNet-50 对照基线。";
+  return "仅支持 FineVision manifest 已登记的预训练权重。";
 }
 
 function filterTrainingRuns(runs, statusFilter, sortMode) {
@@ -1533,35 +1424,18 @@ function trainingRunNextActions(run, missingOutputs) {
   return ["产物链路齐全，可进入候选模型评审或后续推理验证。"];
 }
 
-export function WeightManagementPage({ showToast }) {
+export function WeightManagementPage() {
   const { weights, source, loading, error, refresh } = useModelWeights();
-  const [deleteState, setDeleteState] = useState({ status: "idle", preset: null, error: null });
   const totalCachedBytes = weights.reduce((sum, weight) => sum + (weight.state === "cached" ? weight.cacheBytes : 0), 0);
   const cachedCount = weights.filter((weight) => weight.state === "cached").length;
   const partialCount = weights.filter((weight) => weight.state === "partial").length;
   const sourceLabel = loading ? "正在读取权重缓存" : source === "api" ? "权重缓存已同步" : "权重缓存暂不可用";
 
-  async function handleDelete(weight) {
-    if (!weight?.extractor || deleteState.status === "running") return;
-    const confirmed = window.confirm(`删除 ${extractorShortLabel(weight.extractor)} 的本地权重缓存？下一次训练会重新下载。`);
-    if (!confirmed) return;
-    setDeleteState({ status: "running", preset: weight.extractor, error: null });
-    try {
-      const result = await deleteModelWeight(weight.extractor);
-      setDeleteState({ status: "succeeded", preset: null, error: null });
-      await refresh();
-      showToast(result.deleted ? `已删除权重：${extractorShortLabel(weight.extractor)}` : `没有可删除的权重：${extractorShortLabel(weight.extractor)}`);
-    } catch (deleteError) {
-      setDeleteState({ status: "failed", preset: weight.extractor, error: deleteError });
-      showToast("权重删除失败");
-    }
-  }
-
   return (
     <>
       <PageHero
         title="权重管理"
-        description="查看 DINOv3 ViT-S/B/L 的本地 Hugging Face 权重缓存；删除后不会影响已生成的 feature/model artifact，但下一次训练会重新下载。"
+        description="查看二期批准的 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重及缓存状态。"
         actions={<button className="ghost-button" onClick={refresh} disabled={loading}><Icon name="RefreshCw" size={16} />刷新</button>}
       />
       <div className="grid metrics">
@@ -1571,12 +1445,11 @@ export function WeightManagementPage({ showToast }) {
         <MetricCard title="训练特征" value="CLS" caption="feature_pool 默认 cls" fill="#0f766e" percent={100} icon="Target" />
       </div>
       <div className="grid two section-gap">
-        <Panel title="DINOv3 权重缓存" caption="只管理预训练 backbone 权重；分类头和训练报告仍在 artifact store。">
+        <Panel title="预训练权重缓存" caption="只管理批准的 backbone 权重；分类头和训练报告仍在 ArtifactStore。">
           {error && <div className="route-box"><strong>权重服务不可用</strong><div className="row-meta">{error.message}</div></div>}
           <div className="timeline">
             {weights.map((weight) => {
               const state = weight.state ?? "missing";
-              const busy = deleteState.status === "running" && deleteState.preset === weight.extractor;
               const sizeLabel = state === "cached" ? formatBytes(weight.cacheBytes) : state === "partial" ? `${formatBytes(weight.partialBytes)} partial` : "未下载";
               return (
                 <div className="timeline-item" key={weight.extractor}>
@@ -1588,9 +1461,6 @@ export function WeightManagementPage({ showToast }) {
                   </div>
                   <div className="queue-row-actions">
                     <StatusChip tone={modelWeightTone(state)}>{modelWeightLabel(state)}</StatusChip>
-                    <button className="icon-button danger" title="删除本地权重缓存" onClick={() => handleDelete(weight)} disabled={busy || state === "missing"}>
-                      <Icon name={busy ? "LoaderCircle" : "Trash2"} size={16} />
-                    </button>
                   </div>
                 </div>
               );
@@ -1603,20 +1473,19 @@ export function WeightManagementPage({ showToast }) {
               </div>
             )}
           </div>
-          {deleteState.error && <div className="row-meta section-gap-small">{deleteState.error.message}</div>}
         </Panel>
         <Panel title="权重说明" caption="权重文件、特征缓存、分类头产物不要混淆。">
           <div className="timeline">
-            <GateRow title="预训练权重" description="Hugging Face/timm 下载的 DINOv3 backbone 参数；这个页面管理的是它。" result="pass" />
-            <GateRow title="特征缓存" description="某个 dataset version 经过 DINOv3 CLS 提取后的 features.npz；删除权重不会删除它。" result="pending" />
-            <GateRow title="分类头产物" description="FineVision 训练出的 linear head、校准报告和阈值策略；不在本页删除。" result="pending" />
+            <GateRow title="预训练权重" description="通过 Git LFS 发布并提升到 MinIO 的受管 backbone 参数；这个页面管理的是它。" result="pass" />
+            <GateRow title="特征缓存" description="某个 Dataset Version 提取后的 features.npz；独立于预训练权重保存。" result="pending" />
+            <GateRow title="分类头产物" description="平台训练出的 linear head、校准报告和阈值策略；由训练产物管理。" result="pending" />
           </div>
           <TechnicalDetails>
             feature_pool: cls<br />
             image_size_default: 448<br />
-            managed_presets: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
-            delete_scope: local Hugging Face repo cache only<br />
-            cache_recovery: next training downloads again
+            managed_presets: dinov3_vits16_lvd1689m | imagenet_vits16_augreg_in21k_ft_in1k | imagenet_resnet50_a1_in1k<br />
+            integrity: sha256 + size<br />
+            runtime_source: MinIO content-addressed object
           </TechnicalDetails>
           {weights[0]?.cacheDir && (
             <TechnicalDetails summary="缓存路径">
@@ -1787,7 +1656,7 @@ export function TrainingPage({ showToast }) {
   const [queueSortMode, setQueueSortMode] = useState("recent");
   const [trainingForm, setTrainingForm] = useState({
     datasetVersionId: "",
-    extractor: "dinov3_vits",
+    extractor: "dinov3_vits16_lvd1689m",
     featureBatchSize: "8",
     imageSize: "448",
     learningRate: "0.001",
@@ -1910,21 +1779,21 @@ export function TrainingPage({ showToast }) {
           <div className="field-grid">
             <div className="field">
               <label>数据集版本</label>
-              <select value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} disabled={!canUseDatasetForTraining}>
+              <PaginatedSelect aria-label="训练数据集版本" value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} disabled={!canUseDatasetForTraining}>
                 {trainingDatasetOptions.map((dataset) => (
                   <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
                     {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
                   </option>
                 ))}
-              </select>
+              </PaginatedSelect>
             </div>
             <div className="field">
               <label>特征提取器</label>
               <select value={trainingForm.extractor} onChange={(event) => updateTrainingField("extractor", event.target.value)}>
-                <optgroup label="DINOv3 训练">
-                  <option value="dinov3_vits">DINOv3 ViT-S/16 · 更快</option>
-                  <option value="dinov3_vitb">DINOv3 ViT-B/16 · 平衡</option>
-                  <option value="dinov3_vitl">DINOv3 ViT-L/16 · 更慢更重</option>
+                <optgroup label="受管预训练骨干">
+                  <option value="dinov3_vits16_lvd1689m">ViT-S/16 · DINOv3 LVD-1689M</option>
+                  <option value="imagenet_vits16_augreg_in21k_ft_in1k">ViT-S/16 · ImageNet-21K → 1K</option>
+                  <option value="imagenet_resnet50_a1_in1k">ResNet-50 · ImageNet-1K</option>
                 </optgroup>
                 {trainingForm.extractor === "color_stats" && <option value="color_stats">旧版诊断配置</option>}
               </select>
@@ -1983,10 +1852,10 @@ export function TrainingPage({ showToast }) {
             </div>
           </div>
           <p className="panel-caption section-gap-small">
-            DINOv3 batch_size 控制特征提取；输入分辨率和 CLS token 特征池化会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
+            feature batch_size 控制冻结骨干的特征提取；预处理、池化方式与权重 SHA 会进入特征缓存 key。分类头使用 torch_linear_adam，head batch_size 控制 Adam 小批量训练。
           </p>
           <div className="weight-status-grid section-gap-small">
-            {["dinov3_vits", "dinov3_vitb", "dinov3_vitl"].map((extractor) => {
+            {["dinov3_vits16_lvd1689m", "imagenet_vits16_augreg_in21k_ft_in1k", "imagenet_resnet50_a1_in1k"].map((extractor) => {
               const weight = weightByExtractor[extractor];
               const state = weight?.state ?? (weightsLoading ? "loading" : "missing");
               const sizeLabel =
@@ -2171,12 +2040,12 @@ export function TrainingPage({ showToast }) {
         </Panel>
         <Panel title="训练配置模板" caption="默认采用 frozen backbone + 分类头。">
           <div className="timeline">
-            <GateRow title="视觉基座" description="DINOv3 ViT-S/B/L，默认使用 CLS token 特征" result="pass" />
+            <GateRow title="视觉基座" description="DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50" result="pass" />
             <GateRow title="分类头" description="torch_linear_adam，使用交叉熵和 Adam 优化" result="pass" />
             <GateRow title="校准与弃权" description="生成校准报告和风险覆盖材料" result="pending" />
           </div>
           <TechnicalDetails>
-            backbone: dinov3_vits | dinov3_vitb | dinov3_vitl<br />
+            backbone: dinov3_vits16_lvd1689m | imagenet_vits16_augreg_in21k_ft_in1k | imagenet_resnet50_a1_in1k<br />
             feature_pool: cls<br />
             image_size: 448<br />
             feature_batch_size: 8<br />
@@ -2514,14 +2383,14 @@ export function InferencePage({ showToast }) {
         <div className="field-grid section-gap-small">
           <div className="field">
             <label>数据版本</label>
-            <select value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} disabled={datasetVersionOptions.length === 0}>
+            <PaginatedSelect aria-label="推理数据版本" value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} disabled={datasetVersionOptions.length === 0}>
               <option value="">{datasetVersionOptions.length === 0 ? "暂无数据版本" : "选择数据版本"}</option>
               {datasetOptions.map((dataset) => (
                 <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
                   {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
                 </option>
               ))}
-            </select>
+            </PaginatedSelect>
             <span className="field-hint">
               {selectedDataset
                 ? `${datasetVersionOptions.length} 个数据版本可选；当前 ${selectedDataset.classes} 类 / ${selectedDataset.images} 张。`
@@ -2530,14 +2399,14 @@ export function InferencePage({ showToast }) {
           </div>
           <div className="field">
             <label>模型版本</label>
-            <select value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionIds.length === 0}>
+            <PaginatedSelect aria-label="推理模型版本" value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionIds.length === 0}>
               <option value="">{modelVersionIds.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
               {modelVersionOptions.map((run) => (
                 <option value={run.modelVersionId} key={run.modelVersionId}>
                   {run.modelVersionId} · {isRecommendedClsRun(run) ? "推荐 CLS" : isLegacyFeatureRun(run) ? "旧特征" : "候选"} · {extractorShortLabel(run.backboneId)} · {run.metric}
                 </option>
               ))}
-            </select>
+            </PaginatedSelect>
             <span className="field-hint">
               {modelVersionIds.length} 个模型匹配当前数据版本；默认优先使用已完成的 DINOv3 CLS 基线。
             </span>
@@ -2877,12 +2746,12 @@ export function ReviewPage() {
             </div>
             <label className="filter-select">
               <span>数据集</span>
-              <select value={datasetFilter} onChange={(event) => updateReviewFilter("dataset_id", event.target.value)}>
+              <PaginatedSelect aria-label="复核数据集" value={datasetFilter} onChange={(event) => updateReviewFilter("dataset_id", event.target.value)}>
                 <option value="">全部数据集</option>
                 {datasetOptions.map(([id, label]) => (
                   <option value={id} key={id}>{label}</option>
                 ))}
-              </select>
+              </PaginatedSelect>
             </label>
           </div>
           {error && (
@@ -2919,10 +2788,6 @@ export function ReviewPage() {
           )}
         </Panel>
         <div className="review-side-stack">
-          <ReviewAutomationEntry
-            pendingCount={statusFilter === "pending" ? totalItems : 0}
-            datasetId={datasetFilter || undefined}
-          />
           <Panel title="队列摘要" caption="统计当前页样本；历史入口在左侧状态切换中。">
             <div className="timeline">
               <div className="timeline-item"><div className="timeline-icon"><Icon name="ShieldAlert" size={18} /></div><div><strong>{oodCount} 条 OOD 候选</strong><div className="row-meta">只代表模型拒识，需要人工确认后才进入 OOD 压力池。</div></div><StatusChip tone="risk">OOD</StatusChip></div>
@@ -2945,7 +2810,6 @@ export function ReviewDetailPage({ showToast }) {
   const reviewAssistant = useReviewAssistance(reviewItemId);
   const storedAssistance = assistanceFromMetadata(item?.assistanceMetadata);
   const reviewAssistance = reviewAssistant.assistance ?? storedAssistance;
-  const vlmAssistance = item?.assistanceMetadata?.vlm_assistance ?? null;
   const [form, setForm] = useState({
     finalOutcome: "corrected_label",
     destination: "training_candidate",
@@ -3119,10 +2983,7 @@ export function ReviewDetailPage({ showToast }) {
             model: {displayValue(item.modelVersionId)}
           </TechnicalDetails>
         </Panel>
-        <Panel title="Fine-R1 视觉复核" caption="读取真实图片并在候选类别中重排；结果与人工反馈分源留痕。">
-          <VLMAssistanceSummary assistance={vlmAssistance} />
-        </Panel>
-        <Panel title="通用 LLM 辅助" caption="解释已有证据，不直接读取 Fine-R1 推理结果，也不会提交反馈池。">
+        <Panel title="通用 LLM 辅助" caption="解释已有证据，不会替代人工判断或提交反馈池。">
           <LLMAssistanceBox
             title="复核辅助建议"
             caption="基于 top-k、阈值原因和近邻证据生成；人工仍必须独立提交最终结论。"
@@ -3280,47 +3141,6 @@ function assistanceFromMetadata(metadata) {
     createdAt: raw.createdAt ?? raw.created_at ?? null,
     confidence: raw.confidence ?? "unknown",
   };
-}
-
-function VLMAssistanceSummary({ assistance }) {
-  if (!assistance) {
-    return (
-      <div className="timeline-item">
-        <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
-        <div>
-          <strong>尚无 Fine-R1 视觉建议</strong>
-          <div className="row-meta">可从复核队列创建辅助建议任务；OOD 拒识项不会进入自动提交。</div>
-        </div>
-        <StatusChip tone="neutral">未运行</StatusChip>
-      </div>
-    );
-  }
-  const gate = assistance.gate_report ?? {};
-  return (
-    <div className="vlm-assistance-result">
-      <div className="chips">
-        <StatusChip tone="info">{assistance.model_id || "Fine-R1-3B"}</StatusChip>
-        <StatusChip tone={assistance.auto_submitted ? "default" : "warn"}>
-          {assistance.auto_submitted ? "已通过门禁并提交" : "建议模式 / 回退人工"}
-        </StatusChip>
-      </div>
-      <div className="vlm-suggestion-label">
-        <span>建议类别</span>
-        <strong>{assistance.suggested_label || "未返回"}</strong>
-      </div>
-      <div className="reason-box">
-        <strong>视觉比较依据</strong>
-        <span>{assistance.reasoning || "模型未返回可展示的比较依据。"}</span>
-      </div>
-      <TechnicalDetails summary="VLM 审计信息">
-        run: {displayValue(assistance.run_id)}<br />
-        result: {displayValue(assistance.result_id)}<br />
-        prompt: {displayValue(assistance.prompt_version)}<br />
-        image sha256: {displayValue(assistance.image_sha256)}<br />
-        gate: {gate.eligible ? "eligible" : "human fallback"}
-      </TechnicalDetails>
-    </div>
-  );
 }
 
 function LLMAssistanceBox({ title = "LLM 辅助", caption, assistance, status = "idle", error, onGenerate, disabled = false }) {
@@ -3579,7 +3399,7 @@ function AbstentionPolicyPanel({ feedbackItems, feedbackLoading = false, showToa
       <div className="review-filter-bar">
         <label className="filter-select wide">
           <span>反馈范围</span>
-          <select value={selectedScope} onChange={(event) => setSelectedScope(event.target.value)} disabled={scopeOptions.length === 0}>
+          <PaginatedSelect aria-label="反馈范围" value={selectedScope} onChange={(event) => setSelectedScope(event.target.value)} disabled={scopeOptions.length === 0}>
             {scopeOptions.length === 0 ? (
               <option value="">{feedbackLoading ? "正在读取反馈范围" : "等待反馈样本"}</option>
             ) : (
@@ -3587,7 +3407,7 @@ function AbstentionPolicyPanel({ feedbackItems, feedbackLoading = false, showToa
                 <option value={item.key} key={item.key}>{item.label}</option>
               ))
             )}
-          </select>
+          </PaginatedSelect>
         </label>
         <label className="filter-select compact">
           <span>目标风险</span>
@@ -3795,12 +3615,12 @@ export function FeedbackPage({ showToast }) {
             </div>
             <label className="filter-select">
               <span>数据集</span>
-              <select value={datasetFilter} onChange={(event) => updateFeedbackFilter("dataset_id", event.target.value)}>
+              <PaginatedSelect aria-label="反馈数据集" value={datasetFilter} onChange={(event) => updateFeedbackFilter("dataset_id", event.target.value)}>
                 <option value="">全部数据集</option>
                 {datasetOptions.map(([id, label]) => (
                   <option value={id} key={id}>{label}</option>
                 ))}
-              </select>
+              </PaginatedSelect>
             </label>
           </div>
           {error && (

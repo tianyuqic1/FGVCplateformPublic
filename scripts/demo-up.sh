@@ -12,8 +12,8 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/demo-up.sh [--gpu] [--no-build] [--skip-smoke]
 
-Starts the local FineVision demo stack. The compose `migrate` service applies
-Alembic migrations after PostgreSQL is healthy and before api/ml-worker start.
+Starts the Phase 1 FineVision stack. The `migrate` service applies Alembic
+migrations before the Go Control Plane, relay, and Python compute runtimes start.
 USAGE
 }
 
@@ -45,7 +45,9 @@ echo "Validating compose configuration..."
 "${compose[@]}" config >/dev/null
 
 echo "Starting FineVision demo stack..."
-"${compose[@]}" up -d "${build_flag[@]}" frontend api ml-worker adminer
+"${compose[@]}" up -d "${build_flag[@]}" \
+  frontend go-control-plane outbox-relay go-llm-gateway \
+  python-training-worker python-inference-runtime
 
 if [[ "$run_smoke" -eq 1 ]]; then
   scripts/smoke-demo.sh
@@ -55,8 +57,9 @@ cat <<'INFO'
 
 FineVision demo is starting:
   frontend  http://localhost:5173
-  api       http://localhost:8001
-  adminer   http://localhost:8081
+  Go API    http://localhost:8001
+  MinIO     http://localhost:9001
+  RabbitMQ  http://localhost:15672
   postgres  localhost:5432
 
 Useful checks:

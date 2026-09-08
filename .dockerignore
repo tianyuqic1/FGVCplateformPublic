@@ -1,4 +1,7 @@
 .git
+.env
+.env.*
+!.env.example
 .venv
 __pycache__
 *.py[cod]
@@ -10,3 +13,4 @@ dist
 .finevision-*
 data/downloads
 data/test
+weights/pretrained
