@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -110,6 +111,21 @@ func (e CreateTrainingRunFeaturePool) Valid() bool {
 	case Cls:
 		return true
 	case Model:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DatasetCardContentTask.
+const (
+	ImageClassification DatasetCardContentTask = "image_classification"
+)
+
+// Valid indicates whether the value is a known member of the DatasetCardContentTask enum.
+func (e DatasetCardContentTask) Valid() bool {
+	switch e {
+	case ImageClassification:
 		return true
 	default:
 		return false
@@ -313,15 +329,18 @@ type CreateTrainingRun struct {
 	DatasetId        *string                       `json:"dataset_id,omitempty"`
 	DatasetVersionId string                        `json:"dataset_version_id"`
 	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
-	Extractor           *CreateTrainingRunExtractor   `json:"extractor,omitempty"`
-	ExtractorConfig     *FreeFormObject               `json:"extractor_config,omitempty"`
-	FeatureBatchSize    *int                          `json:"feature_batch_size,omitempty"`
-	FeaturePool         *CreateTrainingRunFeaturePool `json:"feature_pool,omitempty"`
-	HeadConfig          *FreeFormObject               `json:"head_config,omitempty"`
-	ImageSize           *int                          `json:"image_size,omitempty"`
-	MaxAttempts         *int                          `json:"max_attempts,omitempty"`
-	ReviewCostPerItem   *float32                      `json:"review_cost_per_item,omitempty"`
-	TargetSelectiveRisk *float32                      `json:"target_selective_risk,omitempty"`
+	Extractor        *CreateTrainingRunExtractor   `json:"extractor,omitempty"`
+	ExtractorConfig  *FreeFormObject               `json:"extractor_config,omitempty"`
+	FeatureBatchSize *int                          `json:"feature_batch_size,omitempty"`
+	FeaturePool      *CreateTrainingRunFeaturePool `json:"feature_pool,omitempty"`
+	HeadConfig       *FreeFormObject               `json:"head_config,omitempty"`
+	ImageSize        *int                          `json:"image_size,omitempty"`
+	MaxAttempts      *int                          `json:"max_attempts,omitempty"`
+
+	// Name Human-readable training task name
+	Name                *string  `json:"name,omitempty"`
+	ReviewCostPerItem   *float32 `json:"review_cost_per_item,omitempty"`
+	TargetSelectiveRisk *float32 `json:"target_selective_risk,omitempty"`
 }
 
 // CreateTrainingRunBackboneKey defines model for CreateTrainingRun.BackboneKey.
@@ -334,6 +353,19 @@ type CreateTrainingRunExtractor string
 
 // CreateTrainingRunFeaturePool defines model for CreateTrainingRun.FeaturePool.
 type CreateTrainingRunFeaturePool string
+
+// DatasetCardContent defines model for DatasetCardContent.
+type DatasetCardContent struct {
+	Domain          string                 `json:"domain"`
+	KnownConfusions []string               `json:"known_confusions"`
+	OodPolicy       string                 `json:"ood_policy"`
+	ReviewGuidance  string                 `json:"review_guidance"`
+	Summary         string                 `json:"summary"`
+	Task            DatasetCardContentTask `json:"task"`
+}
+
+// DatasetCardContentTask defines model for DatasetCardContent.Task.
+type DatasetCardContentTask string
 
 // DatasetEnvelope defines model for DatasetEnvelope.
 type DatasetEnvelope struct {
@@ -484,6 +516,25 @@ type LLMAssistanceResponse = LLMAssistanceEnvelope
 // TrainingRunResponse defines model for TrainingRunResponse.
 type TrainingRunResponse = TrainingRunEnvelope
 
+// SaveDatasetCardJSONBody defines parameters for SaveDatasetCard.
+type SaveDatasetCardJSONBody struct {
+	DatasetCard      DatasetCardContent  `json:"dataset_card"`
+	DraftId          *openapi_types.UUID `json:"draft_id,omitempty"`
+	ExpectedRevision int                 `json:"expected_revision"`
+}
+
+// GenerateDatasetCardJSONBody defines parameters for GenerateDatasetCard.
+type GenerateDatasetCardJSONBody struct {
+	RequestId openapi_types.UUID `json:"request_id"`
+}
+
+// UploadImagefolderMultipartBody defines parameters for UploadImagefolder.
+type UploadImagefolderMultipartBody struct {
+	DatasetId        string               `json:"dataset_id"`
+	DatasetVersionId string               `json:"dataset_version_id"`
+	Files            []openapi_types.File `json:"files"`
+}
+
 // ListModelVersionsParams defines parameters for ListModelVersions.
 type ListModelVersionsParams struct {
 	DatasetId        *string                        `form:"dataset_id,omitempty" json:"dataset_id,omitempty"`
@@ -511,6 +562,15 @@ type ReportTrainingProgressJSONBody struct {
 	MetricPoints   *[]MetricPointInput `json:"metric_points,omitempty"`
 	Progress       FreeFormObject      `json:"progress"`
 }
+
+// SaveDatasetCardJSONRequestBody defines body for SaveDatasetCard for application/json ContentType.
+type SaveDatasetCardJSONRequestBody SaveDatasetCardJSONBody
+
+// GenerateDatasetCardJSONRequestBody defines body for GenerateDatasetCard for application/json ContentType.
+type GenerateDatasetCardJSONRequestBody GenerateDatasetCardJSONBody
+
+// UploadImagefolderMultipartRequestBody defines body for UploadImagefolder for multipart/form-data ContentType.
+type UploadImagefolderMultipartRequestBody UploadImagefolderMultipartBody
 
 // GenerateLLMAssistanceJSONRequestBody defines body for GenerateLLMAssistance for application/json ContentType.
 type GenerateLLMAssistanceJSONRequestBody = LLMAssistanceRequest
@@ -548,8 +608,20 @@ type ReportTrainingProgressJSONRequestBody ReportTrainingProgressJSONBody
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (GET /api/dataset-versions/{dataset_version_id}/card)
+	GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
+
+	// (PUT /api/dataset-versions/{dataset_version_id}/card)
+	SaveDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
+
+	// (POST /api/dataset-versions/{dataset_version_id}/card/generate)
+	GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
+
 	// (GET /api/datasets)
 	ListDatasets(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/datasets/upload-imagefolder)
+	UploadImagefolder(w http.ResponseWriter, r *http.Request)
 
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
@@ -586,9 +658,6 @@ type ServerInterface interface {
 
 	// (GET /api/model-weights)
 	ListModelWeights(w http.ResponseWriter, r *http.Request)
-
-	// (DELETE /api/model-weights/{preset})
-	EvictModelWeightCache(w http.ResponseWriter, r *http.Request, preset string)
 
 	// (GET /api/training-runs)
 	ListTrainingRuns(w http.ResponseWriter, r *http.Request)
@@ -631,8 +700,28 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// (GET /api/dataset-versions/{dataset_version_id}/card)
+func (_ Unimplemented) GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /api/dataset-versions/{dataset_version_id}/card)
+func (_ Unimplemented) SaveDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/dataset-versions/{dataset_version_id}/card/generate)
+func (_ Unimplemented) GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // (GET /api/datasets)
 func (_ Unimplemented) ListDatasets(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/datasets/upload-imagefolder)
+func (_ Unimplemented) UploadImagefolder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -693,11 +782,6 @@ func (_ Unimplemented) PromoteModelVersion(w http.ResponseWriter, r *http.Reques
 
 // (GET /api/model-weights)
 func (_ Unimplemented) ListModelWeights(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (DELETE /api/model-weights/{preset})
-func (_ Unimplemented) EvictModelWeightCache(w http.ResponseWriter, r *http.Request, preset string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -770,11 +854,103 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// GetDatasetCard operation middleware
+func (siw *ServerInterfaceWrapper) GetDatasetCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dataset_version_id" -------------
+	var datasetVersionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset_version_id", chi.URLParam(r, "dataset_version_id"), &datasetVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDatasetCard(w, r, datasetVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveDatasetCard operation middleware
+func (siw *ServerInterfaceWrapper) SaveDatasetCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dataset_version_id" -------------
+	var datasetVersionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset_version_id", chi.URLParam(r, "dataset_version_id"), &datasetVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveDatasetCard(w, r, datasetVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GenerateDatasetCard operation middleware
+func (siw *ServerInterfaceWrapper) GenerateDatasetCard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dataset_version_id" -------------
+	var datasetVersionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset_version_id", chi.URLParam(r, "dataset_version_id"), &datasetVersionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GenerateDatasetCard(w, r, datasetVersionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDatasets operation middleware
 func (siw *ServerInterfaceWrapper) ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDatasets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadImagefolder operation middleware
+func (siw *ServerInterfaceWrapper) UploadImagefolder(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadImagefolder(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1086,32 +1262,6 @@ func (siw *ServerInterfaceWrapper) ListModelWeights(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListModelWeights(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// EvictModelWeightCache operation middleware
-func (siw *ServerInterfaceWrapper) EvictModelWeightCache(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "preset" -------------
-	var preset string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "preset", chi.URLParam(r, "preset"), &preset, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preset", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.EvictModelWeightCache(w, r, preset)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1578,6 +1728,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/dataset-versions/{dataset_version_id}/card", wrapper.GetDatasetCard)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/api/dataset-versions/{dataset_version_id}/card", wrapper.SaveDatasetCard)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/dataset-versions/{dataset_version_id}/card/generate", wrapper.GenerateDatasetCard)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/datasets/upload-imagefolder", wrapper.UploadImagefolder)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/health", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -1594,9 +1756,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/model-weights", wrapper.ListModelWeights)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/api/model-weights/{preset}", wrapper.EvictModelWeightCache)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/model-versions", wrapper.ListModelVersions)
@@ -1675,6 +1834,125 @@ type LLMAssistanceResponseJSONResponse LLMAssistanceEnvelope
 
 type TrainingRunResponseJSONResponse TrainingRunEnvelope
 
+type GetDatasetCardRequestObject struct {
+	DatasetVersionId string `json:"dataset_version_id"`
+}
+
+type GetDatasetCardResponseObject interface {
+	VisitGetDatasetCardResponse(w http.ResponseWriter) error
+}
+
+type GetDatasetCard200JSONResponse FreeFormObject
+
+func (response GetDatasetCard200JSONResponse) VisitGetDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDatasetCarddefaultJSONResponse struct {
+	Body       ErrorEnvelope
+	StatusCode int
+}
+
+func (response GetDatasetCarddefaultJSONResponse) VisitGetDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveDatasetCardRequestObject struct {
+	DatasetVersionId string `json:"dataset_version_id"`
+	Body             *SaveDatasetCardJSONRequestBody
+}
+
+type SaveDatasetCardResponseObject interface {
+	VisitSaveDatasetCardResponse(w http.ResponseWriter) error
+}
+
+type SaveDatasetCard200JSONResponse FreeFormObject
+
+func (response SaveDatasetCard200JSONResponse) VisitSaveDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveDatasetCarddefaultJSONResponse struct {
+	Body       ErrorEnvelope
+	StatusCode int
+}
+
+func (response SaveDatasetCarddefaultJSONResponse) VisitSaveDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GenerateDatasetCardRequestObject struct {
+	DatasetVersionId string `json:"dataset_version_id"`
+	Body             *GenerateDatasetCardJSONRequestBody
+}
+
+type GenerateDatasetCardResponseObject interface {
+	VisitGenerateDatasetCardResponse(w http.ResponseWriter) error
+}
+
+type GenerateDatasetCard200JSONResponse FreeFormObject
+
+func (response GenerateDatasetCard200JSONResponse) VisitGenerateDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GenerateDatasetCarddefaultJSONResponse struct {
+	Body       ErrorEnvelope
+	StatusCode int
+}
+
+func (response GenerateDatasetCarddefaultJSONResponse) VisitGenerateDatasetCardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListDatasetsRequestObject struct {
 }
 
@@ -1694,6 +1972,70 @@ func (response ListDatasets200JSONResponse) VisitListDatasetsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadImagefolderRequestObject struct {
+	Body *multipart.Reader
+}
+
+type UploadImagefolderResponseObject interface {
+	VisitUploadImagefolderResponse(w http.ResponseWriter) error
+}
+
+type UploadImagefolder201JSONResponse FreeFormObject
+
+func (response UploadImagefolder201JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadImagefolder409JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response UploadImagefolder409JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadImagefolder422JSONResponse ErrorEnvelope
+
+func (response UploadImagefolder422JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadImagefolder503JSONResponse ErrorEnvelope
+
+func (response UploadImagefolder503JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2188,42 +2530,6 @@ func (response ListModelWeights200JSONResponse) VisitListModelWeightsResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type EvictModelWeightCacheRequestObject struct {
-	Preset string `json:"preset"`
-}
-
-type EvictModelWeightCacheResponseObject interface {
-	VisitEvictModelWeightCacheResponse(w http.ResponseWriter) error
-}
-
-type EvictModelWeightCache200JSONResponse FreeFormObject
-
-func (response EvictModelWeightCache200JSONResponse) VisitEvictModelWeightCacheResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type EvictModelWeightCache404JSONResponse struct{ ErrorResponseJSONResponse }
-
-func (response EvictModelWeightCache404JSONResponse) VisitEvictModelWeightCacheResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2780,8 +3086,20 @@ func (response ReportTrainingProgress409JSONResponse) VisitReportTrainingProgres
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
+	// (GET /api/dataset-versions/{dataset_version_id}/card)
+	GetDatasetCard(ctx context.Context, request GetDatasetCardRequestObject) (GetDatasetCardResponseObject, error)
+
+	// (PUT /api/dataset-versions/{dataset_version_id}/card)
+	SaveDatasetCard(ctx context.Context, request SaveDatasetCardRequestObject) (SaveDatasetCardResponseObject, error)
+
+	// (POST /api/dataset-versions/{dataset_version_id}/card/generate)
+	GenerateDatasetCard(ctx context.Context, request GenerateDatasetCardRequestObject) (GenerateDatasetCardResponseObject, error)
+
 	// (GET /api/datasets)
 	ListDatasets(ctx context.Context, request ListDatasetsRequestObject) (ListDatasetsResponseObject, error)
+
+	// (POST /api/datasets/upload-imagefolder)
+	UploadImagefolder(ctx context.Context, request UploadImagefolderRequestObject) (UploadImagefolderResponseObject, error)
 
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(ctx context.Context, request GetDatasetRequestObject) (GetDatasetResponseObject, error)
@@ -2818,9 +3136,6 @@ type StrictServerInterface interface {
 
 	// (GET /api/model-weights)
 	ListModelWeights(ctx context.Context, request ListModelWeightsRequestObject) (ListModelWeightsResponseObject, error)
-
-	// (DELETE /api/model-weights/{preset})
-	EvictModelWeightCache(ctx context.Context, request EvictModelWeightCacheRequestObject) (EvictModelWeightCacheResponseObject, error)
 
 	// (GET /api/training-runs)
 	ListTrainingRuns(ctx context.Context, request ListTrainingRunsRequestObject) (ListTrainingRunsResponseObject, error)
@@ -2898,6 +3213,98 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// GetDatasetCard operation middleware
+func (sh *strictHandler) GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	var request GetDatasetCardRequestObject
+
+	request.DatasetVersionId = datasetVersionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDatasetCard(ctx, request.(GetDatasetCardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDatasetCard")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDatasetCardResponseObject); ok {
+		if err := validResponse.VisitGetDatasetCardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SaveDatasetCard operation middleware
+func (sh *strictHandler) SaveDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	var request SaveDatasetCardRequestObject
+
+	request.DatasetVersionId = datasetVersionId
+
+	var body SaveDatasetCardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SaveDatasetCard(ctx, request.(SaveDatasetCardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SaveDatasetCard")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SaveDatasetCardResponseObject); ok {
+		if err := validResponse.VisitSaveDatasetCardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GenerateDatasetCard operation middleware
+func (sh *strictHandler) GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
+	var request GenerateDatasetCardRequestObject
+
+	request.DatasetVersionId = datasetVersionId
+
+	var body GenerateDatasetCardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GenerateDatasetCard(ctx, request.(GenerateDatasetCardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GenerateDatasetCard")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GenerateDatasetCardResponseObject); ok {
+		if err := validResponse.VisitGenerateDatasetCardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListDatasets operation middleware
 func (sh *strictHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	var request ListDatasetsRequestObject
@@ -2915,6 +3322,37 @@ func (sh *strictHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListDatasetsResponseObject); ok {
 		if err := validResponse.VisitListDatasetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadImagefolder operation middleware
+func (sh *strictHandler) UploadImagefolder(w http.ResponseWriter, r *http.Request) {
+	var request UploadImagefolderRequestObject
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadImagefolder(ctx, request.(UploadImagefolderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadImagefolder")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadImagefolderResponseObject); ok {
+		if err := validResponse.VisitUploadImagefolderResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3252,32 +3690,6 @@ func (sh *strictHandler) ListModelWeights(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListModelWeightsResponseObject); ok {
 		if err := validResponse.VisitListModelWeightsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// EvictModelWeightCache operation middleware
-func (sh *strictHandler) EvictModelWeightCache(w http.ResponseWriter, r *http.Request, preset string) {
-	var request EvictModelWeightCacheRequestObject
-
-	request.Preset = preset
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.EvictModelWeightCache(ctx, request.(EvictModelWeightCacheRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "EvictModelWeightCache")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(EvictModelWeightCacheResponseObject); ok {
-		if err := validResponse.VisitEvictModelWeightCacheResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -43,6 +43,7 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	created, err := service.Create(ctx, training.CreateCommand{
 		DatasetID: datasetID.String(), DatasetVersionID: versionID.String(), BackboneID: "dinov3_vits16_lvd1689m",
 		Payload: map[string]any{
+			"name":      "几何图形 · ViT-S 命名验收",
 			"extractor": "dinov3_vits",
 			"extractor_config": map[string]any{
 				"backbone_key": "dinov3_vits16_lvd1689m", "architecture": "vit_small_patch16",
@@ -96,6 +97,13 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	canDelete, err := artifact.NewGarbageCollectionGuard(postgresadapter.NewArtifactReferences(pool)).CanDeletePhysicalObject(ctx, digest, modelArtifactID)
 	if err != nil || canDelete {
 		t.Fatalf("referenced model artifact must not be physically deleted: allowed=%t error=%v", canDelete, err)
+	}
+	runRead, err := postgresadapter.NewReadModels(pool).GetTrainingRun(ctx, created.TrainingRunID)
+	if err == nil && runRead["name"] != "几何图形 · ViT-S 命名验收" {
+		t.Fatalf("training name was not persisted: %v", runRead["name"])
+	}
+	if err != nil || runRead["model_version_id"] != completed.ModelVersionID {
+		t.Fatalf("training detail lost model link: %#v, %v", runRead, err)
 	}
 	metricRead, err := postgresadapter.NewReadModels(pool).GetTrainingRunMetrics(ctx, created.TrainingRunID, httpapi.MetricsQuery{})
 	if err != nil {

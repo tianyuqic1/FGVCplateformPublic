@@ -18,7 +18,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     environment:
-      VITE_API_BASE_URL: http://localhost:8001
+      VITE_API_BASE_URL: ""
       VITE_PROXY_TARGET: http://go-control-plane:8000
     ports:
       - "5173:5173"
@@ -56,6 +56,9 @@ services:
         condition: service_started
       object-store-init:
         condition: service_completed_successfully
+
+      python-inference-runtime:
+        condition: service_healthy
 
   outbox-relay:
     image: finevision-go:phase1
@@ -120,6 +123,12 @@ services:
   python-inference-runtime:
     image: finevision-python-compute:phase1
     command: ["python", "-m", "finevision.compute.inference_runtime"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; from finevision.compute.v1 import inference_runtime_pb2 as p, inference_runtime_pb2_grpc as g; g.InferenceRuntimeStub(grpc.insecure_channel('localhost:9100')).Health(p.HealthRequest(), timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
     environment:
       <<: *object-store-environment
       FINEVISION_INFERENCE_GRPC_ADDRESS: "[::]:9100"

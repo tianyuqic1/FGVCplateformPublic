@@ -32,19 +32,9 @@ func NewRouter(provider llm.Gateway, internalToken string) http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(request.Context(), 90*time.Second)
 		defer cancel()
-		var result llm.GatewayResult
-		var err error
-		for attempt := 0; attempt < 2; attempt++ {
-			result, err = provider.Generate(ctx, command)
-			if err == nil {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				attempt = 2
-			case <-time.After(200 * time.Millisecond):
-			}
-		}
+		// A timeout does not prove the provider did not charge the request.
+		// Retry is explicit, with a new user-requested generation.
+		result, err := provider.Generate(ctx, command)
 		if err != nil {
 			writeJSON(writer, http.StatusBadGateway, map[string]any{"error": map[string]string{"code": "LLM_PROVIDER_FAILED", "message": "configured LLM provider did not return a response"}})
 			return

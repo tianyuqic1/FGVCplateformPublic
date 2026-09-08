@@ -5,6 +5,35 @@ from sqlalchemy.dialects import postgresql
 
 metadata = sa.MetaData()
 
+dataset_card_revisions = sa.Table(
+    "dataset_card_revisions", metadata,
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), primary_key=True),
+    sa.Column("revision", sa.Integer(), primary_key=True),
+    sa.Column("card", postgresql.JSONB(), nullable=False),
+    sa.Column("draft_id", postgresql.UUID(as_uuid=True)),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.CheckConstraint("revision > 0"),
+    sa.CheckConstraint("jsonb_typeof(card) = 'object'"),
+)
+dataset_card_generations = sa.Table(
+    "dataset_card_generations", metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
+    sa.Column("base_revision", sa.Integer(), nullable=False),
+    sa.Column("input_sha256", sa.Text(), nullable=False),
+    sa.Column("prompt_version", sa.Text(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("result", postgresql.JSONB()),
+    sa.Column("error_code", sa.Text()),
+    sa.Column("applied_revision", sa.Integer()),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now() + interval '180 seconds'")),
+    sa.CheckConstraint("status IN ('running', 'succeeded', 'failed')"),
+)
+sa.Index("dataset_card_one_active_generation", dataset_card_generations.c.dataset_version_id, unique=True, postgresql_where=sa.text("status = 'running'"))
+sa.Index("dataset_card_generation_history", dataset_card_generations.c.dataset_version_id, dataset_card_generations.c.created_at.desc())
+
 datasets = sa.Table(
     "datasets",
     metadata,

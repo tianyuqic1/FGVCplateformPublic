@@ -1,6 +1,7 @@
 import { normalizeModelVersion } from "../src/api/modelVersions.js";
 import { normalizeMetricPoint } from "../src/api/trainingRuns.js";
 import { mergeMetricPoints, TERMINAL_TRAINING_STATUSES } from "../src/features/training/useTrainingMetrics.js";
+import { lossChartOption } from "../src/features/training/metricChartOptions.js";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -12,6 +13,9 @@ const nextAttempt = normalizeMetricPoint({ id: 3, attempt_id: "attempt-b", metri
 const merged = mergeMetricPoints([first], [duplicate, nextAttempt]);
 assert(merged.length === 2, "metric retry must be idempotent per attempt/name/step");
 assert(merged[0].value === 0.7, "new cursor point must replace the same metric identity");
+const chart = lossChartOption(merged);
+assert(chart.series.length === 2, "separate attempts must not be connected into one line");
+assert(chart.series.every((series) => series.data.length === 1), "each attempt owns its own epoch points");
 assert(TERMINAL_TRAINING_STATUSES.has("succeeded") && !TERMINAL_TRAINING_STATUSES.has("running"), "terminal polling contract changed");
 
 const version = normalizeModelVersion({

@@ -197,7 +197,10 @@ WHERE (NULLIF($1, '') IS NULL OR d.dataset_key=$1 OR d.id::text=$1)
 
 const trainingRunSelect = `
 SELECT jsonb_build_object(
+  'name', COALESCE(NULLIF(j.payload->>'name',''), d.name || ' · 训练 ' || left(tr.id::text,8)),
+  'dataset_name', d.name,
   'id', tr.id, 'run_id', tr.id, 'job_id', tr.job_id,
+  'model_version_id', (SELECT mv.id FROM model_versions mv WHERE mv.training_run_id=tr.id ORDER BY mv.created_at DESC LIMIT 1),
   'dataset_id', d.dataset_key, 'dataset_version_id', tr.dataset_version_id,
   'status', tr.status, 'backbone_id', tr.backbone_id,
   'extractor_config', tr.extractor_config, 'head_config', tr.head_config,
@@ -208,7 +211,7 @@ SELECT jsonb_build_object(
   'created_at', tr.created_at, 'started_at', tr.started_at,
   'finished_at', tr.finished_at, 'updated_at', tr.updated_at
 )
-FROM training_runs tr JOIN datasets d ON d.id=tr.dataset_id`
+FROM training_runs tr JOIN datasets d ON d.id=tr.dataset_id LEFT JOIN jobs j ON j.id=tr.job_id`
 
 type rowQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)

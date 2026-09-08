@@ -44,13 +44,21 @@ function baseOption(yAxisName) {
 }
 
 export function lossChartOption(points) {
-  return { ...baseOption("Loss"), series: [seriesFor(points, "train_loss", "训练损失", "#3569e8")] };
+  return { ...baseOption("Loss"), series: attemptSeries(points, "train_loss", "训练损失", "#3569e8") };
+}
+
+function attemptSeries(points, name, label, color) {
+  const attempts = [...new Set(points.map((point) => point.attemptId ?? "unknown"))];
+  return attempts.map((attempt) => ({
+    ...seriesFor(points.filter((point) => (point.attemptId ?? "unknown") === attempt), name, `${label} · ${attempt.slice(0, 8)}`, color),
+    id: `${attempt}:${name}`,
+  }));
 }
 
 export function accuracyChartOption(points) {
   return {
     ...baseOption("Accuracy"),
     yAxis: { ...baseOption("Accuracy").yAxis, min: 0, max: 1, axisLabel: { color: "#778399", formatter: (value) => `${Math.round(value * 100)}%` } },
-    series: [seriesFor(points, "eval_accuracy", "验证准确率", "#6258d8")],
+    series: attemptSeries(points, "eval_accuracy", "验证准确率", "#6258d8"),
   };
 }

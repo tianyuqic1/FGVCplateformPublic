@@ -34,8 +34,12 @@ func (provider *OpenAICompatible) Generate(ctx context.Context, request llm.Gate
 	}
 	payload := map[string]any{
 		"model":           provider.model,
+		"max_tokens":      4096,
 		"messages":        []map[string]any{{"role": "user", "content": content}},
 		"response_format": map[string]string{"type": "json_object"},
+	}
+	if strings.Contains(provider.model, "deepseek-v4") {
+		payload["thinking"] = map[string]string{"type": "disabled"}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -58,8 +62,7 @@ func (provider *OpenAICompatible) Generate(ctx context.Context, request llm.Gate
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		detail, _ := io.ReadAll(io.LimitReader(response.Body, 500))
-		return llm.GatewayResult{}, fmt.Errorf("LLM provider returned %d: %s", response.StatusCode, strings.TrimSpace(string(detail)))
+		return llm.GatewayResult{}, fmt.Errorf("LLM provider returned HTTP %d", response.StatusCode)
 	}
 	var body struct {
 		Choices []struct {

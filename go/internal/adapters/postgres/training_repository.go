@@ -26,6 +26,18 @@ func NewTrainingRepository(pool *pgxpool.Pool) *TrainingRepository {
 
 func (repository *TrainingRepository) Create(ctx context.Context, aggregate *training.Aggregate) error {
 	return pgx.BeginFunc(ctx, repository.pool, func(tx pgx.Tx) error {
+		var metadata []byte
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(a.artifact_metadata,'{}'::jsonb) FROM dataset_versions dv LEFT JOIN artifacts a ON a.id=dv.manifest_artifact_id WHERE dv.id=$1`, aggregate.Run.DatasetVersionID).Scan(&metadata); err != nil {
+			return err
+		}
+		var source map[string]any
+		if err := json.Unmarshal(metadata, &source); err != nil {
+			return err
+		}
+		if archive, ok := source["archive"]; ok {
+			aggregate.Job.Payload["dataset_archive"] = archive
+			aggregate.Job.Payload["dataset_version_id"] = aggregate.Run.DatasetVersionID
+		}
 		payload, err := json.Marshal(aggregate.Job.Payload)
 		if err != nil {
 			return err
@@ -362,7 +374,7 @@ WHERE id=$1`, aggregate.Job.ID, aggregate.Job.Status, payload, result, aggregate
 	metrics, _ := json.Marshal(aggregate.Job.Result.Metrics)
 	_, err = tx.Exec(ctx, `
 UPDATE training_runs SET status=$2,
-  metrics=COALESCE($3::jsonb, '{}'::jsonb) || jsonb_build_object('progress', COALESCE($4::jsonb, '{}'::jsonb)),
+  metrics=COALESCE(NULLIF($3::jsonb, 'null'::jsonb), '{}'::jsonb) || jsonb_build_object('progress', COALESCE(NULLIF($4::jsonb, 'null'::jsonb), '{}'::jsonb)),
   error_message=NULLIF($5,''),
   started_at=CASE WHEN $2='running' AND started_at IS NULL THEN $6 ELSE started_at END,
   finished_at=CASE WHEN $2 IN ('succeeded','failed','cancelled') THEN $6 ELSE NULL END,

@@ -36,4 +36,9 @@ func TestProviderUsesContainerModelAndCredential(t *testing.T) {
 	if received["model"] != "configured-model" || result.Model != "configured-model" || result.Text == "" {
 		t.Fatalf("request/result = %#v / %#v", received, result)
 	}
+	messages := received["messages"].([]any)
+	content := messages[0].(map[string]any)["content"].([]any)
+	if content[1].(map[string]any)["image_url"].(map[string]any)["url"] != "data:image/png;base64,AA==" || received["max_tokens"] != float64(4096) {
+		t.Fatal("vision payload or output budget missing")
+	}
 }

@@ -17,16 +17,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	computev1 "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/einocard"
 	grpcadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/grpc"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/llmgatewayclient"
 	postgresadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/postgres"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/s3artifact"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -64,10 +68,29 @@ func main() {
 	lifecycle := training.NewServiceWithVerifier(repository, artifactVerifier, time.Now, configuration.LeaseTTL)
 	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second})
 	llmApplication := llm.NewApplication(llmGateway)
+	cardGenerator, err := einocard.New(ctx, llmGateway)
+	if err != nil {
+		slog.Error("compile dataset card workflow")
+		os.Exit(1)
+	}
+	cards := &datasetcard.Service{Repository: &postgresadapter.DatasetCardRepository{Pool: pool}, Generator: cardGenerator}
+	computeAddress := os.Getenv("FINEVISION_COMPUTE_GRPC")
+	if computeAddress == "" {
+		computeAddress = "python-inference-runtime:9100"
+	}
+	computeConnection, err := grpc.NewClient(computeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		slog.Error("connect compute runtime", "error", err)
+		os.Exit(1)
+	}
+	defer computeConnection.Close()
+	datasetImport := &dataset.Service{Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
-			Lifecycle: lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
+			DatasetCards:  cards,
+			DatasetImport: datasetImport,
+			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
 			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,

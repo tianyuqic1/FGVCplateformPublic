@@ -16,6 +16,6 @@ RUN uv export --frozen --extra dinov3 --no-dev --no-emit-project --output-file /
     && rm /tmp/requirements.txt
 
 RUN useradd --create-home --uid 10001 finevision \
-    && mkdir -p /data/cache /data/metadata /home/finevision/.cache/huggingface /home/finevision/.cache/torch \
+    && mkdir -p /data/cache /data/metadata /data/work /home/finevision/.cache/huggingface /home/finevision/.cache/torch \
     && chown -R finevision:finevision /data /home/finevision/.cache
 USER finevision

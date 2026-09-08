@@ -92,12 +92,8 @@ func TestModelWeightCatalogExposesOnlyApprovedPhaseTwoBackbonesAndPreservesCanon
 		t.Fatal(err)
 	}
 	defer eviction.Body.Close()
-	var result map[string]any
-	if err := json.NewDecoder(eviction.Body).Decode(&result); err != nil {
-		t.Fatal(err)
-	}
-	if result["deleted"] != false || result["canonical_preserved"] != true {
-		t.Fatalf("eviction = %#v", result)
+	if eviction.StatusCode != http.StatusNotFound && eviction.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("weight deletion must be unavailable, got %d", eviction.StatusCode)
 	}
 }
 

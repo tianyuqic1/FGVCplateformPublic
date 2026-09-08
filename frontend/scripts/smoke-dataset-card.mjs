@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { cardRequest } from "../src/features/datasets/cardApi.js";
+let captured;
+globalThis.fetch = async (url, options) => { captured = { url, ...options }; return { ok: true, json: async () => ({ revision: 2 }) }; };
+assert.equal((await cardRequest("version/a")).revision, 2);
+assert.equal(captured.url, "/api/dataset-versions/version%2Fa/card");
+await cardRequest("v", { method: "PUT", body: { expected_revision: 1, dataset_card: { summary: "manual" } } });
+assert.equal(JSON.parse(captured.body).expected_revision, 1);
+await cardRequest("v", { method: "POST", generate: true, body: { request_id: "idempotent" } });
+assert.equal(captured.url, "/api/dataset-versions/v/card/generate");
+assert.deepEqual(JSON.parse(captured.body), { request_id: "idempotent" });
+globalThis.fetch = async () => ({ ok: false, status: 409, json: async () => ({ error: { message: "card conflict" } }) });
+await assert.rejects(cardRequest("v"), /card conflict/);
+console.log("dataset card client smoke passed");

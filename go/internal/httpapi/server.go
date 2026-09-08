@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelcatalog"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
@@ -38,6 +42,8 @@ type MetricsQuery struct {
 }
 
 type Server struct {
+	cards     *datasetcard.Service
+	datasets  *dataset.Service
 	lifecycle *training.Service
 	reads     ReadModels
 	llm       *llm.Application
@@ -239,21 +245,6 @@ func (server *Server) ListModelWeights(context.Context, openapi.ListModelWeights
 	return openapi.ListModelWeights200JSONResponse{Weights: freeFormList(items)}, nil
 }
 
-func (server *Server) EvictModelWeightCache(ctx context.Context, request openapi.EvictModelWeightCacheRequestObject) (openapi.EvictModelWeightCacheResponseObject, error) {
-	backbone, exists := modelcatalog.Resolve(request.Preset)
-	if !exists {
-		return openapi.EvictModelWeightCache404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", "pretrained weight preset not found"))}, nil
-	}
-	weight := managedWeight(backbone)
-	// The canonical Git LFS/S3 object is immutable. Runtime cache eviction is a
-	// separate, auditable compute-plane operation and this catalog endpoint never
-	// deletes the canonical object.
-	return openapi.EvictModelWeightCache200JSONResponse(openapi.FreeFormObject{
-		"deleted": false, "preset": request.Preset, "cache_dir": weight["cache_dir"],
-		"before": weight, "after": weight, "canonical_preserved": true,
-	}), nil
-}
-
 func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 	category := "imagenet/vit-small"
 	if backbone.Key == modelcatalog.DINOv3ViTSKey {
@@ -352,6 +343,13 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 		"backbone_id": backboneID, "extractor": extractor, "extractor_config": extractorConfig,
 		"batch_size": featureBatchSize, "image_size": imageSize, "feature_pool": featurePool,
 	}
+	if request.Body.Name != nil {
+		name := strings.TrimSpace(*request.Body.Name)
+		if name == "" || utf8.RuneCountInString(name) > 80 || strings.ContainsAny(name, "\n\r\x00") {
+			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "训练任务名须为 1–80 个字符，不能包含换行"))}, nil
+		}
+		payload["name"] = name
+	}
 	if request.Body.HeadConfig != nil {
 		payload["head_config"] = map[string]any(*request.Body.HeadConfig)
 	}
@@ -375,7 +373,8 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.ErrorCode(err)), err.Error()))}, nil
 	}
 	readModel := map[string]any{
-		"id": created.TrainingRunID, "run_id": created.TrainingRunID, "job_id": created.JobID,
+		"name": payload["name"],
+		"id":   created.TrainingRunID, "run_id": created.TrainingRunID, "job_id": created.JobID,
 		"dataset_id": datasetKey, "dataset_version_id": request.Body.DatasetVersionId,
 		"backbone_id": backboneID, "status": created.Status, "extractor_config": payload["extractor_config"],
 		"head_config": payload["head_config"],

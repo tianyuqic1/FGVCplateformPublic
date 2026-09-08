@@ -6,6 +6,8 @@ import os
 import socket
 import threading
 import time
+import tempfile
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -438,7 +440,21 @@ class QueueTrainingWorker:
             execution_epoch=claim.execution_epoch,
         )
         metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata"))
+        dataset_files = ExitStack()
         try:
+            dataset_files.enter_context(HeartbeatLoop(remote_store))
+            if payload.get("dataset_archive"):
+                from finevision.compute.inference_runtime import _descriptor_from_dict
+                from finevision.compute.dataset_compute import unpack_dataset
+                from finevision.ml_toolkit.datasets import scan_imagefolder
+                descriptor = _descriptor_from_dict(payload["dataset_archive"])
+                if descriptor.dataset_version_id != payload["dataset_version_id"]:
+                    raise ValueError("Dataset archive scope mismatch")
+                local_archive = self.artifact_store.materialize_verified(descriptor, os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"))
+                root = Path(dataset_files.enter_context(tempfile.TemporaryDirectory(prefix="finevision-training-data-")))
+                unpack_dataset(local_archive, root)
+                manifest = scan_imagefolder(root, str(payload["dataset_id"]), str(payload["dataset_version_id"]))
+                metadata_store = SimpleNamespace(get_dataset_version=lambda version: manifest if version == manifest.dataset_version_id else None)
             backbone_key = str(payload.get("backbone_id") or payload.get("extractor") or "")
             backbone_key = WEIGHT_ALIASES.get(backbone_key, backbone_key)
             if backbone_key in MANAGED_WEIGHTS:
@@ -447,8 +463,7 @@ class QueueTrainingWorker:
                     os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"),
                     backbone_key,
                 )
-            with HeartbeatLoop(remote_store):
-                _run_train_classifier(payload, metadata_store, remote_store)
+            _run_train_classifier(payload, metadata_store, remote_store)
         except TrainingRunStopped:
             return
         except Exception as error:  # The lifecycle RPC is the error persistence boundary.
@@ -457,6 +472,8 @@ class QueueTrainingWorker:
                     remote_store.mark_failed(claim.training_run_id, str(error))
                 except grpc.RpcError:
                     pass
+        finally:
+            dataset_files.close()
 
 
 def main() -> None:

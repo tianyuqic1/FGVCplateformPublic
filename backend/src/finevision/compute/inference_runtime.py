@@ -73,7 +73,7 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
                     backbone_key,
                 )
             extractor = build_extractor_from_config(extractor_config)
-            policy = request.policy.AsMap() if request.policy is not None else {}
+            policy = dict(request.policy) if request.policy is not None else {}
             result = run_image_inference(
                 image_path=str(input_path),
                 extractor=extractor,
@@ -129,7 +129,7 @@ def _descriptor_from_proto(message) -> ArtifactDescriptor:
         training_run_id=message.training_run_id or None,
         attempt_id=message.attempt_id or None,
         schema_version=message.schema_version,
-        metadata=message.metadata.AsMap() if message.HasField("metadata") else {},
+        metadata=dict(message.metadata) if message.HasField("metadata") else {},
     )
 
 
@@ -192,6 +192,11 @@ def main() -> None:
     s3_client = _create_s3_client()
     cache_root = os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))))
+    from finevision.compute.dataset_compute import DatasetComputeService
+    from finevision.compute.v1 import dataset_compute_pb2_grpc
+    dataset_compute_pb2_grpc.add_DatasetComputeServicer_to_server(
+        DatasetComputeService(InferenceRuntimeService(cache_root, s3_client=s3_client)), server,
+    )
     inference_runtime_pb2_grpc.add_InferenceRuntimeServicer_to_server(
         InferenceRuntimeService(cache_root, s3_client=s3_client),
         server,

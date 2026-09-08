@@ -47,7 +47,8 @@ export function useTrainingMetrics(runId, selectedAttemptId = "") {
           loading: false,
           error: null,
         }));
-        if (TERMINAL_TRAINING_STATUSES.has(result.runStatus)) return;
+        // Drain full pages even after completion; terminal state is not end-of-history.
+        if (TERMINAL_TRAINING_STATUSES.has(result.runStatus) && result.points.length < 1000) return;
         const delay = document.visibilityState === "hidden" ? Math.max(8000, result.pollAfterMs) : result.pollAfterMs;
         timer = window.setTimeout(poll, delay);
       } catch (error) {

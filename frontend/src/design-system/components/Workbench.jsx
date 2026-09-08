@@ -63,9 +63,9 @@ export function CodeValue({ children, title }) {
 }
 
 export function formatPercent(value, digits = 2) {
-  return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(digits)}%` : "未采集";
+  return value != null && value !== "" && Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(digits)}%` : "未采集";
 }
 
 export function formatNumber(value, digits = 3) {
-  return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "未采集";
+  return value != null && value !== "" && Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "未采集";
 }

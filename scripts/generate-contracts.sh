@@ -16,7 +16,8 @@ trap 'rm -rf -- "$GENERATOR_DIR"' EXIT
     --go-grpc_out=api/proto --go-grpc_opt=paths=source_relative \
     api/proto/finevision/compute/v1/artifact.proto \
     api/proto/finevision/compute/v1/training_lifecycle.proto \
-    api/proto/finevision/compute/v1/inference_runtime.proto
+    api/proto/finevision/compute/v1/inference_runtime.proto \
+    api/proto/finevision/compute/v1/dataset_compute.proto
 )
 
 uv run python -m grpc_tools.protoc \
@@ -25,4 +26,5 @@ uv run python -m grpc_tools.protoc \
   --grpc_python_out="$ROOT_DIR/backend/src" \
   "$ROOT_DIR/go/api/proto/finevision/compute/v1/artifact.proto" \
   "$ROOT_DIR/go/api/proto/finevision/compute/v1/training_lifecycle.proto" \
-  "$ROOT_DIR/go/api/proto/finevision/compute/v1/inference_runtime.proto"
+  "$ROOT_DIR/go/api/proto/finevision/compute/v1/inference_runtime.proto" \
+  "$ROOT_DIR/go/api/proto/finevision/compute/v1/dataset_compute.proto"

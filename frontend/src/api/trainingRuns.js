@@ -75,7 +75,7 @@ export function normalizeTrainingRun(raw) {
 
   return {
     id,
-    name: raw?.name ?? `${datasetVersionId ?? "数据集"} 候选训练`,
+    name: raw?.name || `${raw?.dataset_name || raw?.dataset_id || "训练任务"} · ${String(id).slice(0, 8)}`,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? null,
     datasetVersionId,
     datasetName: raw?.datasetName ?? raw?.dataset_name ?? raw?.dataset_id ?? "数据集版本",

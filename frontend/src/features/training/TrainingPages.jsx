@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   cancelTrainingRun,
   createTrainingRun,
@@ -18,9 +18,13 @@ import {
   formatPercent,
 } from "../../design-system/components/Workbench.jsx";
 import { useModelWeights } from "../../hooks/useModelWeights.js";
+import { useDatasets } from "../../hooks/useDatasets.js";
 import { useTrainingRun, useTrainingRuns } from "../../hooks/useTrainingRuns.js";
 import { accuracyChartOption, lossChartOption } from "./metricChartOptions.js";
 import { useTrainingMetrics } from "./useTrainingMetrics.js";
+import { PaginatedList } from "../../design-system/components/PaginatedList.jsx";
+import { DatasetPicker } from "./DatasetPicker.jsx";
+import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 
 const backbones = [
   {
@@ -55,19 +59,25 @@ export function TrainingPage({ showToast }) {
   const navigate = useNavigate();
   const { trainingRuns, loading, error, refresh } = useTrainingRuns();
   const { weights } = useModelWeights();
+  const { datasets } = useDatasets();
+  const [searchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState("all");
-  const [form, setForm] = useState({ datasetVersionId: "", backboneKey: backbones[0].key, headType: "torch_linear_adam" });
+  const [queueQuery, setQueueQuery] = useState("");
+  const [queueDataset, setQueueDataset] = useState("");
+  const [queueBackbone, setQueueBackbone] = useState("");
+  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, headType: "torch_linear_adam" });
   const [submitting, setSubmitting] = useState(false);
   const counts = statusCounts(trainingRuns);
-  const filtered = statusFilter === "all" ? trainingRuns : trainingRuns.filter((run) => run.status === statusFilter);
+  const filtered = trainingRuns.filter(run => (statusFilter === "all" || run.status === statusFilter) && (!queueDataset || run.datasetId === queueDataset) && (!queueBackbone || run.backboneId === queueBackbone) && `${run.name} ${run.id} ${run.datasetName} ${run.datasetVersionId}`.toLowerCase().includes(queueQuery.trim().toLowerCase()));
   const weightByKey = Object.fromEntries(weights.map((weight) => [weight.backboneKey, weight]));
 
   async function submit(event) {
     event.preventDefault();
-    if (!form.datasetVersionId.trim() || submitting) return;
+    if (!form.datasetVersionId.trim() || !form.name.trim() || submitting) return;
     setSubmitting(true);
     try {
       const run = await createTrainingRun({
+        name: form.name.trim(),
         dataset_version_id: form.datasetVersionId.trim(),
         backbone_key: form.backboneKey,
         head_config: { head_type: form.headType, epochs: form.headType === "torch_linear_adam" ? 30 : undefined },
@@ -99,7 +109,8 @@ export function TrainingPage({ showToast }) {
       <div className="fv-training-layout">
         <Panel eyebrow="New run" title="创建训练" className="fv-create-panel">
           <form className="fv-form" onSubmit={submit}>
-            <label><span>Dataset Version</span><input required value={form.datasetVersionId} onChange={(event) => setForm({ ...form, datasetVersionId: event.target.value })} placeholder="dataset@bird-200-v12" /></label>
+            <label><span>训练任务名</span><input required maxLength={80} placeholder="例如：鸟类识别 · ViT-S 基线实验" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
+            <DatasetPicker datasets={datasets} value={form.datasetVersionId} onChange={datasetVersionId => setForm({ ...form, datasetVersionId })} />
             <fieldset>
               <legend>Pretrained Backbone</legend>
               <div className="fv-backbone-picker">
@@ -115,8 +126,8 @@ export function TrainingPage({ showToast }) {
                 })}
               </div>
             </fieldset>
-            <label><span>轻量分类头</span><select value={form.headType} onChange={(event) => setForm({ ...form, headType: event.target.value })}><option value="torch_linear_adam">Linear · AdamW（含曲线）</option><option value="ridge_linear">Ridge Linear（快速基线）</option></select></label>
-            <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练"}</button>
+            <label><span>轻量分类头</span><select value={form.headType} onChange={(event) => setForm({ ...form, headType: event.target.value })}><option value="torch_linear_adam">Linear · Adam（含曲线）</option><option value="ridge_linear">Ridge Linear（快速基线）</option></select></label>
+            <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim() || !form.name.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练"}</button>
           </form>
         </Panel>
 
@@ -126,13 +137,21 @@ export function TrainingPage({ showToast }) {
           aside={<select aria-label="状态筛选" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部状态</option><option value="running">运行中</option><option value="queued">等待中</option><option value="succeeded">已完成</option><option value="failed">失败</option></select>}
           className="fv-runs-panel"
         >
+          <div className="training-queue-filters">
+            <input aria-label="搜索训练任务" placeholder="搜索任务名 / 数据集 / ID" value={queueQuery} onChange={event => setQueueQuery(event.target.value)} />
+            <PaginatedSelect aria-label="队列数据集筛选" value={queueDataset} onChange={event => setQueueDataset(event.target.value)} options={[{ value: "", label: "全部数据集" }, ...datasets.map(item => ({ value: item.id, label: item.name, detail: item.datasetVersionId }))]} />
+            <select aria-label="队列骨干筛选" value={queueBackbone} onChange={event => setQueueBackbone(event.target.value)}><option value="">全部骨干</option>{backbones.map(item => <option key={item.key} value={item.key}>{item.name} · {item.pretraining}</option>)}</select>
+            <button className="ghost-button" onClick={() => { setQueueQuery(""); setQueueDataset(""); setQueueBackbone(""); setStatusFilter("all"); }}>重置</button>
+          </div>
           {loading && <EmptyState icon="LoaderCircle" title="正在读取训练队列" description="连接 Go Control Plane…" />}
           {!loading && error && <EmptyState icon="TriangleAlert" title="训练服务不可用" description={error.message} />}
           {!loading && !error && filtered.length === 0 && <EmptyState title="暂无匹配运行" description="创建一次训练，或调整状态筛选。" />}
           {filtered.length > 0 && (
-            <div className="fv-table-wrap"><table className="fv-table"><thead><tr><th>运行</th><th>Dataset Version</th><th>Backbone</th><th>状态</th><th>最新指标</th><th>创建时间</th></tr></thead><tbody>
-              {filtered.map((run) => <tr key={run.id} tabIndex="0" onKeyDown={(event) => event.key === "Enter" && navigate(`/training/${run.id}`)}><td><Link to={`/training/${run.id}`}><strong>{run.name}</strong><CodeValue>{run.id}</CodeValue></Link></td><td><CodeValue>{run.datasetVersionId}</CodeValue></td><td>{runBackboneLabel(run)}</td><td><StatusBadge status={run.status} /></td><td>{run.metric}</td><td>{run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "未记录"}</td></tr>)}
+            <PaginatedList key={JSON.stringify([statusFilter, queueQuery, queueDataset, queueBackbone])} items={filtered} label="实验队列分页" className="queue-pagination">{pageItems => (
+            <div className="fv-table-wrap"><table className="fv-table"><thead><tr><th>训练任务</th><th>Dataset Version</th><th>Backbone</th><th>状态</th><th>最新指标</th><th>创建时间</th></tr></thead><tbody>
+              {pageItems.map((run) => <tr key={run.id} tabIndex="0" onKeyDown={(event) => event.key === "Enter" && navigate(`/training/${run.id}`)}><td><Link to={`/training/${run.id}`}><strong title={run.name}>{run.name}</strong></Link></td><td><CodeValue>{run.datasetVersionId}</CodeValue></td><td>{runBackboneLabel(run)}</td><td><StatusBadge status={run.status} /></td><td>{run.metric}</td><td>{run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "未记录"}</td></tr>)}
             </tbody></table></div>
+            )}</PaginatedList>
           )}
         </Panel>
       </div>
@@ -154,7 +173,7 @@ export function TrainingDetailPage({ showToast }) {
   const latestAccuracy = latest(points, "eval_accuracy");
   const bestAccuracy = points.filter((point) => point.name === "eval_accuracy").reduce((best, point) => Math.max(best, point.value), Number.NEGATIVE_INFINITY);
   const currentEpoch = points.reduce((step, point) => Math.max(step, point.step), 0);
-  const elapsed = run?.startedAt ? Math.max(0, Date.now() - new Date(run.startedAt).getTime()) : null;
+  const elapsed = run?.startedAt ? Math.max(0, (run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now()) - new Date(run.startedAt).getTime()) : null;
   const elapsedLabel = elapsed === null ? "未开始" : `${Math.floor(elapsed / 3600000)}h ${Math.floor((elapsed % 3600000) / 60000)}m`;
   const lossOption = useMemo(() => lossChartOption(points), [points]);
   const accuracyOption = useMemo(() => accuracyChartOption(points), [points]);
@@ -209,5 +228,5 @@ export function TrainingDetailPage({ showToast }) {
 
 function AttemptSelector({ attempts, value, onChange }) {
   if (!attempts.length) return <span className="fv-muted">等待 attempt</span>;
-  return <select aria-label="选择训练 attempt" value={value} onChange={(event) => onChange(event.target.value)}><option value="">当前 / 成功 attempt</option>{attempts.map((attempt) => <option key={attempt.attempt_id} value={attempt.attempt_id}>#{attempt.attempt_number ?? "?"} · {attempt.status}</option>)}</select>;
+  return <PaginatedSelect aria-label="选择训练 attempt" value={value} onChange={(event) => onChange(event.target.value)}><option value="">全部 attempt（独立曲线）</option>{attempts.map((attempt) => <option key={attempt.attempt_id} value={attempt.attempt_id}>#{attempt.attempt_number ?? "?"} · {attempt.status}</option>)}</PaginatedSelect>;
 }

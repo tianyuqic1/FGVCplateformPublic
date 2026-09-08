@@ -5,6 +5,84 @@ info:
 servers:
   - url: /
 paths:
+  /api/dataset-versions/{dataset_version_id}/card:
+    parameters:
+      - {name: dataset_version_id, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: getDatasetCard
+      responses:
+        "200":
+          description: Approved card, immutable facts and generation history
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        default: {$ref: "#/components/responses/ErrorResponse"}
+    put:
+      operationId: saveDatasetCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dataset_card, expected_revision]
+              properties:
+                dataset_card: {$ref: "#/components/schemas/DatasetCardContent"}
+                expected_revision: {type: integer, minimum: 0}
+                draft_id: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Explicitly saved new revision
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        default: {$ref: "#/components/responses/ErrorResponse"}
+  /api/dataset-versions/{dataset_version_id}/card/generate:
+    parameters:
+      - {name: dataset_version_id, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: generateDatasetCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id]
+              properties:
+                request_id: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Independent advisory draft; does not save the card
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        default: {$ref: "#/components/responses/ErrorResponse"}
+  /api/datasets/upload-imagefolder:
+    post:
+      operationId: uploadImagefolder
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [dataset_id, dataset_version_id, files]
+              properties:
+                dataset_id: {type: string}
+                dataset_version_id: {type: string}
+                files:
+                  type: array
+                  items: {type: string, format: binary}
+      responses:
+        "201":
+          description: Verified imported Dataset Version
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "422": {$ref: "#/components/responses/ErrorResponse"}
+        "409": {$ref: "#/components/responses/ErrorResponse"}
+        "503": {$ref: "#/components/responses/ErrorResponse"}
   /api/health:
     get:
       operationId: getHealth
@@ -76,21 +154,6 @@ paths:
                   weights:
                     type: array
                     items: {$ref: "#/components/schemas/FreeFormObject"}
-  /api/model-weights/{preset}:
-    parameters:
-      - name: preset
-        in: path
-        required: true
-        schema: {type: string}
-    delete:
-      operationId: evictModelWeightCache
-      responses:
-        "200":
-          description: Cache eviction result; canonical weight is never deleted
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/FreeFormObject"}
-        "404": {$ref: "#/components/responses/ErrorResponse"}
   /api/model-versions:
     get:
       operationId: listModelVersions
@@ -387,6 +450,17 @@ components:
     RunID: {name: run_id, in: path, required: true, schema: {type: string, format: uuid}}
     ModelVersionID: {name: model_version_id, in: path, required: true, schema: {type: string, format: uuid}}
   schemas:
+    DatasetCardContent:
+      type: object
+      additionalProperties: false
+      required: [task, domain, summary, known_confusions, ood_policy, review_guidance]
+      properties:
+        task: {type: string, enum: [image_classification]}
+        domain: {type: string, maxLength: 6000}
+        summary: {type: string, maxLength: 6000}
+        known_confusions: {type: array, maxItems: 30, items: {type: string, maxLength: 6000}}
+        ood_policy: {type: string, maxLength: 6000}
+        review_guidance: {type: string, maxLength: 6000}
     FreeFormObject:
       type: object
       additionalProperties: true
@@ -466,6 +540,7 @@ components:
       type: object
       required: [dataset_version_id]
       properties:
+        name: {type: string, minLength: 1, maxLength: 80, description: Human-readable training task name}
         dataset_id: {type: string}
         dataset_version_id: {type: string}
         backbone_key:

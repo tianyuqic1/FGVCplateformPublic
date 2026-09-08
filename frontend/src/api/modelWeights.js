@@ -34,16 +34,3 @@ export async function listModelWeights() {
     return Array.isArray(payload?.weights) ? payload.weights.map(normalizeWeight) : [];
   });
 }
-
-export async function deleteModelWeight(preset) {
-  return withTimeout(async (signal) => {
-    const payload = await fetchJson(`/api/model-weights/${encodeURIComponent(preset)}`, { method: "DELETE", signal });
-    return {
-      deleted: Boolean(payload?.deleted),
-      preset: payload?.preset ?? preset,
-      cacheDir: payload?.cache_dir ?? payload?.cacheDir ?? "",
-      before: payload?.before ? normalizeWeight(payload.before) : null,
-      after: payload?.after ? normalizeWeight(payload.after) : null,
-    };
-  }, 10000);
-}
