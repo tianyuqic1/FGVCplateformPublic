@@ -19,6 +19,7 @@ import {
   formatPercent,
 } from "../../design-system/components/Workbench.jsx";
 import { useModelVersion, useModelVersions } from "./useModelVersions.js";
+import "./model-detail.css";
 
 function backboneLabel(version) {
   if (version.backboneKey === "dinov3_vits16_lvd1689m") return "ViT-S/16 · DINOv3";
@@ -78,20 +79,66 @@ export function ModelVersionDetailPage({ showToast }) {
 
   if (loading) return <EmptyState icon="LoaderCircle" title="正在读取 Model Version" description={modelId} />;
   if (error || !version) return <EmptyState icon="TriangleAlert" title="Model Version 不可用" description={error?.message ?? modelId} />;
-  const artifactIntegrity = version.artifacts.length && version.artifacts.every((item) => item.sha256 && Number(item.size_bytes) >= 0);
-  return <div className="fv-feature-page">
-    <PageHeading eyebrow="Model version detail" title={version.name} description={<><CodeValue>{version.id}</CodeValue> · {backboneLabel(version)}</>} actions={<><AliasBadges aliases={version.aliases} /><StatusBadge status={version.status} /><Link className="secondary-button" to={`/models/compare?ids=${version.id}`}><Icon name="GitCompareArrows" size={15} />比较</Link></>} />
-    <div className="fv-metric-grid"><MetricTile label="Accuracy" value={formatPercent(version.metrics.accuracy)} caption="同协议评估" tone="success" /><MetricTile label="Macro F1" value={formatNumber(version.metrics.macro_f1)} caption="未采集显示 N/A" /><MetricTile label="Coverage" value={formatPercent(version.metrics.expected_coverage)} caption="选择性预测" /><MetricTile label="Artifact Integrity" value={artifactIntegrity ? "已登记" : "待核验"} caption={`${version.artifacts.length} 个逻辑 Artifact`} tone={artifactIntegrity ? "success" : "danger"} /></div>
-    <div className="fv-model-detail-grid">
-      <div className="fv-side-stack">
-        <Panel eyebrow="Lineage" title="两层逻辑归属"><dl className="fv-definition-list"><div><dt>Dataset</dt><dd>{version.datasetName}<br /><CodeValue>{version.datasetId}</CodeValue></dd></div><div><dt>Dataset Version</dt><dd><CodeValue>{version.datasetVersionKey}</CodeValue></dd></div><div><dt>Training Run</dt><dd><Link to={`/training/${version.trainingRunId}`}><CodeValue>{version.trainingRunId}</CodeValue></Link></dd></div><div><dt>Protocol Fingerprint</dt><dd><CodeValue>{version.evaluationContext.protocol_fingerprint}</CodeValue></dd></div></dl></Panel>
-        <Panel eyebrow="Configuration" title="模型配置"><dl className="fv-definition-list"><div><dt>Backbone Key</dt><dd><CodeValue>{version.backboneKey}</CodeValue></dd></div><div><dt>Architecture</dt><dd>{version.architecture || "未采集"}</dd></div><div><dt>Pretraining</dt><dd>{version.pretrainingMethod || "未采集"} · {version.pretrainingDataset || "未采集"}</dd></div><div><dt>Input / Feature</dt><dd>{version.inputSize ?? "N/A"} px · {version.featureDim ?? "N/A"} dim</dd></div><div><dt>Parameters</dt><dd>{version.parameterCount ? `${(version.parameterCount / 1e6).toFixed(1)}M` : "未采集"}</dd></div><div><dt>Pooling / Head</dt><dd>{version.pooling || "N/A"} · {version.headType || "N/A"}</dd></div></dl></Panel>
-      </div>
-      <div className="fv-side-stack">
-        <Panel eyebrow="Artifacts" title="内容寻址对象">{version.artifacts.length ? <div className="fv-artifact-list">{version.artifacts.map((item) => <div key={item.artifact_id}><span><Icon name="ShieldCheck" size={15} />{item.artifact_type}</span><CodeValue>{item.sha256}</CodeValue><small>{Number(item.size_bytes).toLocaleString()} bytes · {item.uri}</small></div>)}</div> : <EmptyState title="暂无 Artifact" description="该版本没有返回已登记对象。" />}</Panel>
-        <Panel eyebrow="Governance" title="生命周期操作"><div className="fv-action-list">{version.status === "candidate" && <button className="primary-button" onClick={() => perform("staging")}>晋级 Staging</button>}{version.status === "staging" && <button className="primary-button" onClick={() => perform("production")}>晋级 Production</button>}{version.status === "production" && <button className="secondary-button" onClick={() => perform("champion")}>设为 Champion</button>}{["candidate", "staging"].includes(version.status) && <button className="secondary-button" onClick={() => perform("challenger")}>设为 Challenger</button>}{version.status !== "archived" && <button className="danger-button" onClick={() => perform("archive")}>归档版本</button>}</div><p className="fv-governance-note">Production 不由 Accuracy 自动决定；状态与 alias 操作均要求原因并写审计。</p></Panel>
-        <Panel eyebrow="Audit" title="审计事件">{version.events.length ? <ol className="fv-event-list">{version.events.map((event) => <li key={event.event_id}><i /><span><strong>{event.event_type}</strong><small>{event.actor} · {event.reason || "未填写"}</small></span><time>{new Date(event.created_at).toLocaleString("zh-CN")}</time></li>)}</ol> : <EmptyState title="暂无审计事件" description="后续状态与 alias 变更会记录在这里。" />}</Panel>
-      </div>
+  const metrics = [
+    ["准确率", "accuracy", true],
+    ["Macro F1", "macro_f1", false],
+    ["预测覆盖率", "expected_coverage", true],
+  ].filter(([, key]) => version.metrics[key] != null && version.metrics[key] !== "" && Number.isFinite(Number(version.metrics[key])));
+  const configuration = [
+    ["模型架构", backboneLabel(version)],
+    ["预训练数据", version.pretrainingDataset],
+    ["输入尺寸", version.inputSize ? `${version.inputSize} px` : null],
+    ["参数量", version.parameterCount ? `${(version.parameterCount / 1e6).toFixed(1)}M` : null],
+  ].filter(([, value]) => value);
+  const technical = [
+    ["模型 ID", version.id], ["数据集 ID", version.datasetId],
+    ["数据版本", version.datasetVersionKey], ["训练任务 ID", version.trainingRunId],
+    ["评估协议指纹", version.evaluationContext.protocol_fingerprint],
+    ["骨干网络", version.backboneKey], ["架构标识", version.architecture],
+    ["预训练方法", version.pretrainingMethod], ["特征维度", version.featureDim],
+    ["池化方式", version.pooling], ["分类头", version.headType],
+  ].filter(([, value]) => value != null && value !== "");
+  const eventLabels = { created: "创建版本", status_changed: "更新状态", alias_set: "设置别名", archived: "归档版本" };
+  return <div className="fv-feature-page fv-model-detail">
+    <Link className="fv-model-back" to="/models"><Icon name="ArrowLeft" size={14} />模型版本</Link>
+    <PageHeading title={version.name} description={backboneLabel(version)} actions={<>
+      {version.aliases.length > 0 && <AliasBadges aliases={version.aliases} />}
+      <StatusBadge status={version.status} />
+      {version.trainingRunId && <Link className="secondary-button" to={`/training/${version.trainingRunId}`}>查看训练</Link>}
+      <Link className="secondary-button" to="/models"><Icon name="GitCompareArrows" size={15} />选择版本比较</Link>
+    </>} />
+    <div className="fv-model-overview">
+      <Panel title="评估结果" className="fv-model-evaluation">
+        {metrics.length ? <div className="fv-model-metrics">{metrics.map(([label, key, percent]) => <div key={key}><span>{label}</span><strong>{percent ? formatPercent(version.metrics[key]) : formatNumber(version.metrics[key])}</strong></div>)}</div> : <p className="fv-model-empty">暂无评估结果</p>}
+        <p className="fv-model-footnote">{metrics.length ? "仅展示已记录指标，版本比较需使用相同数据与评估协议。" : "完成评估后，指标将在这里展示。"}</p>
+      </Panel>
+      <Panel title="模型概况">
+        <dl className="fv-definition-list">
+          <div><dt>所属数据集</dt><dd>{version.datasetName}</dd></div>
+          {configuration.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+          {version.createdAt && <div><dt>创建时间</dt><dd>{new Date(version.createdAt).toLocaleString("zh-CN")}</dd></div>}
+        </dl>
+      </Panel>
+    </div>
+    <div className="fv-model-disclosures">
+      <details className="fv-model-disclosure"><summary><span>技术详情<small>版本标识、完整配置与模型文件</small></span><Icon name="ChevronDown" size={16} /></summary>
+        <dl className="fv-definition-list fv-model-technical">{technical.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><code>{value}</code></dd></div>)}</dl>
+        <div className="fv-model-files"><h4>模型文件 · {version.artifacts.length}</h4>{version.artifacts.length ? version.artifacts.map((item, index) => <div className="fv-model-file" key={item.artifact_id || index}><strong>{item.artifact_type || "模型文件"}</strong><dl className="fv-definition-list">
+          {[["大小", item.size_bytes != null ? `${Number(item.size_bytes).toLocaleString()} bytes` : null], ["SHA-256", item.sha256], ["存储位置", item.uri]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd><code>{value}</code></dd></div>)}
+        </dl></div>) : <p className="fv-model-empty">暂无已登记文件</p>}</div>
+      </details>
+      <details className="fv-model-disclosure"><summary><span>操作记录<small>{version.events.length} 条记录</small></span><Icon name="ChevronDown" size={16} /></summary>
+        {version.events.length ? <ol className="fv-event-list">{version.events.map((event) => <li key={event.event_id}><i /><span><strong>{eventLabels[event.event_type] || event.event_type}</strong><small>{event.actor}{event.reason ? ` · ${event.reason}` : ""}</small></span><time>{new Date(event.created_at).toLocaleString("zh-CN")}</time></li>)}</ol> : <p className="fv-model-empty">暂无操作记录</p>}
+      </details>
+      {version.status !== "archived" && <details className="fv-model-disclosure"><summary><span>版本管理<small>状态变更、别名与归档</small></span><Icon name="ChevronDown" size={16} /></summary>
+        <div className="fv-model-management"><p>变更时需填写原因，操作将保存到记录中。</p><div className="fv-action-list">
+          {version.status === "candidate" && <button className="primary-button" onClick={() => perform("staging")}>提交验证</button>}
+          {version.status === "staging" && <button className="primary-button" onClick={() => perform("production")}>晋级生产</button>}
+          {version.status === "production" && !version.aliases.includes("champion") && <button className="secondary-button" onClick={() => perform("champion")}>设为 Champion</button>}
+          {["candidate", "staging"].includes(version.status) && !version.aliases.includes("challenger") && <button className="secondary-button" onClick={() => perform("challenger")}>设为 Challenger</button>}
+          <button className="danger-button" onClick={() => perform("archive")}>归档版本</button>
+        </div></div>
+      </details>}
     </div>
   </div>;
 }
