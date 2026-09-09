@@ -42,7 +42,7 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 			break
 		}
 		if err != nil {
-			return invalid("上传数据不完整或超过 512 MiB")
+			return invalid("上传数据不完整或超过 5 GB")
 		}
 		_, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
 		if err != nil {
@@ -85,8 +85,8 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 		}
 		seen[filename] = true
 		count++
-		if count > 10000 {
-			return invalid("最多支持 10000 张图片")
+		if count > dataset.MaxUploadImages {
+			return invalid("最多支持 100000 张图片")
 		}
 		destination, err := writer.Create(filename)
 		if err != nil {
@@ -95,8 +95,8 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 		n, err := io.Copy(destination, io.LimitReader(part, (32<<20)+1))
 		part.Close()
 		total += n
-		if err != nil || n > 32<<20 || total > 512<<20 {
-			return invalid("单张图片上限 32 MiB，数据集上限 512 MiB")
+		if err != nil || n > 32<<20 || total > dataset.MaxUploadBytes {
+			return invalid("单张图片上限 32 MiB，数据集上限 5 GB")
 		}
 	}
 	if count == 0 {

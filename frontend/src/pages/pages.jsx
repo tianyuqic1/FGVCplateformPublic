@@ -899,7 +899,7 @@ export function DatasetsPage({ showToast }) {
       {showImport && (
         <Panel
           title="导入本地 ImageFolder"
-          caption="选择本地分类图片文件夹，图片与清单经校验后存入 MinIO。当前上传上限为 10000 张、512 MiB，单张 32 MiB。"
+          caption="选择本地分类图片文件夹，图片与清单经校验后存入 MinIO。当前上传上限为 10 万张、5 GB，单张 32 MiB。"
           action={<StatusChip tone={importState.status === "failed" ? "risk" : importState.status === "succeeded" ? "default" : "info"}>{uiStateLabel(importState.status)}</StatusChip>}
         >
           <div className="field-grid">

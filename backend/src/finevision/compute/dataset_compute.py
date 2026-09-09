@@ -18,8 +18,8 @@ def unpack_dataset(archive: Path, destination: Path) -> None:
     """Extract bounded ImageFolder bytes; never trust archive member paths."""
     with zipfile.ZipFile(archive) as source:
         members = source.infolist()
-        if not members or len(members) > 10000 or sum(m.file_size for m in members) > 512 * 1024 * 1024:
-            raise ValueError("ImageFolder exceeds 10000 files or 512 MiB")
+        if not members or len(members) > 100_000 or sum(m.file_size for m in members) > 5 * 1024 * 1024 * 1024:
+            raise ValueError("ImageFolder exceeds 100000 files or 5 GB")
         seen = set()
         for member in members:
             path = PurePosixPath(member.filename)
