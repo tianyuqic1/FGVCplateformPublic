@@ -1,6 +1,7 @@
+import { DatasetVersionList, DatasetExpansionPanel } from "../features/datasets/DatasetVersions.jsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { uploadImagefolder } from "../api/datasets.js";
+import { datasetSnapshots, uploadImagefolder } from "../api/datasets.js";
 import { DatasetCardPanel } from "../features/datasets/DatasetCardPanel.jsx";
 import { DashboardDatasetPagination } from "../features/datasets/DashboardDatasetPagination.jsx";
 import { PaginatedSelect } from "../design-system/components/PaginatedSelect.jsx";
@@ -52,7 +53,7 @@ function datasetStatusLabel(status) {
 }
 
 function datasetFilterMatch(dataset, filter) {
-  if (filter === "production") return dataset.status === "production";
+  if (filter === "production") return dataset.status === "production" || dataset.versions?.some(version => version.hasWeights && version.models.some(model => model.status !== "archived"));
   if (filter === "ready") return dataset.status === "ready";
   return true;
 }
@@ -523,48 +524,18 @@ function ApiReviewCard({ item, queryString = "" }) {
 }
 
 function DatasetTable({ items = [] }) {
-  if (items.length === 0) {
-    return (
-      <div className="empty-state">
-        <Icon name="Database" size={24} />
-        <strong>暂无数据集</strong>
-        <span>导入 ImageFolder 后，新的数据版本会显示在这里。</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="data-table dataset-status-table" tabIndex={0} role="region" aria-label="数据集列表，可横向滚动">
-      <div className="data-row head">
-        <div>数据集</div>
-        <div>类别</div>
-        <div>样本</div>
-        <div>版本</div>
-        <div>状态</div>
-        <div />
-      </div>
-      {items.map((dataset) => {
-        const state = datasetStatus(dataset);
-        return (
-          <Link className="data-row clickable" key={dataset.id} to={`/datasets/${dataset.id}`}>
-            <div>
-              <strong title={dataset.name}>{dataset.name}</strong>
-              <div className="row-meta" title={dataset.description}>{dataset.description}</div>
-            </div>
-            <div>{dataset.classes} 类</div>
-            <div>{dataset.images.toLocaleString()}</div>
-            <div className="dataset-version" title={dataset.version}>{dataset.version}</div>
-            <div>
-              <StatusChip tone={state.tone}>{state.label}</StatusChip>
-            </div>
-            <span className="icon-button">
-              <Icon name="ChevronRight" size={16} />
-            </span>
-          </Link>
-        );
-      })}
+  if (!items.length) return <div className="empty-state"><Icon name="Database" size={24} /><strong>暂无数据集</strong><span>填写名称并导入图片，系统自动创建 v1。</span></div>;
+  return <div className="dataset-groups">{items.map(dataset => <details className="dataset-group" key={dataset.id}>
+    <summary>
+      <span><strong>{dataset.name}</strong><small>{dataset.classes} 类 · {dataset.images.toLocaleString()} 张 · {dataset.versions.length} 个版本</small></span>
+      <span>最新 v{dataset.versionNumber || 1}</span>
+      <StatusChip tone={dataset.versions[0]?.hasWeights ? "default" : "neutral"}>{dataset.versions[0]?.hasWeights ? `已有 ${dataset.versions[0].modelCount} 份权重` : "暂无权重"}</StatusChip>
+    </summary>
+    <div className="dataset-group-body">
+      <div className="toolbar spread"><span className="row-meta">{dataset.pendingCandidateCount} 张复核候选待纳入</span><Link className="ghost-button" to={`/datasets/${encodeURIComponent(dataset.id)}`}>管理数据集 / 扩充训练集</Link></div>
+      <DatasetVersionList dataset={dataset} />
     </div>
-  );
+  </details>)}</div>;
 }
 
 function RunRow({ run, onAction, busy = false, highlighted = false, legacy = false }) {
@@ -821,10 +792,8 @@ export function DatasetsPage({ showToast }) {
   const folderInputRef = useRef(null);
   const [showImport, setShowImport] = useState(false);
   const [datasetFilter, setDatasetFilter] = useState("all");
-  const [importForm, setImportForm] = useState({
-    datasetId: "cifar10-mini",
-    datasetVersionId: "dataset@cifar10-mini-001",
-  });
+  const [importForm, setImportForm] = useState({ name: "" });
+  const importRequestId = useRef(crypto.randomUUID());
   const [folderSelection, setFolderSelection] = useState({
     valid: false,
     error: "请选择一个本地 ImageFolder 文件夹。",
@@ -838,19 +807,20 @@ export function DatasetsPage({ showToast }) {
     importState.status !== "running" &&
     folderSelection.valid &&
     folderSelection.files.length > 0 &&
-    importForm.datasetId.trim() &&
-    importForm.datasetVersionId.trim();
+    importForm.name.trim();
   const importedDatasetId =
     importState.result?.dataset?.id ??
     importState.result?.dataset?.dataset_id ??
-    importForm.datasetId.trim();
+    "";
   const importedVersionId =
     importState.result?.version?.datasetVersionId ??
     importState.result?.version?.dataset_version_id ??
     importState.result?.version?.id ??
-    importForm.datasetVersionId.trim();
+    "";
 
   function updateImportField(field, value) {
+    importRequestId.current = crypto.randomUUID();
+    setImportState({ status: "idle", result: null, error: null });
     setImportForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -859,11 +829,8 @@ export function DatasetsPage({ showToast }) {
     setFolderSelection(summary);
     setImportState({ status: "idle", result: null, error: null });
     if (!summary.valid) return;
-    const datasetId = datasetIdFromFolderName(summary.rootName);
-    setImportForm({
-      datasetId,
-      datasetVersionId: `dataset@${datasetId}-001`,
-    });
+    importRequestId.current = crypto.randomUUID();
+    setImportForm(current => ({ name: current.name || summary.rootName }));
   }
 
   async function handleImportDataset() {
@@ -872,8 +839,8 @@ export function DatasetsPage({ showToast }) {
     try {
       const result = await uploadImagefolder({
         files: folderSelection.files,
-        dataset_id: importForm.datasetId.trim(),
-        dataset_version_id: importForm.datasetVersionId.trim(),
+        name: importForm.name.trim(),
+        request_id: importRequestId.current,
       });
       setImportState({ status: "succeeded", result, error: null });
       refresh();
@@ -908,6 +875,7 @@ export function DatasetsPage({ showToast }) {
               <div className="file-picker folder-picker">
                 <input
                   ref={folderInputRef}
+                  disabled={importState.status === "running"}
                   type="file"
                   multiple
                   webkitdirectory=""
@@ -934,12 +902,12 @@ export function DatasetsPage({ showToast }) {
               </div>
             </div>
             <div className="field">
-              <label>dataset_id</label>
-              <input value={importForm.datasetId} onChange={(event) => updateImportField("datasetId", event.target.value)} placeholder="cifar10-mini" />
+              <label htmlFor="dataset-import-name">数据集名称</label>
+              <input id="dataset-import-name" required maxLength={120} disabled={importState.status === "running"} value={importForm.name} onChange={(event) => updateImportField("name", event.target.value)} placeholder="例如：鸟类识别数据集" />
             </div>
             <div className="field">
-              <label>dataset_version_id</label>
-              <input value={importForm.datasetVersionId} onChange={(event) => updateImportField("datasetVersionId", event.target.value)} placeholder="dataset@cifar10-mini-001" />
+              <label>初始版本</label>
+              <div className="row-meta">系统自动创建 v1，并分配唯一标识。</div>
             </div>
             <div className="field">
               <label>执行</label>
@@ -966,7 +934,7 @@ export function DatasetsPage({ showToast }) {
                   </StatusChip>
                   <StatusChip tone="info">{importState.result.version.sample_count ?? 0} 张样本</StatusChip>
                   <StatusChip tone="info">{importState.result.version.class_count ?? 0} 类</StatusChip>
-                  <StatusChip tone="info">{importedVersionId}</StatusChip>
+                  <StatusChip tone="info">v{importState.result.version.version_number ?? 1} · 暂无权重</StatusChip>
                 </div>
                 <strong>导入成功，下一步选择数据资产或训练任务</strong>
                 <div className="row-meta">
@@ -1023,7 +991,7 @@ export function DatasetsPage({ showToast }) {
 export function DatasetDetailPage({ showToast }) {
   const { datasetId = "bird" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { dataset, source, loading } = useDataset(datasetId);
+  const { dataset, source, loading, refresh } = useDataset(datasetId);
   const tab = searchParams.get("tab") ?? "overview";
   const tabs = [
     ["overview", "概览"],
@@ -1052,6 +1020,9 @@ export function DatasetDetailPage({ showToast }) {
     );
   }
 
+  const inferenceVersion = dataset.versions.find(version => version.hasWeights && version.models.some(model => model.status !== "archived"));
+  const inferenceModel = inferenceVersion?.models.find(model => model.status !== "archived");
+
   return (
     <>
       <PageHero
@@ -1073,10 +1044,9 @@ export function DatasetDetailPage({ showToast }) {
               <Icon name="FlaskConical" size={16} />
               训练
             </Link>
-            <Link className="primary-button" to={pathWithSearch("/inference", [["dataset_version_id", dataset.datasetVersionId]])}>
-              <Icon name="ImageUp" size={16} />
-              推理测试
-            </Link>
+            {inferenceVersion ? <Link className="primary-button" to={pathWithSearch("/inference", [["dataset_version_id", inferenceVersion.id], ["model_version_id", inferenceModel.id]])}>
+              <Icon name="ImageUp" size={16} />使用 v{inferenceVersion.number} 权重推理
+            </Link> : <button className="primary-button" disabled>暂无推理权重</button>}
           </>
         }
       />
@@ -1089,6 +1059,10 @@ export function DatasetDetailPage({ showToast }) {
           ))}
         </div>
       </Panel>
+      <Panel title="版本历史" caption="每个版本独立绑定权重；新增数据后需要重新训练。" action={<button className="ghost-button" onClick={refresh}>刷新版本与权重</button>}>
+        <DatasetVersionList dataset={dataset} />
+      </Panel>
+      <DatasetExpansionPanel key={dataset.datasetVersionId} dataset={dataset} onPublished={refresh} showToast={showToast} />
       <DatasetTab dataset={dataset} tab={tab} showToast={showToast} />
     </>
   );
@@ -1782,7 +1756,7 @@ export function TrainingPage({ showToast }) {
               <PaginatedSelect aria-label="训练数据集版本" value={trainingForm.datasetVersionId} onChange={(event) => updateTrainingField("datasetVersionId", event.target.value)} disabled={!canUseDatasetForTraining}>
                 {trainingDatasetOptions.map((dataset) => (
                   <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
-                    {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
+                    {dataset.name} · v{dataset.versionNumber || 1} · {dataset.images} 张样本 · {dataset.hasWeights ? "已有权重" : "暂无权重"}
                   </option>
                 ))}
               </PaginatedSelect>
@@ -2188,7 +2162,7 @@ export function InferencePage({ showToast }) {
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
   const { trainingRuns: inferenceTrainingRuns, source: trainingSource } = useTrainingRuns();
   const llm = useLLMAssistance();
-  const datasetOptions = apiDatasets;
+  const datasetOptions = datasetSnapshots(apiDatasets);
   const [form, setForm] = useState({
     datasetVersionId: requestedInferenceDatasetVersionId || datasetOptions[0]?.datasetVersionId || "",
     modelVersionId: requestedInferenceModelVersionId,
@@ -2387,7 +2361,7 @@ export function InferencePage({ showToast }) {
               <option value="">{datasetVersionOptions.length === 0 ? "暂无数据版本" : "选择数据版本"}</option>
               {datasetOptions.map((dataset) => (
                 <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
-                  {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
+                  {dataset.name} · v{dataset.versionNumber || 1} · {dataset.images} 张样本 · {dataset.hasWeights ? "已有权重" : "暂无权重"}
                 </option>
               ))}
             </PaginatedSelect>
@@ -3109,6 +3083,7 @@ function FeedbackCard({ item }) {
         <p className="small review-reason">{item.reviewerNote || "暂无人工备注。"}</p>
         <div className="toolbar spread section-gap-small">
           <span className="row-meta">{item.createdBy || "本地复核员"} · {item.createdAt ? new Date(item.createdAt).toLocaleString() : "时间未记录"}</span>
+          {item.destination === "training_candidate" && item.datasetId && <Link className="secondary-button" to={`/datasets/${encodeURIComponent(item.datasetId)}#training-expansion`}>纳入训练集新版本</Link>}
           {item.reviewItemId && (
             <Link className="ghost-button" to={`/review/${item.reviewItemId}?status=feedbacked`}>
               <Icon name="ExternalLink" size={16} />

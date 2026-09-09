@@ -142,6 +142,15 @@ dataset_versions = sa.Table(
     sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
     sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), nullable=False),
     sa.Column("version_key", sa.Text(), nullable=False, unique=True),
+    sa.Column("version_number", sa.Integer(), nullable=False, server_default="1"),
+    sa.Column("parent_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id")),
+    sa.Column("source_type", sa.Text(), nullable=False, server_default="initial_import"),
+    sa.Column("change_summary", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("import_request_id", postgresql.UUID(as_uuid=True), unique=True),
+    sa.Column("import_fingerprint", sa.Text()),
+    sa.UniqueConstraint("dataset_id", "version_number", name="dataset_version_number_unique"),
+    sa.CheckConstraint("version_number > 0", name="dataset_version_number_positive"),
+    sa.CheckConstraint("source_type IN ('initial_import','manual_expansion','review_feedback','mixed_expansion')", name="dataset_version_source_type"),
     sa.Column("root_uri", sa.Text(), nullable=False),
     sa.Column("sample_count", sa.Integer(), nullable=False),
     sa.Column("class_count", sa.Integer(), nullable=False),
@@ -586,4 +595,12 @@ sa.Index(
     abstention_shadow_decisions.c.policy_version_id,
     abstention_shadow_decisions.c.decision_diff,
     abstention_shadow_decisions.c.created_at,
+)
+
+
+dataset_version_feedback = sa.Table(
+    "dataset_version_feedback", metadata,
+    sa.Column("dataset_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("datasets.id"), primary_key=True),
+    sa.Column("feedback_item_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("feedback_items.id"), primary_key=True),
+    sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
 )

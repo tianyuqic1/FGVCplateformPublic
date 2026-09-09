@@ -84,7 +84,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer computeConnection.Close()
-	datasetImport := &dataset.Service{Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
+	datasetImport := &dataset.Service{UploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{

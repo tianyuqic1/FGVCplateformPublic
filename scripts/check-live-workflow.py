@@ -22,8 +22,9 @@ def main():
     with httpx.Client(base_url=args.url, timeout=120) as client, ExitStack() as files:
         inputs = [("files", (f"{args.dataset.name}/{path.relative_to(args.dataset).as_posix()}", files.enter_context(path.open("rb")), "image/png")) for path in sorted(args.dataset.rglob("*.png"))]
         assert inputs, "fixture contains no PNG images"
-        response = client.post("/api/datasets/upload-imagefolder", data={"dataset_id": key, "dataset_version_id": key + "-v1"}, files=inputs)
+        response = client.post("/api/datasets/upload-imagefolder", data={"name": key, "request_id": str(uuid.uuid4())}, files=inputs)
         assert response.status_code == 201, response.text
+        key = response.json()["dataset"]["dataset_id"]
         version = response.json()["version"]["dataset_version_id"]
         assert response.json()["upload"]["image_count"] == len(inputs), response.text
         print(f"UPLOAD PASS dataset={key} version={version}", flush=True)

@@ -90,7 +90,7 @@ export function normalizeDatasetCard(raw = {}) {
 
 export function normalizeDataset(raw) {
   const classList = raw?.classes ?? raw?.class_names ?? raw?.taxonomy?.classes;
-  const classCount = Array.isArray(classList) ? classList.length : firstNumber(raw?.classes, raw?.class_count, raw?.num_classes);
+  const classCount = Array.isArray(classList) && classList.length ? classList.length : firstNumber(raw?.class_count, raw?.num_classes, raw?.classes);
   const imageCount = firstNumber(raw?.images, raw?.image_count, raw?.sample_count, raw?.num_samples);
   const latestVersion =
     raw?.version ??
@@ -122,9 +122,42 @@ export function normalizeDataset(raw) {
     splitCounts: raw?.splitCounts ?? raw?.split_counts ?? {},
     datasetCard: raw?.datasetCard ? normalizeDatasetCard(raw.datasetCard) : raw?.dataset_card ? normalizeDatasetCard(raw.dataset_card) : null,
     previewSamples: normalizeSamplePreviews(raw?.previewSamples ?? raw?.preview_samples ?? raw?.sample_previews ?? []),
-    versions: Array.isArray(raw?.versions) ? raw.versions : [],
+    versionNumber: firstNumber(raw?.version_number, raw?.versionNumber),
+    pendingCandidateCount: firstNumber(raw?.pending_candidate_count),
+    versions: Array.isArray(raw?.versions) ? raw.versions.map(normalizeDatasetVersion) : [],
     description: raw?.description ?? raw?.summary ?? "数据集已同步，详细描述待补充。",
   };
+}
+
+export function normalizeDatasetVersion(raw) {
+  return {
+    id: raw.dataset_version_id,
+    number: Number(raw.version_number),
+    parentId: raw.parent_version_id || null,
+    sourceType: raw.source_type,
+    images: Number(raw.sample_count ?? 0),
+    classes: Number(raw.class_count ?? 0),
+    splitCounts: raw.split_counts ?? {},
+    readiness: raw.readiness ?? {},
+    changes: raw.change_summary ?? {},
+    hasWeights: raw.has_weights === true,
+    modelCount: Number(raw.model_count ?? 0),
+    models: raw.models ?? [],
+    trainingStatus: raw.training_status ?? "untrained",
+    createdAt: raw.created_at,
+  };
+}
+
+export function datasetSnapshots(datasets) {
+  return datasets.flatMap(dataset => dataset.versions?.length
+    ? dataset.versions.map(version => ({ ...dataset, datasetVersionId: version.id, version: version.id, versionNumber: version.number, images: version.images, classes: version.classes, splitCounts: version.splitCounts, hasWeights: version.hasWeights, models: version.models, readiness: version.readiness }))
+    : [dataset]);
+}
+
+export function datasetVersionOptions(datasets) {
+  return datasets.flatMap(dataset => dataset.versions?.length
+    ? dataset.versions.map(version => ({ value: version.id, label: `${dataset.name} · v${version.number}`, detail: version.hasWeights ? `已有 ${version.modelCount} 份权重` : "暂无权重", meta: `${version.classes} 类 · ${version.images} 张图片` }))
+    : dataset.datasetVersionId ? [{ value: dataset.datasetVersionId, label: dataset.name, detail: dataset.datasetVersionId, meta: `${dataset.classes} 类 · ${dataset.images} 张图片` }] : []);
 }
 
 export function normalizeSamplePreviews(samples) {
@@ -169,8 +202,8 @@ export async function importImagefolder(input) {
 
 export async function uploadImagefolder(input) {
   const form = new FormData();
-  form.append("dataset_id", input.dataset_id);
-  form.append("dataset_version_id", input.dataset_version_id);
+  form.append("name", input.name);
+  form.append("request_id", input.request_id);
   input.files.forEach((file) => {
     form.append("files", file, file.webkitRelativePath || file.name);
   });
@@ -193,4 +226,21 @@ export async function uploadImagefolder(input) {
   }
 
   return extractImportedDataset(await response.json());
+}
+
+export async function listTrainingCandidates(datasetId) {
+  const payload = await fetchJson(`/api/datasets/${encodeURIComponent(datasetId)}/training-candidates`);
+  return payload.candidates ?? [];
+}
+
+export async function expandDataset(datasetId, { baseVersionId, requestId, files = [], feedbackIds = [] }) {
+  const form = new FormData();
+  form.append("base_version_id", baseVersionId);
+  form.append("request_id", requestId);
+  form.append("feedback_ids", JSON.stringify(feedbackIds));
+  files.forEach(file => form.append("files", file, file.webkitRelativePath || file.name));
+  const response = await fetch(`${apiBaseUrl()}/api/datasets/${encodeURIComponent(datasetId)}/versions`, { method: "POST", body: form });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload?.error?.message ?? "生成版本失败，请刷新后重试");
+  return extractImportedDataset(payload);
 }
