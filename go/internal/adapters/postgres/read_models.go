@@ -199,6 +199,7 @@ const trainingRunSelect = `
 SELECT jsonb_build_object(
   'name', COALESCE(NULLIF(j.payload->>'name',''), d.name || ' · 训练 ' || left(tr.id::text,8)),
   'dataset_name', d.name,
+  'runtime_node_id', (SELECT CASE WHEN split_part(a.worker_id,'/',1)='node' THEN split_part(a.worker_id,'/',2) END FROM job_attempts a WHERE a.id=j.active_attempt_id),
   'id', tr.id, 'run_id', tr.id, 'job_id', tr.job_id,
   'model_version_id', (SELECT mv.id FROM model_versions mv WHERE mv.training_run_id=tr.id ORDER BY mv.created_at DESC LIMIT 1),
   'dataset_id', d.dataset_key, 'dataset_version_id', tr.dataset_version_id,

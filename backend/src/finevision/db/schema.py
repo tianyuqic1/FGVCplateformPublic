@@ -587,3 +587,19 @@ sa.Index(
     abstention_shadow_decisions.c.decision_diff,
     abstention_shadow_decisions.c.created_at,
 )
+
+
+hardware_nodes = sa.Table(
+    "hardware_nodes", metadata,
+    sa.Column("node_id", sa.Text(), primary_key=True),
+    sa.Column("sampled_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("snapshot", postgresql.JSONB(), nullable=False),
+)
+hardware_samples = sa.Table(
+    "hardware_samples", metadata,
+    sa.Column("node_id", sa.Text(), sa.ForeignKey("hardware_nodes.node_id", ondelete="CASCADE"), primary_key=True),
+    sa.Column("received_at", sa.DateTime(timezone=True), primary_key=True),
+    sa.Column("snapshot", postgresql.JSONB(), nullable=False),
+)
+sa.Index("hardware_samples_retention", hardware_samples.c.received_at)

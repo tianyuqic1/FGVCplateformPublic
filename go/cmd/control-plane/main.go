@@ -25,6 +25,7 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/hardware"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
@@ -85,9 +86,12 @@ func main() {
 	}
 	defer computeConnection.Close()
 	datasetImport := &dataset.Service{Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
+	hardwareStore := &hardware.PostgresStore{Pool: pool}
+	go hardwareStore.RunRetention(ctx)
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
+			Hardware:      hardware.Handler{Store: hardwareStore, Token: os.Getenv("FINEVISION_HARDWARE_TOKEN")},
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,
 			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,

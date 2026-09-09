@@ -78,6 +78,7 @@ export function normalizeTrainingRun(raw) {
     name: raw?.name || `${raw?.dataset_name || raw?.dataset_id || "训练任务"} · ${String(id).slice(0, 8)}`,
     datasetId: raw?.datasetId ?? raw?.dataset_id ?? null,
     datasetVersionId,
+    runtimeNodeId: raw?.runtime_node_id ?? null,
     datasetName: raw?.datasetName ?? raw?.dataset_name ?? raw?.dataset_id ?? "数据集版本",
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,
     featureArtifactId: raw?.featureArtifactId ?? raw?.feature_artifact_id ?? null,

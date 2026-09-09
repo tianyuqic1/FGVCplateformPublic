@@ -1,6 +1,7 @@
 name: finevision
 
 x-control-plane-environment: &control-plane-environment
+  FINEVISION_HARDWARE_TOKEN: ${FINEVISION_HARDWARE_TOKEN:-finevision-dev-hardware-only}
   FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
   FINEVISION_LLM_GATEWAY_URL: http://go-llm-gateway:8080
   FINEVISION_LLM_INTERNAL_TOKEN: ${FINEVISION_LLM_INTERNAL_TOKEN:-finevision-dev-internal-only}
@@ -88,6 +89,31 @@ services:
       FINEVISION_LLM_MODEL: ${FINEVISION_LLM_MODEL:-gpt-5.5}
       FINEVISION_LLM_API_KEY: ${FINEVISION_LLM_API_KEY:-}
 
+  hardware-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.hardware
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      FINEVISION_HARDWARE_ENDPOINT: http://go-control-plane:8000/api/internal/hardware/samples
+      FINEVISION_HARDWARE_TOKEN: ${FINEVISION_HARDWARE_TOKEN:-finevision-dev-hardware-only}
+      FINEVISION_NODE_ID: ${FINEVISION_NODE_ID:-local-compute}
+      FINEVISION_NODE_NAME: ${FINEVISION_NODE_NAME:-本地计算节点}
+      FINEVISION_HOST_PROC: /host/proc
+      FINEVISION_HARDWARE_DISKS: '{"数据与元数据":"/data/metadata","训练工作区":"/data/work","模型缓存":"/data/cache","对象存储":"/data/objects"}'
+    depends_on:
+      go-control-plane:
+        condition: service_started
+    volumes:
+      - /proc:/host/proc:ro
+      - finevision-metadata:/data/metadata:ro
+      - finevision-compute-work:/data/work:ro
+      - finevision-artifact-cache:/data/cache:ro
+      - finevision-object-store:/data/objects:ro
+
   python-training-worker:
     image: finevision-python-compute:phase1
     build:
@@ -98,6 +124,7 @@ services:
       <<: *object-store-environment
       FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/
       FINEVISION_TRAINING_QUEUE: finevision.training.v1
+      FINEVISION_NODE_ID: ${FINEVISION_NODE_ID:-local-compute}
       FINEVISION_CONTROL_PLANE_GRPC: go-control-plane:9000
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/work

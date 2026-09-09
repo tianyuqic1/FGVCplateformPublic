@@ -17,7 +17,10 @@ import {
   WeightManagementPage,
 } from "./pages/pages.jsx";
 
+import { HardwarePage } from "./features/hardware/HardwarePage.jsx";
+
 const legacyPageMap = {
+  hardware: "/hardware",
   dashboard: "/",
   datasets: "/datasets",
   "dataset-detail": ({ id = "bird", tab }) => `/datasets/${id}${tab ? `?tab=${tab}` : ""}`,
@@ -43,6 +46,7 @@ const legacyAliases = {
 
 function titleForPath(pathname) {
   if (pathname.startsWith("/datasets/")) return "数据集详情";
+  if (pathname === "/hardware") return "硬件监控";
   if (pathname === "/datasets") return "数据集";
   if (pathname.startsWith("/training/")) return "训练详情";
   if (pathname === "/training") return "训练任务";
@@ -61,6 +65,7 @@ function titleForPath(pathname) {
 
 function crumbForPath(pathname) {
   if (pathname.startsWith("/datasets/")) return "数据集 / 版本详情";
+  if (pathname === "/hardware") return "系统 / 计算资源";
   if (pathname === "/datasets") return "数据资产";
   if (pathname.startsWith("/training/")) return "训练 / 运行详情";
   if (pathname === "/training") return "训练";
@@ -132,6 +137,7 @@ export default function App() {
           <Route path="/training" element={<TrainingPage showToast={showToast} />} />
           <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
           <Route path="/inference" element={<InferencePage showToast={showToast} />} />
+          <Route path="/hardware" element={<HardwarePage />} />
           <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />

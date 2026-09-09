@@ -12,9 +12,11 @@ const navItems = [
   { id: "feedback", label: "反馈池", icon: "DatabaseZap", to: "/feedback" },
   { id: "models", label: "模型版本", icon: "Boxes", to: "/models" },
   { id: "pipelines", label: "流水线", icon: "Route", to: "/pipelines" },
+  { id: "hardware", label: "硬件监控", icon: "Cpu", to: "/hardware" },
 ];
 
 const searchItems = [
+  { label: "硬件监控", hint: "计算节点、GPU、显存、CPU、内存与存储", to: "/hardware" },
   { label: "工作台", hint: "运营概览、优先任务、低置信样本", to: "/" },
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
   { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
@@ -29,6 +31,7 @@ const searchItems = [
 ];
 
 function navKey(pathname) {
+  if (pathname === "/hardware") return "hardware";
   if (pathname.startsWith("/datasets")) return "datasets";
   if (pathname.startsWith("/training")) return "training";
   if (pathname.startsWith("/inference")) return "inference";

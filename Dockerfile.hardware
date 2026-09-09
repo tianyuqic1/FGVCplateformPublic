@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/backend/src
+WORKDIR /app
+COPY backend/src/finevision/compute/hardware_collector.py /app/backend/src/finevision/compute/hardware_collector.py
+USER 65534:65534
+CMD ["python", "-m", "finevision.compute.hardware_collector"]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import socket
+from finevision.compute.hardware_collector import worker_identity
 import threading
 import time
 import tempfile
@@ -414,7 +414,7 @@ class QueueTrainingWorker:
                 training_lifecycle_pb2.ClaimRequest(
                     job_id=dispatch.job_id,
                     dispatch_generation=dispatch.dispatch_generation,
-                    worker_id=f"{socket.gethostname()}:{os.getpid()}",
+                    worker_id=worker_identity(),
                     request_id=str(uuid4()),
                 ),
                 timeout=10.0,
