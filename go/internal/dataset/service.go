@@ -9,6 +9,9 @@ import (
 	"os"
 )
 
+const MaxUploadImages = 100_000
+const MaxUploadBytes int64 = 5 << 30
+
 var ErrConflict = errors.New("dataset version already exists")
 var ErrInvalidArchive = errors.New("invalid dataset archive")
 
@@ -40,7 +43,7 @@ func (s *Service) Import(ctx context.Context, key, versionKey, archivePath strin
 	}
 	for _, field := range []string{"sample_count", "class_count"} {
 		value, ok := readiness[field].(float64)
-		if !ok || value < 1 || value > 10000 || value != float64(int(value)) {
+		if !ok || value < 1 || value > MaxUploadImages || value != float64(int(value)) {
 			return nil, ErrInvalidArchive
 		}
 	}
