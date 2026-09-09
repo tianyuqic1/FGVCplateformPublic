@@ -1,3 +1,7 @@
+import { useInferenceModels } from "../hooks/useInferenceModels.js";
+import { inferenceModelLabel } from "../api/inferenceModels.js";
+import { getModelVersion } from "../api/modelVersions.js";
+import "./inference.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { uploadImagefolder } from "../api/datasets.js";
@@ -1321,7 +1325,13 @@ function isDinoTrainingRun(run) {
 }
 
 function isRecommendedClsRun(run) {
-  return isSucceededModelRun(run) && isDinoTrainingRun(run) && run.featurePool === "cls";
+  return isSucceededModelRun(run) && isDinoTrainingRun(run) && run.featurePool === "cls" && !run.headConfig?.lora_enabled;
+}
+
+function imageTrainingModeLabel(run) {
+  if (run.headConfig?.head_type !== "image_classifier_v2") return "历史分类头";
+  if (run.headConfig.training_mode === "full") return "全参数训练";
+  return run.headConfig.lora_enabled ? `LoRA r=${run.headConfig.lora_rank}` : "冻结骨干";
 }
 
 function isLegacyFeatureRun(run) {
@@ -2186,7 +2196,7 @@ export function InferencePage({ showToast }) {
   const requestedInferenceModelVersionId = inferenceSearchParams.get("model_version_id") || "";
   const batchFolderInputRef = useRef(null);
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
-  const { trainingRuns: inferenceTrainingRuns, source: trainingSource } = useTrainingRuns();
+  const { models: publishedModels, source: modelSource } = useInferenceModels();
   const llm = useLLMAssistance();
   const datasetOptions = apiDatasets;
   const [form, setForm] = useState({
@@ -2205,15 +2215,11 @@ export function InferencePage({ showToast }) {
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const selectedDatasetVersionId = form.datasetVersionId.trim();
   const selectedDataset = datasetOptions.find((dataset) => dataset.datasetVersionId === selectedDatasetVersionId) ?? null;
-  const modelRunsForDataset = inferenceTrainingRuns.filter(
-    (run) => run.modelVersionId && run.datasetVersionId === selectedDatasetVersionId && run.status === "succeeded",
+  const modelVersionOptions = publishedModels.filter(
+    (model) => model.status === "production" && model.datasetVersionId === selectedDatasetVersionId,
   );
-  const modelVersionOptions = sortTrainingRunsForSelection(modelRunsForDataset);
-  const modelVersionIds = modelVersionOptions
-    .map((run) => run.modelVersionId)
-    .filter(Boolean);
-  const selectedModelRun = modelVersionOptions.find((run) => run.modelVersionId === form.modelVersionId) ?? null;
-  const canUseInferenceInputs = datasetSource === "api" && trainingSource === "api" && datasetVersionOptions.length > 0 && modelVersionIds.length > 0;
+  const modelVersionIds = modelVersionOptions.map((model) => model.modelVersionId);
+  const canUseInferenceInputs = datasetSource === "api" && modelSource === "api" && datasetVersionOptions.length > 0 && modelVersionIds.includes(form.modelVersionId);
   const canRun =
     canUseInferenceInputs &&
     state.status !== "running" &&
@@ -2224,26 +2230,20 @@ export function InferencePage({ showToast }) {
     ? ""
     : datasetSource !== "api"
       ? "数据资产暂不可用，不能运行推理。"
-      : trainingSource !== "api"
-        ? "训练服务暂不可用，不能运行推理。"
+      : modelSource !== "api"
+        ? "已发布模型列表暂不可用，不能运行推理。"
         : modelVersionIds.length === 0
-          ? "当前数据版本没有可用模型版本，请先用该 dataset version 完成训练。"
+          ? "当前数据版本暂无已发布模型，请先完成模型发布。"
           : "当前没有真实 dataset version 可用于推理。";
 
   useEffect(() => {
-    if (datasetSource !== "api" || datasetVersionOptions.length === 0) return;
+    if (datasetSource !== "api" || modelSource !== "api" || datasetVersionOptions.length === 0) return;
     setForm((current) => {
       const next = { ...current };
-      const requestedDatasetAvailable = datasetVersionOptions.includes(requestedInferenceDatasetVersionId);
-      if (requestedDatasetAvailable) {
-        next.datasetVersionId = requestedInferenceDatasetVersionId;
-      } else if (!datasetVersionOptions.includes(next.datasetVersionId)) {
+      if (!datasetVersionOptions.includes(next.datasetVersionId)) {
         next.datasetVersionId = datasetVersionOptions[0];
       }
-      const requestedModelAvailable = modelVersionIds.includes(requestedInferenceModelVersionId);
-      if (requestedModelAvailable) {
-        next.modelVersionId = requestedInferenceModelVersionId;
-      } else if (modelVersionIds.length > 0 && !modelVersionIds.includes(next.modelVersionId)) {
+      if (modelVersionIds.length > 0 && !modelVersionIds.includes(next.modelVersionId)) {
         next.modelVersionId = modelVersionIds[0];
       }
       if (modelVersionIds.length === 0) {
@@ -2251,7 +2251,7 @@ export function InferencePage({ showToast }) {
       }
       return next;
     });
-  }, [datasetSource, datasetVersionOptions.join("|"), selectedDatasetVersionId, modelVersionIds.join("|"), requestedInferenceDatasetVersionId, requestedInferenceModelVersionId]);
+  }, [datasetSource, modelSource, datasetVersionOptions.join("|"), selectedDatasetVersionId, modelVersionIds.join("|"), requestedInferenceDatasetVersionId, requestedInferenceModelVersionId]);
 
   useEffect(() => {
     if (!form.imageFile) {
@@ -2295,6 +2295,10 @@ export function InferencePage({ showToast }) {
     if (!canRun) return;
     setState({ status: "running", result: null, error: null });
     try {
+      const latestModel = await getModelVersion(form.modelVersionId);
+      if (latestModel.status !== "production" || latestModel.datasetVersionId !== form.datasetVersionId) {
+        throw new Error("该模型已下架或不属于当前数据集，请刷新并选择已发布模型。");
+      }
       const commonInput = {
         dataset_version_id: form.datasetVersionId.trim(),
         model_version_id: form.modelVersionId.trim(),
@@ -2358,13 +2362,47 @@ export function InferencePage({ showToast }) {
   }
 
   return (
-    <>
-      <CandidateOnlyGuard description="推理实验室只验证训练产出的候选模型和阈值策略；自动通过只记录一次推理事件，不代表模型已经上线。" />
-      <div className="grid detail section-gap-small">
-      <Panel title="输入样本" caption="绑定数据版本和模型版本后运行 scoped inference。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : "实验室"}</StatusChip>}>
+    <div className="inference-lab">
+      <header className="inference-intro">
+        <div>
+          <div className="inference-eyebrow"><Icon name="ScanSearch" size={16} />视觉验证工作台</div>
+          <h2>从一张图片，读懂模型的判断</h2>
+          <p>选择已发布模型，上传样本，查看预测结果与判断依据。</p>
+        </div>
+        <div className="inference-flow" aria-label="推理流程">
+          <span><b>01</b> 准备样本</span><Icon name="ChevronRight" size={16} /><span><b>02</b> 查看结果</span>
+        </div>
+      </header>
+      <div className="inference-published-notice"><Icon name="ShieldCheck" size={16} />仅使用已发布模型 · 推理结果与复核记录自动留存</div>
+      <div className="inference-stack">
+      <Panel className="inference-input-panel" title="01 / 准备推理" caption="先选择数据与模型，再添加要验证的样本。" action={<StatusChip tone={state.status === "running" ? "info" : "neutral"}>{state.status === "running" ? "运行中" : isBatchFolderMode ? "批量模式" : "单图模式"}</StatusChip>}>
+        <div className="field-grid section-gap-small">
+          <div className="field inference-selection">
+            <label>1 · 训练数据集</label>
+            <PaginatedSelect aria-label="推理数据版本" value={form.datasetVersionId} onChange={(event) => setForm(current => ({ ...current, datasetVersionId: event.target.value, modelVersionId: "", sampleId: "" }))} disabled={datasetVersionOptions.length === 0} placeholder="暂无训练数据集" options={datasetOptions.filter(dataset => dataset.datasetVersionId).map(dataset => ({
+              value: dataset.datasetVersionId,
+              label: dataset.name,
+              detail: `${dataset.classes} 个类别 · ${dataset.images} 张样本 · 快照 ${dataset.datasetVersionId.slice(0, 8)}`,
+              meta: datasetStatusLabel(dataset.status),
+            }))} />
+            <span className="field-hint">
+              这是模型训练时的数据集快照，决定识别的类别范围与关联样本，不是待识别图片的版本。
+            </span>
+          </div>
+          <div className="field inference-selection">
+            <label>识别模型</label>
+            <PaginatedSelect aria-label="推理模型版本" value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionIds.length === 0 || state.status === "running"} placeholder="该数据集暂无已发布模型" options={modelVersionOptions.map(model => ({
+              value: model.modelVersionId,
+              label: inferenceModelLabel(model),
+            }))} />
+            <span className="field-hint">仅展示当前数据集的 {modelVersionIds.length} 个已发布模型</span>
+          </div>
+        </div>
+        <div className="inference-input-workspace">
+          <div className="inference-preview-area">
         {isBatchFolderMode ? (
           <div className="empty-query-preview">
-            <Icon name="FolderInput" size={22} />
+            <Icon name="FolderInput" size={32} />
             <strong>{form.imageFolderName || "批量图片文件夹"}</strong>
             <span>{form.imageFiles.length} 张图片将批量推理，并默认进入人工复核队列。</span>
           </div>
@@ -2375,58 +2413,20 @@ export function InferencePage({ showToast }) {
           </div>
         ) : (
           <div className="empty-query-preview">
-            <Icon name="ImageUp" size={22} />
-            <strong>等待 query 图片</strong>
-            <span>上传本地图片，或填写当前数据版本里的样本 ID。</span>
+            <Icon name="ImageUp" size={32} />
+            <strong>让模型看看你的图片</strong>
+            <span>支持单张图片或整个文件夹，也可以使用已有样本。</span>
           </div>
         )}
-        <div className="field-grid section-gap-small">
-          <div className="field">
-            <label>数据版本</label>
-            <PaginatedSelect aria-label="推理数据版本" value={form.datasetVersionId} onChange={(event) => updateField("datasetVersionId", event.target.value)} disabled={datasetVersionOptions.length === 0}>
-              <option value="">{datasetVersionOptions.length === 0 ? "暂无数据版本" : "选择数据版本"}</option>
-              {datasetOptions.map((dataset) => (
-                <option value={dataset.datasetVersionId} key={dataset.datasetVersionId}>
-                  {dataset.name} · {dataset.datasetVersionId} · {dataset.images} 张样本 · {datasetStatusLabel(dataset.status)}
-                </option>
-              ))}
-            </PaginatedSelect>
-            <span className="field-hint">
-              {selectedDataset
-                ? `${datasetVersionOptions.length} 个数据版本可选；当前 ${selectedDataset.classes} 类 / ${selectedDataset.images} 张。`
-                : `${datasetVersionOptions.length} 个数据版本可选。`}
-            </span>
           </div>
-          <div className="field">
-            <label>模型版本</label>
-            <PaginatedSelect aria-label="推理模型版本" value={form.modelVersionId} onChange={(event) => updateField("modelVersionId", event.target.value)} disabled={modelVersionIds.length === 0}>
-              <option value="">{modelVersionIds.length === 0 ? "当前数据版本暂无模型" : "选择模型版本"}</option>
-              {modelVersionOptions.map((run) => (
-                <option value={run.modelVersionId} key={run.modelVersionId}>
-                  {run.modelVersionId} · {isRecommendedClsRun(run) ? "推荐 CLS" : isLegacyFeatureRun(run) ? "旧特征" : "候选"} · {extractorShortLabel(run.backboneId)} · {run.metric}
-                </option>
-              ))}
-            </PaginatedSelect>
-            <span className="field-hint">
-              {modelVersionIds.length} 个模型匹配当前数据版本；默认优先使用已完成的 DINOv3 CLS 基线。
-            </span>
-            {selectedModelRun && (
-              <div className="chips">
-                <StatusChip tone={isRecommendedClsRun(selectedModelRun) ? "default" : isLegacyFeatureRun(selectedModelRun) ? "warn" : "info"}>
-                  {isRecommendedClsRun(selectedModelRun) ? "推荐 CLS 基线" : isLegacyFeatureRun(selectedModelRun) ? "旧特征模型" : "候选模型"}
-                </StatusChip>
-                <StatusChip tone={selectedModelRun.thresholdStrategyArtifactId ? "default" : "warn"}>
-                  {selectedModelRun.thresholdStrategyArtifactId ? "已校准阈值" : "阈值待确认"}
-                </StatusChip>
-              </div>
-            )}
-          </div>
+          <div className="inference-upload-area">
+            <div className="inference-section-label">添加验证样本</div>
           <div className="field full-span">
             <label>上传图片</label>
             <label className="file-picker">
               <input type="file" accept="image/png,image/jpeg,image/webp,image/bmp" onChange={(event) => updateImageFile(event.target.files?.[0] ?? null)} />
               <Icon name="ImageUp" size={18} />
-              <span>{form.imageFile?.name || "选择一张图片作为 query"}</span>
+              <span>{form.imageFile?.name || "选择图片 · PNG / JPG / WebP / BMP"}</span>
             </label>
           </div>
           <div className="field full-span">
@@ -2455,6 +2455,11 @@ export function InferencePage({ showToast }) {
             </div>
             <span className="field-hint">批量模式会逐张运行推理，并忽略单样本 ID 和容器内图片路径输入。</span>
           </div>
+          </div>
+        </div>
+        <details className="advanced-fields inference-parameters">
+          <summary>推理参数与其他输入方式 <span>样本 ID · Top-k · 近邻数 · 图片路径</span></summary>
+          <div className="field-grid section-gap-small">
           <div className="field">
             <label>样本 ID</label>
             <input
@@ -2473,9 +2478,6 @@ export function InferencePage({ showToast }) {
             <label>近邻数</label>
             <input type="number" min="0" max="10" value={form.evidenceK} onChange={(event) => updateField("evidenceK", event.target.value)} />
           </div>
-        </div>
-        <details className="advanced-fields">
-          <summary>高级：使用容器内图片路径</summary>
           <div className="field section-gap-small">
             <label>图片路径</label>
             <input
@@ -2486,8 +2488,10 @@ export function InferencePage({ showToast }) {
             />
             {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 image_path。</span>}
           </div>
+          </div>
         </details>
-        <div className="toolbar section-gap-small">
+        <div className="toolbar inference-run-bar">
+          <span className="inference-run-hint">{isBatchFolderMode ? `已选 ${form.imageFiles.length} 张图片，运行后进入人工复核` : form.imageFile || form.sampleId || form.imagePath ? "样本已就绪，开始验证模型表现" : "添加样本后即可开始推理"}</span>
           <button className="primary-button" onClick={handleRun} disabled={!canRun}><Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />{state.status === "running" ? "推理中" : "运行推理"}</button>
           <button className="ghost-button" onClick={() => updateImageFile(null)} disabled={!form.imageFile || state.status === "running"}><Icon name="RefreshCw" size={16} />清除图片</button>
           <button className="ghost-button" onClick={() => updateImageFolder([])} disabled={form.imageFiles.length === 0 || state.status === "running"}><Icon name="RefreshCw" size={16} />清除文件夹</button>
@@ -2495,16 +2499,21 @@ export function InferencePage({ showToast }) {
         {inferenceBlockReason && (
           <div className="route-box section-gap-small">
             <div><strong>推理运行已暂停</strong><div className="row-meta">{inferenceBlockReason}</div></div>
-            <StatusChip tone="warn">需要 API</StatusChip>
+            <StatusChip tone="warn">暂不可运行</StatusChip>
           </div>
         )}
       </Panel>
-      <Panel title="推理结果" caption="结果会记录为 inference event；abstain / reject_ood 会路由到人工复核。" action={<StatusChip tone={decisionState.tone}>{decisionState.label}</StatusChip>}>
+      <Panel className="inference-results-panel" title="02 / 推理结果" caption="预测类别、置信度与复核建议，在这里一起查看。" action={<StatusChip tone={state.status === "idle" ? "neutral" : state.status === "failed" ? "risk" : state.status === "running" ? "info" : isBatchResult ? "info" : decisionState.tone}>{state.status === "idle" ? "待运行" : state.status === "running" ? "运行中" : state.status === "failed" ? "失败" : isBatchResult ? "批量结果" : decisionState.label}</StatusChip>}>
         {state.status === "idle" && (
-            <div className="timeline-item">
-              <div className="timeline-icon"><Icon name="ScanSearch" size={18} /></div>
-            <div><strong>等待推理输入</strong><div className="row-meta">上传图片，或填写样本 ID 后运行推理。</div></div>
-            <StatusChip tone="info">待输入</StatusChip>
+          <div className="inference-result-empty">
+            <div className="inference-empty-icon"><Icon name="ScanSearch" size={30} /></div>
+            <strong>每一次预测，都有据可查</strong>
+            <p>在上方添加样本并运行推理，结果将在这里展开。</p>
+            <div className="inference-result-capabilities">
+              <span><Icon name="BarChart3" size={16} />候选类别与置信度</span>
+              <span><Icon name="GitCompare" size={16} />近邻样本证据</span>
+              <span><Icon name="UserCheck" size={16} />人工复核建议</span>
+            </div>
           </div>
         )}
         {state.status === "running" && (
@@ -2614,7 +2623,8 @@ export function InferencePage({ showToast }) {
                 )}
               </div>
             </div>
-            <div className="section-gap-small">
+            <div className="inference-candidates section-gap-small">
+              <h3>候选类别 <span>Top {result.topK.length}</span></h3>
               {result.topK.length > 0 ? (
                 result.topK.map((candidate, index) => (
                   <CandidateBar label={candidate.label} score={candidate.score} fill={index === 0 ? "#0891b2" : index === 1 ? "#a15c07" : "#315fbd"} key={`${candidate.label}-${index}`} />
@@ -2664,7 +2674,7 @@ export function InferencePage({ showToast }) {
         )}
       </Panel>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -125,6 +125,15 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	if err != nil || staging.Status != modelregistry.StatusStaging {
 		t.Fatalf("staging/error = %#v/%v", staging, err)
 	}
+	_, err = postgresadapter.NewModelRegistryRepository(pool).CompletePublication(ctx, staging, []artifact.Descriptor{{ArtifactID: "invalid-uuid"}}, "integration-test", "rollback gate")
+	if err == nil {
+		t.Fatal("invalid artifact must roll back publication")
+	}
+	afterFailure, err := registry.Get(ctx, completed.ModelVersionID)
+	if err != nil || afterFailure.Status != modelregistry.StatusStaging {
+		t.Fatal("failed transaction changed status")
+	}
+	registry.WithPublication(publicationFixtureExporter{}, publicationFixtureVerifier{})
 	production, err := registry.Promote(ctx, completed.ModelVersionID, modelregistry.StatusProduction, "integration-test", "release approved")
 	if err != nil || production.Status != modelregistry.StatusProduction {
 		t.Fatalf("production/error = %#v/%v", production, err)
@@ -133,4 +142,24 @@ func TestTrainingLifecyclePersistsAtomicOutboxAndCompletion(t *testing.T) {
 	if err != nil || alias.Alias != "champion" {
 		t.Fatalf("alias/error = %#v/%v", alias, err)
 	}
+	if len(production.Artifacts) != len(staging.Artifacts)+2 {
+		t.Fatal("publication artifacts missing")
+	}
+	if _, err := postgresadapter.NewModelRegistryRepository(pool).CompletePublication(ctx, staging, nil, "integration-test", "stale export"); err == nil {
+		t.Fatal("stale export must not republish")
+	}
 }
+
+type publicationFixtureExporter struct{}
+
+func (publicationFixtureExporter) Export(_ context.Context, v modelregistry.Version) ([]artifact.Descriptor, error) {
+	result := []artifact.Descriptor{}
+	for _, kind := range []string{"head_pt", "head_onnx"} {
+		result = append(result, artifact.Descriptor{ArtifactID: uuid.NewString(), ArtifactType: kind, URI: "s3://test/" + kind, SizeBytes: 4, SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(kind))), ContentType: "application/octet-stream", StorageVersion: "s3-v1", Producer: "integration-test", SchemaVersion: 1, DatasetVersionID: v.DatasetVersionID, TrainingRunID: v.TrainingRunID, Metadata: map[string]any{"model_version_id": v.ID, "parity_passed": true}})
+	}
+	return result, nil
+}
+
+type publicationFixtureVerifier struct{}
+
+func (publicationFixtureVerifier) Verify(context.Context, artifact.Descriptor) error { return nil }

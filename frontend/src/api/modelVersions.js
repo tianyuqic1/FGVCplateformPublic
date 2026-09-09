@@ -83,7 +83,7 @@ export async function promoteModelVersion(id, targetStatus, reason, actor = "loc
       signal,
     });
     return normalizeModelVersion(payload?.model_version);
-  });
+  }, 125000);
 }
 
 export async function archiveModelVersion(id, reason, actor = "local-user") {

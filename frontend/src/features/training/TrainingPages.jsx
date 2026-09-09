@@ -55,6 +55,13 @@ function runBackboneLabel(run) {
   return backbones.find((item) => item.key === run.backboneId)?.name ?? run.backboneId ?? "未记录骨干";
 }
 
+function trainingModeLabel(run) {
+  const config = run.headConfig ?? {};
+  if (config.head_type !== "image_classifier_v2") return "旧版 · 特征 + 分类头";
+  if (config.training_mode === "full") return "ImageNet · 全参数更新";
+  return config.lora_enabled ? `DINOv3 · 冻结骨干 + LoRA r=${config.lora_rank}` : "DINOv3 · 冻结骨干，仅训练分类头";
+}
+
 export function TrainingPage({ showToast }) {
   const navigate = useNavigate();
   const { trainingRuns, loading, error, refresh } = useTrainingRuns();
@@ -65,7 +72,8 @@ export function TrainingPage({ showToast }) {
   const [queueQuery, setQueueQuery] = useState("");
   const [queueDataset, setQueueDataset] = useState("");
   const [queueBackbone, setQueueBackbone] = useState("");
-  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, headType: "torch_linear_adam" });
+  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", epochs: "30", batchSize: "8" });
+  const isDino = form.backboneKey.startsWith("dinov3_");
   const [submitting, setSubmitting] = useState(false);
   const counts = statusCounts(trainingRuns);
   const filtered = trainingRuns.filter(run => (statusFilter === "all" || run.status === statusFilter) && (!queueDataset || run.datasetId === queueDataset) && (!queueBackbone || run.backboneId === queueBackbone) && `${run.name} ${run.id} ${run.datasetName} ${run.datasetVersionId}`.toLowerCase().includes(queueQuery.trim().toLowerCase()));
@@ -80,7 +88,7 @@ export function TrainingPage({ showToast }) {
         name: form.name.trim(),
         dataset_version_id: form.datasetVersionId.trim(),
         backbone_key: form.backboneKey,
-        head_config: { head_type: form.headType, epochs: form.headType === "torch_linear_adam" ? 30 : undefined },
+        head_config: { head_type: "image_classifier_v2", epochs: Number(form.epochs), batch_size: Number(form.batchSize), lora_enabled: isDino && form.loraEnabled, lora_rank: Number(form.loraRank) },
       });
       showToast?.("训练任务已进入队列");
       navigate(`/training/${encodeURIComponent(run.id)}`);
@@ -96,7 +104,7 @@ export function TrainingPage({ showToast }) {
       <PageHeading
         eyebrow="Experiments"
         title="训练实验"
-        description="选择受治理的冻结骨干，派发训练任务并追踪每个 attempt 的状态与指标。"
+        description="DINOv3 冻结骨干，可选 LoRA；ImageNet 更新全部参数。直接读取图片训练，不再离线提取特征。"
         actions={<button className="secondary-button" type="button" onClick={refresh}><Icon name="RefreshCw" size={15} />刷新</button>}
       />
       <div className="fv-metric-grid">
@@ -126,7 +134,29 @@ export function TrainingPage({ showToast }) {
                 })}
               </div>
             </fieldset>
-            <label><span>轻量分类头</span><select value={form.headType} onChange={(event) => setForm({ ...form, headType: event.target.value })}><option value="torch_linear_adam">Linear · Adam（含曲线）</option><option value="ridge_linear">Ridge Linear（快速基线）</option></select></label>
+            <section className={`fv-adaptation-card ${isDino && form.loraEnabled ? "is-active" : ""}`} aria-label="训练策略">
+              <div className="fv-adaptation-heading">
+                <span className="fv-adaptation-icon"><Icon name="SlidersHorizontal" size={17} /></span>
+                <div><span className="fv-adaptation-eyebrow">训练策略</span><strong>{isDino ? "DINOv3" : "ImageNet"}</strong></div>
+                <span className="fv-adaptation-badge">{isDino ? "骨干冻结" : "全参数更新"}</span>
+              </div>
+              {isDino ? <>
+                <div className="fv-adaptation-toggle-row">
+                  <div><strong>LoRA 适配</strong><p>在冻结骨干上学习低秩增量</p></div>
+                  <button type="button" role="switch" aria-label="启用 LoRA" aria-checked={form.loraEnabled} className="fv-lora-switch" onClick={() => setForm(current => ({ ...current, loraEnabled: !current.loraEnabled }))}><span /></button>
+                </div>
+                {form.loraEnabled && <div className="fv-lora-ranks" role="group" aria-label="LoRA 秩">
+                  {[{ rank: "8", title: "轻量适配", detail: "较少可训练参数" }, { rank: "16", title: "增强适配", detail: "更大适配容量" }].map(item => <button key={item.rank} type="button" aria-pressed={form.loraRank === item.rank} aria-label={`LoRA r=${item.rank}`} onClick={() => setForm(current => ({ ...current, loraRank: item.rank }))}>
+                    <span className="fv-rank-heading"><strong>r = {item.rank}</strong><span className="fv-rank-check">{form.loraRank === item.rank && <Icon name="Check" size={11} />}</span></span>
+                    <span>{item.title}</span><small>{item.detail}</small>
+                  </button>)}
+                </div>}
+                <div className="fv-adaptation-footer"><span className="fv-adaptation-dot" /><span>{form.loraEnabled ? `更新 A/B 矩阵与分类头 · α = ${Number(form.loraRank) * 2}` : "仅训练分类头，保留原始骨干权重"}</span></div>
+              </> : <div className="fv-adaptation-full"><strong>骨干与分类头共同训练</strong><p>从预训练权重初始化，更新全部参数，不使用 LoRA。</p></div>}
+            </section>
+            <label><span>训练轮数</span><input type="number" required min="1" max="1000" step="1" value={form.epochs} onChange={event => setForm({ ...form, epochs: event.target.value })} /></label>
+            <label><span>图片批大小</span><input type="number" required min="1" max="128" step="1" value={form.batchSize} onChange={event => setForm({ ...form, batchSize: event.target.value })} /></label>
+            <p className="fv-training-note">保存完整训练检查点；发布时合并 LoRA 并导出完整图片分类 ONNX。本期不生成检索特征。</p>
             <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim() || !form.name.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练"}</button>
           </form>
         </Panel>
@@ -203,22 +233,24 @@ export function TrainingDetailPage({ showToast }) {
       <div className="fv-metric-grid">
         <MetricTile label="当前 Epoch" value={currentEpoch || "—"} caption={metrics.runStatus === "running" ? "每 2 秒增量更新" : "当前 attempt"} tone="running" />
         <MetricTile label="Best Accuracy" value={Number.isFinite(bestAccuracy) ? formatPercent(bestAccuracy) : "未采集"} caption="验证集历史最佳" tone="success" />
-        <MetricTile label="Latest Loss" value={latestLoss ? latestLoss.value.toFixed(4) : "未采集"} caption={latestLoss ? `epoch ${latestLoss.step}` : "Ridge 训练不产生曲线"} />
+        <MetricTile label="Latest Loss" value={latestLoss ? latestLoss.value.toFixed(4) : "未采集"} caption={latestLoss ? `epoch ${latestLoss.step}` : "等待首轮训练完成"} />
         <MetricTile label="Elapsed" value={elapsedLabel} caption={run.status === "running" ? "运行中" : "按开始时间估算"} />
       </div>
 
       <div className="fv-detail-grid">
         <div className="fv-chart-stack">
           <Panel eyebrow="Metric history" title="Train Loss / Epoch" aside={<AttemptSelector attempts={metrics.attempts} value={attemptId} onChange={setAttemptId} />}>
-            {points.some((point) => point.name === "train_loss") ? <EChart option={lossOption} ariaLabel="训练损失曲线" /> : <EmptyState icon="LineChart" title="指标尚未上报" description="torch_linear_adam 会在每个 epoch 上报；Ridge Linear 只展示最终指标。" />}
+            {points.some((point) => point.name === "train_loss") ? <EChart option={lossOption} ariaLabel="训练损失曲线" /> : <EmptyState icon="LineChart" title="指标尚未上报" description="图片分类训练在每轮结束后上报损失与验证准确率。" />}
           </Panel>
           <Panel eyebrow="Metric history" title="Validation Accuracy / Epoch">
             {latestAccuracy ? <EChart option={accuracyOption} ariaLabel="验证准确率曲线" /> : <EmptyState icon="LineChart" title="暂无验证准确率曲线" description="等待 Compute Runtime 上报新的 Metric Point。" />}
           </Panel>
         </div>
         <aside className="fv-side-stack">
+          {run.trainingProgress?.stages?.length > 0 && <Panel eyebrow="Pipeline" title="阶段进度"><div className="fv-artifact-list">{run.trainingProgress.stages.map(stage => <div key={stage.id}><span>{stage.label}</span><small>{run.status === "succeeded" ? "已完成" : `${stage.percent}% · ${stage.status}`}</small><progress max="100" value={run.status === "succeeded" ? 100 : stage.percent} aria-label={stage.label} /></div>)}</div></Panel>}
+          <Panel eyebrow="Training mode" title="训练方式"><strong>{trainingModeLabel(run)}</strong><p>{run.headConfig?.head_type === "image_classifier_v2" ? "图片 → 骨干网络 → 分类头；保存完整模型，无离线特征或检索产物。" : "历史任务保留原训练方式与产物。"}</p></Panel>
           <Panel eyebrow="Run context" title="实验配置"><dl className="fv-definition-list"><div><dt>Dataset Version</dt><dd><CodeValue>{run.datasetVersionId}</CodeValue></dd></div><div><dt>Backbone</dt><dd>{runBackboneLabel(run)}</dd></div><div><dt>Backbone Key</dt><dd><CodeValue>{run.backboneId}</CodeValue></dd></div><div><dt>Pooling</dt><dd>{run.featurePool || "未记录"}</dd></div><div><dt>Input Size</dt><dd>{run.imageSize || "未记录"}</dd></div><div><dt>Head</dt><dd>{run.headConfig?.head_type || "未记录"}</dd></div><div><dt>Attempt</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id}</CodeValue></dd></div></dl></Panel>
-          <Panel eyebrow="Integrity" title="训练产物"><div className="fv-artifact-list">{[["Feature", run.featureArtifactId], ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "逻辑归属已登记；加载时校验 SHA/大小" : "尚未生成"}</small></div>)}</div></Panel>
+          <Panel eyebrow="Integrity" title="训练产物"><div className="fv-artifact-list">{[...(run.headConfig?.head_type === "image_classifier_v2" ? [] : [["Feature", run.featureArtifactId]]), ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "逻辑归属已登记；加载时校验 SHA/大小" : "尚未生成"}</small></div>)}</div></Panel>
           {run.modelVersionId && <Link className="primary-button fv-full-button" to={`/models/${run.modelVersionId}`}><Icon name="Boxes" size={15} />打开 Model Version</Link>}
         </aside>
       </div>

@@ -364,7 +364,7 @@ func TestModelRegistryHTTPContractsComparePromoteAndSetAlias(t *testing.T) {
 		t.Fatalf("comparison = %#v", comparison)
 	}
 
-	for _, target := range []string{"staging", "production"} {
+	for _, target := range []string{"staging"} {
 		response, err := http.Post(server.URL+"/api/model-versions/"+firstID+"/promote", "application/json", bytes.NewBufferString(fmt.Sprintf(`{"target_status":%q,"actor":"tester","reason":"verified"}`, target)))
 		if err != nil {
 			t.Fatal(err)
@@ -374,7 +374,15 @@ func TestModelRegistryHTTPContractsComparePromoteAndSetAlias(t *testing.T) {
 			t.Fatalf("promote %s status = %d", target, response.StatusCode)
 		}
 	}
-	request, _ := http.NewRequest(http.MethodPut, server.URL+"/api/model-aliases/champion", bytes.NewBufferString(fmt.Sprintf(`{"dataset_id":"birds","model_version_id":%q,"actor":"tester","reason":"release"}`, firstID)))
+	blocked, err := http.Post(server.URL+"/api/model-versions/"+firstID+"/promote", "application/json", bytes.NewBufferString(`{"target_status":"production","actor":"tester","reason":"no exporter"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked.Body.Close()
+	if blocked.StatusCode != http.StatusConflict {
+		t.Fatalf("publication without exporter = %d", blocked.StatusCode)
+	}
+	request, _ := http.NewRequest(http.MethodPut, server.URL+"/api/model-aliases/challenger", bytes.NewBufferString(fmt.Sprintf(`{"dataset_id":"birds","model_version_id":%q,"actor":"tester","reason":"release"}`, firstID)))
 	request.Header.Set("Content-Type", "application/json")
 	aliasResponse, err := http.DefaultClient.Do(request)
 	if err != nil {

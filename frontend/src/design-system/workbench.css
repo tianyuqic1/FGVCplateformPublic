@@ -99,6 +99,38 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .fv-form input, .fv-form select { width: 100%; min-height: 38px; border: 1px solid var(--border-subtle); border-radius: 7px; padding: 0 10px; color: var(--text-primary); background: #fff; }
 .fv-form fieldset { margin: 0; padding: 0; border: 0; }
 .fv-form legend { margin-bottom: 7px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.fv-form .fv-training-note { margin: 0; font-size: 12px; line-height: 1.7; color: var(--text-secondary); }
+.fv-adaptation-card { min-width: 0; overflow: hidden; border: 1px solid #e0e5ef; border-radius: 14px; background: #fff; box-shadow: 0 3px 12px #26396b06; }
+.fv-adaptation-card.is-active { border-color: #cdd5f5; }
+.fv-adaptation-heading { display: flex; align-items: center; gap: 9px; padding: 14px; background: linear-gradient(110deg, #f6f8ff, #fcfdff); border-bottom: 1px solid #edf0f6; }
+.fv-adaptation-icon { display: grid; place-items: center; flex: 0 0 32px; height: 32px; border: 1px solid #e2e7fc; border-radius: 10px; background: #fff; color: #5264ca; }
+.fv-adaptation-heading > div { min-width: 0; display: grid; gap: 3px; }
+.fv-adaptation-eyebrow { color: #7a869d; font-size: 10px; letter-spacing: .06em; }
+.fv-adaptation-heading strong { font-size: 13px; color: #253653; }
+.fv-adaptation-badge { margin-left: auto; padding: 4px 7px; border: 1px solid #dfe7ef; border-radius: 6px; color: #64748b; background: #ffffffb3; white-space: nowrap; font-size: 10px; font-weight: 500; }
+.fv-adaptation-toggle-row { display: flex; align-items: center; gap: 12px; padding: 16px 14px; }
+.fv-adaptation-toggle-row > div { flex: 1; min-width: 0; }
+.fv-adaptation-toggle-row strong, .fv-adaptation-full strong { font-size: 12px; font-weight: 600; color: #334155; }
+.fv-adaptation-toggle-row p, .fv-adaptation-full p { margin: 5px 0 0; color: #8590a3; font-size: 10px; line-height: 1.6; }
+.fv-lora-switch { flex: 0 0 36px; width: 36px; height: 21px; padding: 3px; border: 0; border-radius: 20px; background: #d6dce7; cursor: pointer; transition: background .16s ease; }
+.fv-lora-switch > span { display: block; width: 15px; height: 15px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #1f305030; transition: transform .16s ease; }
+.fv-lora-switch[aria-checked="true"] { background: #5865d8; }
+.fv-lora-switch[aria-checked="true"] > span { transform: translateX(15px); }
+.fv-lora-switch:focus-visible, .fv-lora-ranks button:focus-visible { outline: 2px solid #5865d8; outline-offset: 3px; }
+.fv-lora-ranks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 14px 14px; }
+.fv-lora-ranks > button { display: grid; gap: 5px; min-width: 0; padding: 11px; border: 1px solid #e5e9f1; border-radius: 9px; background: #fff; color: #63718b; text-align: left; cursor: pointer; font-size: 11px; }
+.fv-lora-ranks > button:hover { border-color: #aab7ed; }
+.fv-lora-ranks > button[aria-pressed="true"] { border-color: #8797e4; background: #f3f5ff; color: #4c5dbb; box-shadow: 0 0 0 1px #8797e415; }
+.fv-rank-heading { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 2px; }
+.fv-rank-heading strong { font-size: 14px; font-weight: 650; }
+.fv-rank-check { display: grid; place-items: center; width: 14px; height: 14px; border: 1px solid #dce2ee; border-radius: 50%; }
+[aria-pressed="true"] > .fv-rank-heading .fv-rank-check { color: white; background: #6577d4; border-color: #6577d4; }
+.fv-lora-ranks small { font-size: 9px; color: #8590a3; line-height: 1.5; }
+.fv-adaptation-footer { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-top: 1px solid #edf0f6; color: #77849a; background: #fafbfe; font-size: 10px; line-height: 1.6; }
+.fv-adaptation-dot { flex: 0 0 5px; height: 5px; border-radius: 50%; background: #a1adc2; }
+.is-active .fv-adaptation-dot { background: #7c8ddc; }
+.fv-adaptation-full { padding: 15px 14px; }
+@media (prefers-reduced-motion: reduce) { .fv-lora-switch, .fv-lora-switch > span { transition: none; } }
 .fv-backbone-picker { display: grid; gap: 7px; }
 .fv-backbone-picker > label { position: relative; min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; cursor: pointer; }
 .fv-backbone-picker > label:hover { border-color: #bdc9df; }

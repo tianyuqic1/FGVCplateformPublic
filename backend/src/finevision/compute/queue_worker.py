@@ -154,7 +154,7 @@ class RemoteTrainingStore:
             for name, split in (("train_loss", "train"), ("eval_accuracy", "validation")):
                 if name in latest_metrics:
                     context = Struct()
-                    context.update({"split": split, "phase": "head"})
+                    context.update({"split": split, "phase": progress.get("current_stage", "head")})
                     metric_points.append(
                         training_lifecycle_pb2.MetricPoint(
                             name=name,
@@ -228,15 +228,17 @@ class RemoteTrainingStore:
         # inference runtime. It contains no raw bytes and all referenced objects
         # remain content-addressed artifacts.
         by_type = {item.artifact_type: item for item in descriptors}
-        if "model" not in by_type or "features" not in by_type:
+        image_model = model_artifact.head_type == "image_classifier_v2"
+        if "model" not in by_type or (not image_model and "features" not in by_type):
             raise ValueError("training completion requires model and feature artifacts")
         bundle_path = model_directory / "model_bundle.json"
         bundle_path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2 if image_model else 1,
+                    "model_format": "image_classifier_v2" if image_model else "linear_head_v1",
                     "model": by_type["model"].__dict__,
-                    "features": by_type["features"].__dict__,
+                    **({"features": by_type["features"].__dict__} if not image_model else {}),
                     "model_artifact": _jsonable(model_artifact),
                     "threshold_strategy": _jsonable(threshold_strategy),
                     "extractor_config": _jsonable(feature_artifact.extractor_config),
@@ -444,10 +446,10 @@ class QueueTrainingWorker:
         try:
             dataset_files.enter_context(HeartbeatLoop(remote_store))
             if payload.get("dataset_archive"):
-                from finevision.compute.inference_runtime import _descriptor_from_dict
+                from finevision.compute.artifacts import descriptor_from_dict
                 from finevision.compute.dataset_compute import unpack_dataset
                 from finevision.ml_toolkit.datasets import scan_imagefolder
-                descriptor = _descriptor_from_dict(payload["dataset_archive"])
+                descriptor = descriptor_from_dict(payload["dataset_archive"])
                 if descriptor.dataset_version_id != payload["dataset_version_id"]:
                     raise ValueError("Dataset archive scope mismatch")
                 local_archive = self.artifact_store.materialize_verified(descriptor, os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"))

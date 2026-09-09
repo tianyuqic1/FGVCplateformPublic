@@ -559,7 +559,9 @@ components:
         target_selective_risk: {type: number, minimum: 0, maximum: 1, default: 0.01}
         review_cost_per_item: {type: number, minimum: 0, default: 1}
         extractor_config: {$ref: "#/components/schemas/FreeFormObject"}
-        head_config: {$ref: "#/components/schemas/FreeFormObject"}
+        head_config:
+          allOf: [{$ref: "#/components/schemas/FreeFormObject"}]
+          description: "Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, image batch_size 1–128. New image tasks do not produce offline features."
     ClaimTrainingJob:
       type: object
       required: [dispatch_generation, worker_id]
@@ -595,7 +597,7 @@ components:
       type: object
       required: [target_status, actor, reason]
       properties:
-        target_status: {type: string, enum: [staging, production]}
+        target_status: {type: string, enum: [staging, production], description: "production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly"}
         actor: {type: string, minLength: 1, maxLength: 200}
         reason: {type: string, minLength: 1, maxLength: 1000}
     ArchiveModelVersionRequest:

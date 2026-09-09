@@ -40,6 +40,7 @@ func TestGovernedPromotionAndDatasetScopedAliases(t *testing.T) {
 	if _, err := service.Promote(context.Background(), "candidate", modelregistry.StatusStaging, "operator", "validated"); err != nil {
 		t.Fatal(err)
 	}
+	service.WithPublication(testExporter{}, testVerifier{})
 	if _, err := service.Promote(context.Background(), "candidate", modelregistry.StatusProduction, "operator", "release"); err != nil {
 		t.Fatal(err)
 	}

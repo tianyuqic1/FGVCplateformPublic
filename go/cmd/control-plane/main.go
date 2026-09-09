@@ -74,9 +74,9 @@ func main() {
 		os.Exit(1)
 	}
 	cards := &datasetcard.Service{Repository: &postgresadapter.DatasetCardRepository{Pool: pool}, Generator: cardGenerator}
-	computeAddress := os.Getenv("FINEVISION_COMPUTE_GRPC")
+	computeAddress := os.Getenv("FINEVISION_DATASET_GRPC")
 	if computeAddress == "" {
-		computeAddress = "python-inference-runtime:9100"
+		computeAddress = "python-artifact-runtime:9200"
 	}
 	computeConnection, err := grpc.NewClient(computeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -91,7 +91,7 @@ func main() {
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,
 			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
-			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)),
+			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)).WithPublication(grpcadapter.HeadExporter{Client: computev1.NewModelExportClient(computeConnection)}, artifactVerifier),
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

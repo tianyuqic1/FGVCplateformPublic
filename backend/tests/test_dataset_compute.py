@@ -7,7 +7,7 @@ from PIL import Image
 from google.protobuf.json_format import MessageToDict
 
 from finevision.compute.dataset_compute import DatasetComputeService, unpack_dataset
-from finevision.compute.inference_runtime import InferenceRuntimeService
+from finevision.compute.artifacts import VerifiedArtifactReader
 from finevision.compute.v1.dataset_compute_pb2 import ScanDatasetRequest
 from finevision.compute.v1.artifact_pb2 import ArtifactDescriptor
 from finevision.artifact_store import LocalFilesystemArtifactStore
@@ -48,7 +48,7 @@ def test_scan_uses_verified_artifact_and_returns_portable_manifest(tmp_path):
         sha256=hashlib.sha256(archive.read_bytes()).hexdigest(), size_bytes=archive.stat().st_size,
         content_type="application/zip", schema_version=1, dataset_version_id="version",
     )
-    runtime = InferenceRuntimeService(tmp_path / "cache")
+    runtime = VerifiedArtifactReader(tmp_path / "cache")
     class Context:
         def abort(self, code, message):
             raise RuntimeError(message)

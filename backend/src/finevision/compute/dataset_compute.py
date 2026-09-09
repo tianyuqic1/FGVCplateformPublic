@@ -11,6 +11,7 @@ from google.protobuf.struct_pb2 import Struct
 from PIL import Image
 
 from finevision.compute.v1 import dataset_compute_pb2_grpc
+from finevision.compute.artifacts import descriptor_from_proto
 from finevision.ml_toolkit.datasets import scan_imagefolder, IMAGE_EXTENSIONS
 
 
@@ -37,14 +38,12 @@ def unpack_dataset(archive: Path, destination: Path) -> None:
 
 
 class DatasetComputeService(dataset_compute_pb2_grpc.DatasetComputeServicer):
-    def __init__(self, runtime):
-        self.runtime = runtime
+    def __init__(self, artifacts):
+        self.artifacts = artifacts
 
     def Scan(self, request, context):
-        from finevision.compute.inference_runtime import _descriptor_from_proto
-
         try:
-            archive = self.runtime._materialize(_descriptor_from_proto(request.archive))
+            archive = self.artifacts.materialize(descriptor_from_proto(request.archive))
             with tempfile.TemporaryDirectory(prefix="finevision-dataset-") as directory:
                 root = Path(directory)
                 unpack_dataset(archive, root)

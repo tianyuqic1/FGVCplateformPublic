@@ -17,7 +17,8 @@ trap 'rm -rf -- "$GENERATOR_DIR"' EXIT
     api/proto/finevision/compute/v1/artifact.proto \
     api/proto/finevision/compute/v1/training_lifecycle.proto \
     api/proto/finevision/compute/v1/inference_runtime.proto \
-    api/proto/finevision/compute/v1/dataset_compute.proto
+    api/proto/finevision/compute/v1/dataset_compute.proto \
+    api/proto/finevision/compute/v1/model_export.proto
 )
 
 uv run python -m grpc_tools.protoc \
@@ -27,4 +28,5 @@ uv run python -m grpc_tools.protoc \
   "$ROOT_DIR/go/api/proto/finevision/compute/v1/artifact.proto" \
   "$ROOT_DIR/go/api/proto/finevision/compute/v1/training_lifecycle.proto" \
   "$ROOT_DIR/go/api/proto/finevision/compute/v1/inference_runtime.proto" \
-  "$ROOT_DIR/go/api/proto/finevision/compute/v1/dataset_compute.proto"
+  "$ROOT_DIR/go/api/proto/finevision/compute/v1/dataset_compute.proto" \
+  "$ROOT_DIR/go/api/proto/finevision/compute/v1/model_export.proto"

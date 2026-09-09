@@ -353,6 +353,21 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	if request.Body.HeadConfig != nil {
 		payload["head_config"] = map[string]any(*request.Body.HeadConfig)
 	}
+	if !colorStats {
+		if featurePool != backbone.Pooling {
+			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training uses the approved backbone pooling"))}, nil
+		}
+		config, _ := payload["head_config"].(map[string]any)
+		config, err := normalizeImageTrainingConfig(backbone.Key, config)
+		if err != nil {
+			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error()))}, nil
+		}
+		payload["head_config"] = config
+		// Image training uses the approved backbone's native preprocessing size.
+		if backbone.Key != modelcatalog.DINOv3ViTSKey && imageSize != backbone.InputSize {
+			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training currently requires the backbone native input size"))}, nil
+		}
+	}
 	if request.Body.TargetSelectiveRisk != nil {
 		payload["target_selective_risk"] = *request.Body.TargetSelectiveRisk
 	}

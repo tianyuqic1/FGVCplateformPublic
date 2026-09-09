@@ -57,7 +57,7 @@ services:
       object-store-init:
         condition: service_completed_successfully
 
-      python-inference-runtime:
+      python-artifact-runtime:
         condition: service_healthy
 
   outbox-relay:
@@ -101,7 +101,7 @@ services:
       FINEVISION_CONTROL_PLANE_GRPC: go-control-plane:9000
       FINEVISION_METADATA_DIR: /data/metadata
       FINEVISION_ARTIFACT_DIR: /data/work
-      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_COMPUTE_DEVICE:-cpu}
+      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_TRAINING_DEVICE:-${FINEVISION_COMPUTE_DEVICE:-cpu}}
       FINEVISION_FEATURE_BATCH_SIZE: ${FINEVISION_FEATURE_BATCH_SIZE:-8}
       FINEVISION_LINEAR_HEAD_DEVICE: ${FINEVISION_LINEAR_HEAD_DEVICE:-cpu}
     depends_on:
@@ -133,7 +133,7 @@ services:
       <<: *object-store-environment
       FINEVISION_INFERENCE_GRPC_ADDRESS: "[::]:9100"
       FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
-      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_COMPUTE_DEVICE:-cpu}
+      FINEVISION_COMPUTE_DEVICE: ${FINEVISION_INFERENCE_DEVICE:-${FINEVISION_COMPUTE_DEVICE:-cpu}}
       FINEVISION_FEATURE_BATCH_SIZE: ${FINEVISION_FEATURE_BATCH_SIZE:-8}
     depends_on:
       pretrained-weight-init:
@@ -142,6 +142,25 @@ services:
       - finevision-artifact-cache:/data/cache
       - ${HOME}/.cache/huggingface:/home/finevision/.cache/huggingface
       - ${HOME}/.cache/torch:/home/finevision/.cache/torch
+
+  python-artifact-runtime:
+    image: finevision-python-compute:phase1
+    command: ["python", "-m", "finevision.compute.artifact_runtime"]
+    environment:
+      <<: *object-store-environment
+      FINEVISION_ARTIFACT_GRPC_ADDRESS: "[::]:9200"
+      FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; grpc.channel_ready_future(grpc.insecure_channel('localhost:9200')).result(timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    depends_on:
+      object-store-init:
+        condition: service_completed_successfully
+    volumes:
+      - finevision-export-cache:/data/cache
 
   migrate:
     build:
@@ -263,6 +282,7 @@ services:
         condition: service_healthy
 
 volumes:
+  finevision-export-cache:
   finevision-postgres:
   finevision-rabbitmq:
   finevision-object-store:

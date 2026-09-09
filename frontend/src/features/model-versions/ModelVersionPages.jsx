@@ -59,12 +59,15 @@ export function ModelVersionsPage() {
 }
 
 export function ModelVersionDetailPage({ showToast }) {
+  const [busy, setBusy] = useState(false);
   const { modelId } = useParams();
   const { version, loading, error, refresh } = useModelVersion(modelId);
 
   async function perform(kind) {
+    if (busy) return;
     const reason = window.prompt("请输入本次操作原因（会写入审计记录）");
     if (!reason) return;
+    setBusy(true);
     try {
       if (kind === "archive") await archiveModelVersion(modelId, reason);
       if (kind === "staging" || kind === "production") await promoteModelVersion(modelId, kind, reason);
@@ -73,6 +76,8 @@ export function ModelVersionDetailPage({ showToast }) {
       refresh();
     } catch (actionError) {
       showToast?.(actionError.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -89,7 +94,7 @@ export function ModelVersionDetailPage({ showToast }) {
       </div>
       <div className="fv-side-stack">
         <Panel eyebrow="Artifacts" title="内容寻址对象">{version.artifacts.length ? <div className="fv-artifact-list">{version.artifacts.map((item) => <div key={item.artifact_id}><span><Icon name="ShieldCheck" size={15} />{item.artifact_type}</span><CodeValue>{item.sha256}</CodeValue><small>{Number(item.size_bytes).toLocaleString()} bytes · {item.uri}</small></div>)}</div> : <EmptyState title="暂无 Artifact" description="该版本没有返回已登记对象。" />}</Panel>
-        <Panel eyebrow="Governance" title="生命周期操作"><div className="fv-action-list">{version.status === "candidate" && <button className="primary-button" onClick={() => perform("staging")}>晋级 Staging</button>}{version.status === "staging" && <button className="primary-button" onClick={() => perform("production")}>晋级 Production</button>}{version.status === "production" && <button className="secondary-button" onClick={() => perform("champion")}>设为 Champion</button>}{["candidate", "staging"].includes(version.status) && <button className="secondary-button" onClick={() => perform("challenger")}>设为 Challenger</button>}{version.status !== "archived" && <button className="danger-button" onClick={() => perform("archive")}>归档版本</button>}</div><p className="fv-governance-note">Production 不由 Accuracy 自动决定；状态与 alias 操作均要求原因并写审计。</p></Panel>
+        <Panel eyebrow="Governance" title="生命周期操作"><div className="fv-action-list">{["candidate", "staging"].includes(version.status) && <button className="primary-button" disabled={busy} onClick={() => perform("production")}>{busy ? "正在导出并校验 ONNX…" : "发布模型 · 导出 ONNX"}</button>}{version.status === "production" && <button disabled={busy} className="secondary-button" onClick={() => perform("champion")}>设为 Champion</button>}{["candidate", "staging"].includes(version.status) && <button disabled={busy} className="secondary-button" onClick={() => perform("challenger")}>设为 Challenger</button>}{version.status !== "archived" && <button disabled={busy} className="danger-button" onClick={() => perform("archive")}>归档版本</button>}</div><p className="fv-governance-note">{version.headType === "image_classifier_v2" ? "发布会合并 LoRA（如有），导出骨干 + 分类头的完整 .pt 和 ONNX；输入为预处理后的 RGB 图片张量。" : "这是历史分类头模型，发布仍导出分类头 .pt 和 ONNX；如需完整模型，请使用新训练流程重新训练。"} 验证输出一致性、SHA-256 和文件大小后保存到 MinIO，成功才标记 Production；原训练检查点保留。</p></Panel>
         <Panel eyebrow="Audit" title="审计事件">{version.events.length ? <ol className="fv-event-list">{version.events.map((event) => <li key={event.event_id}><i /><span><strong>{event.event_type}</strong><small>{event.actor} · {event.reason || "未填写"}</small></span><time>{new Date(event.created_at).toLocaleString("zh-CN")}</time></li>)}</ol> : <EmptyState title="暂无审计事件" description="后续状态与 alias 变更会记录在这里。" />}</Panel>
       </div>
     </div>

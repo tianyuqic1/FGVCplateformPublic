@@ -1,0 +1,15 @@
+syntax = "proto3";
+package finevision.compute.v1;
+option go_package = "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1";
+import "finevision/compute/v1/artifact.proto";
+import "google/protobuf/struct.proto";
+
+service ModelExport {
+  rpc ExportHead(ExportHeadRequest) returns (google.protobuf.Struct);
+}
+message ExportHeadRequest {
+  string model_version_id = 1;
+  string dataset_version_id = 2;
+  string training_run_id = 3;
+  ArtifactDescriptor source_bundle = 4;
+}

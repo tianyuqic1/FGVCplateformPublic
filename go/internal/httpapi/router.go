@@ -55,6 +55,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			timeout := 30 * time.Second
+			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/model-versions/") && strings.HasSuffix(r.URL.Path, "/promote") {
+				timeout = 120 * time.Second
+			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/dataset-versions/") && strings.HasSuffix(r.URL.Path, "/card/generate") {
 				timeout = 115 * time.Second
 			}

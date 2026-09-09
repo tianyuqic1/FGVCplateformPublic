@@ -18,3 +18,15 @@
 .fv-select-pagination button { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border-subtle); border-radius: 6px; background: #f5f7ff; color: var(--action-primary); cursor: pointer; }
 .fv-paginated-select button:disabled { opacity: .45; cursor: not-allowed; }
 .training-queue-filters > .fv-paginated-select { flex: 1 1 150px; width: 150px; }
+.inference-selection .fv-select-trigger { min-height: 64px; padding: 12px 14px; }
+.inference-selection .fv-select-trigger strong, .inference-selection .fv-select-options strong { font-size: 14px; }
+.inference-selection .fv-select-trigger small, .inference-selection .fv-select-options small { font-family: inherit; font-size: 12px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
+.inference-selection .fv-select-options button { padding: 12px; margin-bottom: 4px; }
+.inference-selection .fv-select-options span { font-size: 11px; }
+.inference-model-summary { margin-top: 8px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-selected); }
+.inference-model-summary > strong { overflow-wrap: anywhere; }
+.inference-model-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 14px 0; }
+.inference-model-summary dt { font-size: 11px; color: var(--text-muted); }
+.inference-model-summary dd { margin: 4px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.inference-model-summary > a { display: inline-block; margin-bottom: 12px; font-size: 12px; }
+@media (max-width: 480px) { .inference-model-summary dl { grid-template-columns: 1fr; } }

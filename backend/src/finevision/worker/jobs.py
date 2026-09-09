@@ -130,6 +130,8 @@ def _run_train_classifier(
     training_store.mark_running(run_id)
     try:
         artifact_root = Path(os.environ.get("FINEVISION_ARTIFACT_DIR", DEFAULT_ARTIFACT_DIR)).resolve()
+        if (payload.get("head_config") or {}).get("head_type") == "image_classifier_v2":
+            return _run_image_pipeline(payload, manifest, training_store, artifact_root)
         _check_training_control(training_store, run_id)
         _update_training_progress(training_store, run_id, "dataset", "running")
         extractor = _build_extractor(payload)
@@ -244,6 +246,36 @@ def _run_train_classifier(
             raise TrainingRunStopped(f"Training run {run_id} is {status}.") from exc
         training_store.mark_failed(run_id, str(exc))
         raise
+
+
+def _run_image_pipeline(payload, manifest, store, artifact_root):
+    from finevision.ml_toolkit.image_training import train_images
+    run_id = payload["training_run_id"]
+    stages = [("weights", "加载预训练权重", 5), ("training", "图片分类训练", 80),
+              ("evaluation", "独立测试集评估", 5), ("calibration", "验证集阈值校准", 5), ("artifacts", "保存完整模型", 5)]
+    def check():
+        _check_training_control(store, run_id)
+    def progress(stage, percent, metrics=None):
+        check()
+        index = next(i for i, s in enumerate(stages) if s[0] == stage)
+        payload = {"current_stage": stage, "overall_percent": sum(s[2] for s in stages[:index]) + stages[index][2] * percent / 100,
+                   "stages": [{"id": s[0], "label": s[1], "weight": s[2], "percent": 100 if i < index else percent if i == index else 0,
+                               "status": "completed" if i < index or (i == index and percent == 100) else "running" if i == index else "pending"} for i, s in enumerate(stages)]}
+        if metrics:
+            payload["latest_metrics"] = metrics
+        store.update_progress(run_id, payload)
+    context, model, report, logits = train_images(manifest, payload, artifact_root, progress=progress, check_control=check)
+    progress("calibration", 0)
+    calibration = fit_temperature_scaling(model, logits, context.labels, context.splits, artifact_root=artifact_root / "models")
+    sweep = sweep_confidence_thresholds(context, model, logits, artifact_root=artifact_root / "models", calibration=calibration)
+    margin, config = estimate_margin_threshold(context, model, logits, calibration=calibration, split="val")
+    strategy = select_threshold_strategy(sweep, model, calibration=calibration, margin_threshold=margin,
+        target_selective_risk=float(payload.get("target_selective_risk", 0.01)),
+        review_cost_per_item=float(payload.get("review_cost_per_item", 1.0)), selection_config=config, artifact_root=artifact_root / "models")
+    progress("artifacts", 0)
+    record = store.complete_training_run(run_id=run_id, artifact_root=artifact_root, feature_artifact=context,
+        model_artifact=model, training_report=report, calibration_report=calibration, threshold_sweep=sweep, threshold_strategy=strategy)
+    return vars(record)
 
 
 def _build_extractor(payload: dict[str, Any]):

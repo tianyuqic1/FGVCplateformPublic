@@ -333,9 +333,11 @@ type CreateTrainingRun struct {
 	ExtractorConfig  *FreeFormObject               `json:"extractor_config,omitempty"`
 	FeatureBatchSize *int                          `json:"feature_batch_size,omitempty"`
 	FeaturePool      *CreateTrainingRunFeaturePool `json:"feature_pool,omitempty"`
-	HeadConfig       *FreeFormObject               `json:"head_config,omitempty"`
-	ImageSize        *int                          `json:"image_size,omitempty"`
-	MaxAttempts      *int                          `json:"max_attempts,omitempty"`
+
+	// HeadConfig Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, image batch_size 1–128. New image tasks do not produce offline features.
+	HeadConfig  *FreeFormObject `json:"head_config,omitempty"`
+	ImageSize   *int            `json:"image_size,omitempty"`
+	MaxAttempts *int            `json:"max_attempts,omitempty"`
 
 	// Name Human-readable training task name
 	Name                *string  `json:"name,omitempty"`
@@ -459,12 +461,14 @@ type ModelVersionComparisonRequest struct {
 
 // PromoteModelVersionRequest defines model for PromoteModelVersionRequest.
 type PromoteModelVersionRequest struct {
-	Actor        string                                 `json:"actor"`
-	Reason       string                                 `json:"reason"`
+	Actor  string `json:"actor"`
+	Reason string `json:"reason"`
+
+	// TargetStatus production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly
 	TargetStatus PromoteModelVersionRequestTargetStatus `json:"target_status"`
 }
 
-// PromoteModelVersionRequestTargetStatus defines model for PromoteModelVersionRequest.TargetStatus.
+// PromoteModelVersionRequestTargetStatus production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly
 type PromoteModelVersionRequestTargetStatus string
 
 // SetModelAliasRequest defines model for SetModelAliasRequest.

@@ -108,6 +108,8 @@ type Repository interface {
 
 type Service struct {
 	repository Repository
+	exporter   HeadExporter
+	verifier   ArtifactVerifier
 }
 
 func NewService(repository Repository) *Service { return &Service{repository: repository} }
@@ -162,6 +164,9 @@ func (service *Service) Compare(ctx context.Context, ids []string) (Comparison, 
 }
 
 func (service *Service) Promote(ctx context.Context, id string, target Status, actor, reason string) (Version, error) {
+	if target == StatusProduction {
+		return service.Publish(ctx, id, actor, reason)
+	}
 	if strings.TrimSpace(actor) == "" || strings.TrimSpace(reason) == "" {
 		return Version{}, fmt.Errorf("%w: actor and reason are required", ErrInvalid)
 	}

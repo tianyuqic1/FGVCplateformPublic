@@ -4,10 +4,6 @@ import json
 import os
 from concurrent import futures
 from pathlib import Path
-from urllib.parse import urlparse
-
-import boto3
-from botocore.config import Config
 import grpc
 import numpy as np
 from google.protobuf.struct_pb2 import Struct
@@ -15,7 +11,6 @@ from google.protobuf.struct_pb2 import Struct
 from finevision.artifact_store import (
     ArtifactDescriptor,
     ArtifactIntegrityError,
-    LocalFilesystemArtifactStore,
     S3ArtifactStore,
 )
 from finevision.compute.v1 import inference_runtime_pb2, inference_runtime_pb2_grpc
@@ -23,6 +18,12 @@ from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, prepare_manag
 from finevision.ml_toolkit.features import build_extractor_from_config
 from finevision.ml_toolkit.inference import run_image_inference
 from finevision.schemas.artifacts import ModelArtifact, ThresholdStrategy
+from finevision.compute.artifacts import (
+    VerifiedArtifactReader,
+    descriptor_from_proto as _descriptor_from_proto,
+    descriptor_from_dict as _descriptor_from_dict,
+    create_s3_client as _create_s3_client,
+)
 
 
 class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeServicer):
@@ -49,6 +50,8 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             bundle_descriptor = _descriptor_from_proto(request.model_bundle)
             bundle_path = self._materialize(bundle_descriptor)
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+            if bundle.get("model_format") == "image_classifier_v2":
+                return self._predict_image_model(request, bundle_descriptor, bundle)
             model_descriptor = _descriptor_from_dict(bundle["model"])
             features_descriptor = _descriptor_from_dict(bundle["features"])
             _validate_bundle_scope(bundle_descriptor, model_descriptor, features_descriptor, bundle)
@@ -105,51 +108,45 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
         )
 
     def _materialize(self, descriptor: ArtifactDescriptor) -> Path:
-        parsed = urlparse(descriptor.uri)
-        if parsed.scheme == "file":
-            store = LocalFilesystemArtifactStore(self.cache_root / "local-source")
-        elif parsed.scheme == "s3":
-            store = S3ArtifactStore(client=self.s3_client or _create_s3_client(), bucket=parsed.netloc)
-        else:
-            raise ValueError("artifact URI must use file:// or s3://")
-        return store.materialize_verified(descriptor, self.cache_root)
+        return VerifiedArtifactReader(self.cache_root, self.s3_client).materialize(descriptor)
+
+    def _predict_image_model(self, request, bundle_descriptor, bundle):
+        import torch
+        from PIL import Image
+        from finevision.ml_toolkit.image_training import load_classifier, image_transform
+        from finevision.ml_toolkit.metrics import softmax
+        descriptor = _descriptor_from_dict(bundle["model"])
+        _validate_bundle_scope(bundle_descriptor, descriptor, descriptor, bundle)
+        model, checkpoint = load_classifier(self._materialize(descriptor))
+        if checkpoint["classes"] != bundle["model_artifact"]["classes"]:
+            raise ValueError("checkpoint class mapping differs from bundle")
+        image_path = self._materialize(_descriptor_from_proto(request.input_image))
+        with Image.open(image_path) as image:
+            inputs = image_transform(checkpoint["preprocessing"])(image.convert("RGB")).unsqueeze(0)
+        with torch.inference_mode():
+            logits = model(inputs).numpy()
+        strategy = bundle["threshold_strategy"]
+        probabilities = softmax(logits, temperature=float(strategy["temperature"]))[0]
+        order = np.argsort(probabilities)[::-1]
+        confidence = float(probabilities[order[0]])
+        margin = confidence - (float(probabilities[order[1]]) if len(order) > 1 else 0)
+        reasons = []
+        if confidence + 1e-6 < strategy["accept_threshold"]:
+            reasons.append("confidence_below_threshold")
+        if margin + 1e-6 < strategy["margin_threshold"]:
+            reasons.append("top1_top2_margin_below_threshold")
+        policy = dict(request.policy)
+        if policy.get("ood_distance_threshold") is not None:
+            raise ValueError("embedding-distance OOD is unavailable for image classifiers")
+        top_k = max(1, min(int(policy.get("top_k", 3)), len(order)))
+        evidence = Struct()
+        evidence.update({"nearest_neighbors": [], "retrieval_available": False})
+        return inference_runtime_pb2.Prediction(
+            top_k=[inference_runtime_pb2.LabelScore(label=checkpoint["classes"][i], score=float(probabilities[i])) for i in order[:top_k]],
+            decision="abstain" if reasons else "accept", confidence=confidence, margin=margin,
+            reasons=reasons or ["meets_acceptance_thresholds"], evidence=evidence)
 
 
-def _descriptor_from_proto(message) -> ArtifactDescriptor:
-    return ArtifactDescriptor(
-        artifact_id=message.artifact_id,
-        artifact_type=message.artifact_type,
-        uri=message.uri,
-        sha256=message.sha256,
-        size_bytes=message.size_bytes,
-        content_type=message.content_type,
-        storage_version=message.storage_version,
-        producer=message.producer,
-        dataset_version_id=message.dataset_version_id or None,
-        training_run_id=message.training_run_id or None,
-        attempt_id=message.attempt_id or None,
-        schema_version=message.schema_version,
-        metadata=dict(message.metadata) if message.HasField("metadata") else {},
-    )
-
-
-def _descriptor_from_dict(value: dict[str, object]) -> ArtifactDescriptor:
-    fields = {
-        "artifact_id": value["artifact_id"],
-        "artifact_type": value["artifact_type"],
-        "uri": value["uri"],
-        "sha256": value["sha256"],
-        "size_bytes": value["size_bytes"],
-        "content_type": value["content_type"],
-        "storage_version": value["storage_version"],
-        "producer": value["producer"],
-        "dataset_version_id": value.get("dataset_version_id"),
-        "training_run_id": value.get("training_run_id"),
-        "attempt_id": value.get("attempt_id"),
-        "schema_version": value.get("schema_version", 1),
-        "metadata": value.get("metadata", {}),
-    }
-    return ArtifactDescriptor(**fields)  # type: ignore[arg-type]
 
 
 def _optional_float(value: object) -> float | None:
@@ -177,26 +174,12 @@ def _validate_bundle_scope(
         raise ValueError("threshold strategy Dataset Version does not match the verified bundle")
 
 
-def _create_s3_client():
-    return boto3.client(
-        "s3",
-        endpoint_url=os.environ["FINEVISION_S3_ENDPOINT"],
-        region_name=os.environ.get("FINEVISION_S3_REGION", "us-east-1"),
-        aws_access_key_id=os.environ["FINEVISION_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["FINEVISION_S3_SECRET_KEY"],
-        config=Config(s3={"addressing_style": "path"}),
-    )
 
 
 def main() -> None:
     s3_client = _create_s3_client()
     cache_root = os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))))
-    from finevision.compute.dataset_compute import DatasetComputeService
-    from finevision.compute.v1 import dataset_compute_pb2_grpc
-    dataset_compute_pb2_grpc.add_DatasetComputeServicer_to_server(
-        DatasetComputeService(InferenceRuntimeService(cache_root, s3_client=s3_client)), server,
-    )
     inference_runtime_pb2_grpc.add_InferenceRuntimeServicer_to_server(
         InferenceRuntimeService(cache_root, s3_client=s3_client),
         server,
