@@ -1,3 +1,4 @@
+import { formatBytes, modelWeightTone, modelWeightLabel, modelWeightDetails } from "../features/weights/presentation.js";
 import { useInferenceModels } from "../hooks/useInferenceModels.js";
 import { inferenceModelLabel } from "../api/inferenceModels.js";
 import { getModelVersion } from "../api/modelVersions.js";
@@ -1269,25 +1270,6 @@ function isDinoExtractor(extractor) {
   ].includes(String(extractor));
 }
 
-function formatBytes(bytes) {
-  const value = Number(bytes);
-  if (!Number.isFinite(value) || value <= 0) return "0 MB";
-  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
-  return `${(value / 1024 ** 2).toFixed(1)} MB`;
-}
-
-function modelWeightTone(state) {
-  if (state === "cached") return "default";
-  if (state === "partial") return "warn";
-  return "neutral";
-}
-
-function modelWeightLabel(state) {
-  if (state === "cached") return "已缓存";
-  if (state === "partial") return "下载中/未完成";
-  return "未缓存";
-}
-
 function extractorShortLabel(extractor) {
   if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "ViT-S · DINOv3";
   if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ViT-S · ImageNet";
@@ -1436,37 +1418,39 @@ function trainingRunNextActions(run, missingOutputs) {
 
 export function WeightManagementPage() {
   const { weights, source, loading, error, refresh } = useModelWeights();
+  const managedCount = weights.filter((weight) => weight.state === "managed").length;
+  const cacheUnreported = managedCount > 0 || loading || source !== "api" || weights.length === 0 || weights.some((weight) => !["cached", "partial", "missing"].includes(weight.state));
   const totalCachedBytes = weights.reduce((sum, weight) => sum + (weight.state === "cached" ? weight.cacheBytes : 0), 0);
   const cachedCount = weights.filter((weight) => weight.state === "cached").length;
   const partialCount = weights.filter((weight) => weight.state === "partial").length;
-  const sourceLabel = loading ? "正在读取权重缓存" : source === "api" ? "权重缓存已同步" : "权重缓存暂不可用";
+  const sourceLabel = loading ? "正在读取权重目录" : source === "api" ? "权重目录已同步" : "权重目录暂不可用";
 
   return (
     <>
       <PageHero
         title="权重管理"
-        description="查看二期批准的 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重及缓存状态。"
+        description="查看 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重登记信息及已上报的缓存状态。"
         actions={<button className="ghost-button" onClick={refresh} disabled={loading}><Icon name="RefreshCw" size={16} />刷新</button>}
       />
       <div className="grid metrics">
-        <MetricCard title="已缓存" value={`${cachedCount}/3`} caption={sourceLabel} fill="#0f766e" percent={(cachedCount / 3) * 100} icon="HardDrive" />
-        <MetricCard title="缓存体积" value={formatBytes(totalCachedBytes)} caption="complete blobs" fill="#315fbd" percent={cachedCount ? 100 : 0} icon="DatabaseZap" />
-        <MetricCard title="未完成" value={`${partialCount}`} caption="partial downloads" fill="#a15c07" percent={(partialCount / 3) * 100} icon="LoaderCircle" />
-        <MetricCard title="训练特征" value="CLS" caption="feature_pool 默认 cls" fill="#0f766e" percent={100} icon="Target" />
+        <MetricCard title="受管权重" value={`${managedCount}/${weights.length}`} caption={sourceLabel} fill="#0f766e" percent={weights.length ? managedCount / weights.length * 100 : 0} icon="HardDrive" />
+        <MetricCard title="已上报缓存" value={cacheUnreported ? "未上报" : `${cachedCount}`} caption={managedCount ? "当前接口不检查计算节点缓存" : sourceLabel} fill="#315fbd" percent={0} icon="DatabaseZap" />
+        <MetricCard title="已上报缓存体积" value={cacheUnreported ? "—" : formatBytes(totalCachedBytes)} caption="仅统计明确上报的本地缓存" fill="#0f766e" percent={0} icon="HardDrive" />
+        <MetricCard title="未完成下载" value={cacheUnreported ? "未上报" : `${partialCount}`} caption="仅统计明确上报的下载状态" fill="#a15c07" percent={0} icon="LoaderCircle" />
       </div>
       <div className="grid two section-gap">
-        <Panel title="预训练权重缓存" caption="只管理批准的 backbone 权重；分类头和训练报告仍在 ArtifactStore。">
+        <Panel title="预训练权重" caption="展示已登记的 backbone 权重。已纳入管理表示目录登记，不代表实时存储校验或计算节点缓存状态。">
           {error && <div className="route-box"><strong>权重服务不可用</strong><div className="row-meta">{error.message}</div></div>}
           <div className="timeline">
             {weights.map((weight) => {
               const state = weight.state ?? "missing";
-              const sizeLabel = state === "cached" ? formatBytes(weight.cacheBytes) : state === "partial" ? `${formatBytes(weight.partialBytes)} partial` : "未下载";
+              const sizeLabel = modelWeightDetails(weight);
               return (
                 <div className="timeline-item" key={weight.extractor}>
                   <div className="timeline-icon"><Icon name="HardDrive" size={18} /></div>
                   <div>
                     <strong>{extractorShortLabel(weight.extractor)} · {weight.backboneId}</strong>
-                    <div className="row-meta">{weight.modelName} · {sizeLabel} · {weight.completeFileCount} files</div>
+                    <div className="row-meta">{weight.modelName} · {sizeLabel}</div>
                     <div className="row-meta">{weight.description || weightUsageLabel(weight.extractor)}</div>
                   </div>
                   <div className="queue-row-actions">
@@ -1498,7 +1482,7 @@ export function WeightManagementPage() {
             runtime_source: MinIO content-addressed object
           </TechnicalDetails>
           {weights[0]?.cacheDir && (
-            <TechnicalDetails summary="缓存路径">
+            <TechnicalDetails summary="权重存储路径">
               cache_root_hint: {weights[0].cacheDir.replace(/\/models--timm--.*/, "")}
             </TechnicalDetails>
           )}
@@ -1868,12 +1852,7 @@ export function TrainingPage({ showToast }) {
             {["dinov3_vits16_lvd1689m", "imagenet_vits16_augreg_in21k_ft_in1k", "imagenet_resnet50_a1_in1k"].map((extractor) => {
               const weight = weightByExtractor[extractor];
               const state = weight?.state ?? (weightsLoading ? "loading" : "missing");
-              const sizeLabel =
-                state === "cached"
-                  ? formatBytes(weight?.cacheBytes)
-                  : state === "partial"
-                    ? `${formatBytes(weight?.partialBytes)} partial`
-                    : "首次训练会下载";
+              const sizeLabel = modelWeightDetails(weight);
               return (
                 <button
                   className={`weight-status-card ${trainingForm.extractor === extractor ? "selected" : ""}`}
