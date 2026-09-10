@@ -37,32 +37,41 @@ type Filter struct {
 }
 
 type Version struct {
-	ID                 string                `json:"model_version_id"`
-	ModelKey           string                `json:"model_key"`
-	Name               string                `json:"name"`
-	Description        string                `json:"description"`
-	DatasetID          string                `json:"dataset_id"`
-	DatasetName        string                `json:"dataset_name"`
-	DatasetVersionID   string                `json:"dataset_version_id"`
-	DatasetVersionKey  string                `json:"dataset_version_key"`
-	TrainingRunID      string                `json:"training_run_id"`
-	Status             Status                `json:"status"`
-	Aliases            []string              `json:"aliases"`
-	BackboneKey        string                `json:"backbone_key"`
-	Architecture       string                `json:"architecture"`
-	PretrainingMethod  string                `json:"pretraining_method"`
-	PretrainingDataset string                `json:"pretraining_dataset"`
-	InputSize          *int                  `json:"input_size"`
-	FeatureDim         *int                  `json:"feature_dim"`
-	ParameterCount     *int64                `json:"parameter_count"`
-	Pooling            string                `json:"pooling"`
-	HeadType           string                `json:"head_type"`
-	Metrics            map[string]any        `json:"metrics"`
-	EvaluationContext  map[string]any        `json:"evaluation_context"`
-	Artifacts          []artifact.Descriptor `json:"artifacts"`
-	Events             []Event               `json:"events"`
-	CreatedAt          time.Time             `json:"created_at"`
-	UpdatedAt          time.Time             `json:"updated_at"`
+	ReleaseVersion       string                `json:"release_version"`
+	ReleaseSequence      int64                 `json:"release_sequence"`
+	ReleaseReason        string                `json:"release_reason"`
+	ReleaseSignature     string                `json:"-"`
+	ReleasePrecision     string                `json:"-"`
+	NextReleaseVersion   string                `json:"next_release_version,omitempty"`
+	NextReleaseReason    string                `json:"next_release_reason,omitempty"`
+	DatasetVersionNumber int                   `json:"dataset_version_number"`
+	TrainingConfig       map[string]any        `json:"training_config"`
+	ID                   string                `json:"model_version_id"`
+	ModelKey             string                `json:"model_key"`
+	Name                 string                `json:"name"`
+	Description          string                `json:"description"`
+	DatasetID            string                `json:"dataset_id"`
+	DatasetName          string                `json:"dataset_name"`
+	DatasetVersionID     string                `json:"dataset_version_id"`
+	DatasetVersionKey    string                `json:"dataset_version_key"`
+	TrainingRunID        string                `json:"training_run_id"`
+	Status               Status                `json:"status"`
+	Aliases              []string              `json:"aliases"`
+	BackboneKey          string                `json:"backbone_key"`
+	Architecture         string                `json:"architecture"`
+	PretrainingMethod    string                `json:"pretraining_method"`
+	PretrainingDataset   string                `json:"pretraining_dataset"`
+	InputSize            *int                  `json:"input_size"`
+	FeatureDim           *int                  `json:"feature_dim"`
+	ParameterCount       *int64                `json:"parameter_count"`
+	Pooling              string                `json:"pooling"`
+	HeadType             string                `json:"head_type"`
+	Metrics              map[string]any        `json:"metrics"`
+	EvaluationContext    map[string]any        `json:"evaluation_context"`
+	Artifacts            []artifact.Descriptor `json:"artifacts"`
+	Events               []Event               `json:"events"`
+	CreatedAt            time.Time             `json:"created_at"`
+	UpdatedAt            time.Time             `json:"updated_at"`
 }
 
 type Warning struct {
@@ -119,7 +128,16 @@ func (service *Service) List(ctx context.Context, filter Filter) ([]Version, err
 }
 
 func (service *Service) Get(ctx context.Context, id string) (Version, error) {
-	return service.repository.Get(ctx, id)
+	v, err := service.repository.Get(ctx, id)
+	if err != nil {
+		return v, err
+	}
+	versions, err := service.repository.List(ctx, Filter{DatasetID: v.DatasetID})
+	if err != nil {
+		return v, err
+	}
+	v.NextReleaseVersion, v.NextReleaseReason, _ = NextRelease(v, LatestRelease(versions, v.DatasetID))
+	return v, nil
 }
 
 func (service *Service) Compare(ctx context.Context, ids []string) (Comparison, error) {

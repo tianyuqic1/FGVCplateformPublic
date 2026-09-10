@@ -27,3 +27,19 @@ func TestImageTrainingModes(t *testing.T) {
 		t.Fatal("ImageNet LoRA accepted")
 	}
 }
+
+func TestIndependentRatesAndAugmentations(t *testing.T) {
+	config, err := normalizeImageTrainingConfig("imagenet_vits16_augreg_in21k_ft_in1k", map[string]any{"head_learning_rate": 0.001, "backbone_learning_rate": 0.00001, "augmentations": map[string]any{"horizontal_flip": true}})
+	if err != nil || config["head_learning_rate"] != 0.001 || config["backbone_learning_rate"] != 0.00001 || config["augmentations"].(map[string]any)["horizontal_flip"] != true {
+		t.Fatal(config, err)
+	}
+	config, err = normalizeImageTrainingConfig("dinov3_vits16_lvd1689m", map[string]any{"lora_enabled": true, "head_learning_rate": 0.001, "lora_learning_rate": 0.0002})
+	if err != nil || config["lora_learning_rate"] != 0.0002 {
+		t.Fatal(config, err)
+	}
+	for _, input := range []map[string]any{{"head_learning_rate": 0.0}, {"head_learning_rate": "1e-3"}, {"backbone_learning_rate": 0.001}, {"lora_learning_rate": 0.001}, {"augmentations": map[string]any{"unknown": true}}, {"augmentations": map[string]any{"horizontal_flip": 1.0}}, {"augmentations": true}} {
+		if _, err := normalizeImageTrainingConfig("dinov3_vits16_lvd1689m", input); err == nil {
+			t.Fatal("invalid config accepted", input)
+		}
+	}
+}

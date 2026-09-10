@@ -210,6 +210,24 @@ func (e LLMAssistanceRequestTask) Valid() bool {
 	}
 }
 
+// Defines values for PromoteModelVersionRequestPrecision.
+const (
+	FP16 PromoteModelVersionRequestPrecision = "FP16"
+	FP32 PromoteModelVersionRequestPrecision = "FP32"
+)
+
+// Valid indicates whether the value is a known member of the PromoteModelVersionRequestPrecision enum.
+func (e PromoteModelVersionRequestPrecision) Valid() bool {
+	switch e {
+	case FP16:
+		return true
+	case FP32:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PromoteModelVersionRequestTargetStatus.
 const (
 	PromoteModelVersionRequestTargetStatusProduction PromoteModelVersionRequestTargetStatus = "production"
@@ -334,10 +352,12 @@ type CreateTrainingRun struct {
 	FeatureBatchSize *int                          `json:"feature_batch_size,omitempty"`
 	FeaturePool      *CreateTrainingRunFeaturePool `json:"feature_pool,omitempty"`
 
-	// HeadConfig Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, image batch_size 1–128. New image tasks do not produce offline features.
-	HeadConfig  *FreeFormObject `json:"head_config,omitempty"`
-	ImageSize   *int            `json:"image_size,omitempty"`
-	MaxAttempts *int            `json:"max_attempts,omitempty"`
+	// HeadConfig Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate only to ImageNet; lora_learning_rate only to enabled DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features.
+	HeadConfig *FreeFormObject `json:"head_config,omitempty"`
+
+	// ImageSize Managed image training supports 128–512; ViT-S requires multiples of 16. UI presets: 224, 256, 320, 384, 448, 512. Saved preprocessing is reused by publication and inference.
+	ImageSize   *int `json:"image_size,omitempty"`
+	MaxAttempts *int `json:"max_attempts,omitempty"`
 
 	// Name Human-readable training task name
 	Name                *string  `json:"name,omitempty"`
@@ -461,12 +481,18 @@ type ModelVersionComparisonRequest struct {
 
 // PromoteModelVersionRequest defines model for PromoteModelVersionRequest.
 type PromoteModelVersionRequest struct {
-	Actor  string `json:"actor"`
-	Reason string `json:"reason"`
+	Actor string `json:"actor"`
+
+	// Precision Deployment precision; additional precision keeps the same dataset-scoped release version
+	Precision *PromoteModelVersionRequestPrecision `json:"precision,omitempty"`
+	Reason    string                               `json:"reason"`
 
 	// TargetStatus production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly
 	TargetStatus PromoteModelVersionRequestTargetStatus `json:"target_status"`
 }
+
+// PromoteModelVersionRequestPrecision Deployment precision; additional precision keeps the same dataset-scoped release version
+type PromoteModelVersionRequestPrecision string
 
 // PromoteModelVersionRequestTargetStatus production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly
 type PromoteModelVersionRequestTargetStatus string

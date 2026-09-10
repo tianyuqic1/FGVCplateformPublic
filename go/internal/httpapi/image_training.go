@@ -66,5 +66,40 @@ func normalizeImageTrainingConfig(key string, input map[string]any) (map[string]
 	}
 	config["head_type"], config["training_mode"] = "image_classifier_v2", mode
 	config["lora_enabled"], config["lora_rank"] = enabled, rank
+	for _, name := range []string{"head_learning_rate", "backbone_learning_rate", "lora_learning_rate"} {
+		applicable := name == "head_learning_rate" || (name == "backbone_learning_rate" && mode == "full") || (name == "lora_learning_rate" && mode == "lora")
+		value, exists := config[name]
+		if !applicable {
+			if exists {
+				return nil, fmt.Errorf("%s is not applicable to %s training", name, mode)
+			}
+			continue
+		}
+		if !exists {
+			config[name] = config["learning_rate"]
+			continue
+		}
+		number, ok := value.(float64)
+		if !ok || math.IsNaN(number) || math.IsInf(number, 0) || number <= 0 || number > 1 {
+			return nil, fmt.Errorf("invalid %s", name)
+		}
+	}
+	allowed := map[string]any{"random_resized_crop": false, "horizontal_flip": false, "vertical_flip": false, "color_jitter": false, "random_rotation": false, "random_erasing": false}
+	if value, exists := config["augmentations"]; exists {
+		options, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("augmentations must be an object")
+		}
+		for name, value := range options {
+			if _, ok := allowed[name]; !ok {
+				return nil, fmt.Errorf("unsupported augmentation %s", name)
+			}
+			if _, ok := value.(bool); !ok {
+				return nil, fmt.Errorf("augmentation %s must be boolean", name)
+			}
+			allowed[name] = value
+		}
+	}
+	config["augmentations"] = allowed
 	return config, nil
 }

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
@@ -12,7 +13,22 @@ import (
 // Atomically register verified output and publish. Expired concurrent exports cannot overwrite archive or another publication.
 func (r *ModelRegistryRepository) CompletePublication(ctx context.Context, expected modelregistry.Version, artifacts []artifact.Descriptor, actor, reason string) (modelregistry.Version, error) {
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE model_versions SET status='production', updated_at=now() WHERE id=$1 AND status=$2 AND updated_at=$3`, expected.ID, string(expected.Status), expected.UpdatedAt)
+		// Lock the dataset before reading its last release. Different models of
+		// the same dataset therefore cannot allocate the same semantic version.
+		var datasetID string
+		if err := tx.QueryRow(ctx, `SELECT d.id::text FROM datasets d JOIN model_versions mv ON mv.dataset_id=d.id WHERE mv.id=$1 FOR UPDATE OF d`, expected.ID).Scan(&datasetID); err != nil {
+			return err
+		}
+		var previous modelregistry.Version
+		err := tx.QueryRow(ctx, `SELECT release_version,release_sequence,release_signature,dataset_version_id::text FROM model_versions WHERE dataset_id=$1 AND release_version IS NOT NULL ORDER BY release_sequence DESC LIMIT 1`, datasetID).Scan(&previous.ReleaseVersion, &previous.ReleaseSequence, &previous.ReleaseSignature, &previous.DatasetVersionID)
+		var latest *modelregistry.Version
+		if err == nil {
+			latest = &previous
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		version, upgradeReason, sequence := modelregistry.NextRelease(expected, latest)
+		result, err := tx.Exec(ctx, `UPDATE model_versions SET status='production', updated_at=now(), release_version=$4, release_sequence=$5, release_reason=$6, release_signature=$7 WHERE id=$1 AND status=$2 AND updated_at=$3`, expected.ID, string(expected.Status), expected.UpdatedAt, version, sequence, upgradeReason, modelregistry.ModelSignature(expected))
 		if err != nil {
 			return err
 		}
@@ -30,7 +46,7 @@ func (r *ModelRegistryRepository) CompletePublication(ctx context.Context, expec
 				return err
 			}
 		}
-		payload, err := json.Marshal(map[string]any{"artifacts": artifacts, "format": "onnx", "scope": "classification_head"})
+		payload, err := json.Marshal(map[string]any{"artifacts": artifacts, "format": "onnx", "model_format": expected.HeadType, "release_version": version, "upgrade_reason": upgradeReason, "precision": expected.ReleasePrecision})
 		if err != nil {
 			return err
 		}

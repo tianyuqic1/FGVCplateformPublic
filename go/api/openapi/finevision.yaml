@@ -594,14 +594,14 @@ components:
           enum: [color_stats, dinov3_vits, imagenet_vits, imagenet_resnet50]
           deprecated: true
         feature_batch_size: {type: integer, minimum: 1, maximum: 128, default: 8}
-        image_size: {type: integer, minimum: 128, maximum: 1024}
+        image_size: {type: integer, minimum: 128, maximum: 512, description: "Managed image training supports 128–512; ViT-S requires multiples of 16. UI presets: 224, 256, 320, 384, 448, 512. Saved preprocessing is reused by publication and inference."}
         feature_pool: {type: string, enum: [cls, model], default: cls}
         target_selective_risk: {type: number, minimum: 0, maximum: 1, default: 0.01}
         review_cost_per_item: {type: number, minimum: 0, default: 1}
         extractor_config: {$ref: "#/components/schemas/FreeFormObject"}
         head_config:
           allOf: [{$ref: "#/components/schemas/FreeFormObject"}]
-          description: "Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, image batch_size 1–128. New image tasks do not produce offline features."
+          description: "Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate only to ImageNet; lora_learning_rate only to enabled DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features."
     ClaimTrainingJob:
       type: object
       required: [dispatch_generation, worker_id]
@@ -637,6 +637,7 @@ components:
       type: object
       required: [target_status, actor, reason]
       properties:
+        precision: {type: string, enum: [FP32, FP16], default: FP32, description: "Deployment precision; additional precision keeps the same dataset-scoped release version"}
         target_status: {type: string, enum: [staging, production], description: "production exports a verified classification head checkpoint and ONNX to object storage before atomic publication; candidate may publish directly"}
         actor: {type: string, minLength: 1, maxLength: 200}
         reason: {type: string, minLength: 1, maxLength: 1000}

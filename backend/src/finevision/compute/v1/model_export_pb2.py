@@ -26,7 +26,7 @@ from finevision.compute.v1 import artifact_pb2 as finevision_dot_compute_dot_v1_
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(finevision/compute/v1/model_export.proto\x12\x15\x66inevision.compute.v1\x1a$finevision/compute/v1/artifact.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xa4\x01\n\x11\x45xportHeadRequest\x12\x18\n\x10model_version_id\x18\x01 \x01(\t\x12\x1a\n\x12\x64\x61taset_version_id\x18\x02 \x01(\t\x12\x17\n\x0ftraining_run_id\x18\x03 \x01(\t\x12@\n\rsource_bundle\x18\x04 \x01(\x0b\x32).finevision.compute.v1.ArtifactDescriptor2^\n\x0bModelExport\x12O\n\nExportHead\x12(.finevision.compute.v1.ExportHeadRequest\x1a\x17.google.protobuf.StructBXZVgithub.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n(finevision/compute/v1/model_export.proto\x12\x15\x66inevision.compute.v1\x1a$finevision/compute/v1/artifact.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb7\x01\n\x11\x45xportHeadRequest\x12\x18\n\x10model_version_id\x18\x01 \x01(\t\x12\x1a\n\x12\x64\x61taset_version_id\x18\x02 \x01(\t\x12\x17\n\x0ftraining_run_id\x18\x03 \x01(\t\x12@\n\rsource_bundle\x18\x04 \x01(\x0b\x32).finevision.compute.v1.ArtifactDescriptor\x12\x11\n\tprecision\x18\x05 \x01(\t2^\n\x0bModelExport\x12O\n\nExportHead\x12(.finevision.compute.v1.ExportHeadRequest\x1a\x17.google.protobuf.StructBXZVgithub.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,7 +35,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'ZVgithub.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1'
   _globals['_EXPORTHEADREQUEST']._serialized_start=136
-  _globals['_EXPORTHEADREQUEST']._serialized_end=300
-  _globals['_MODELEXPORT']._serialized_start=302
-  _globals['_MODELEXPORT']._serialized_end=396
+  _globals['_EXPORTHEADREQUEST']._serialized_end=319
+  _globals['_MODELEXPORT']._serialized_start=321
+  _globals['_MODELEXPORT']._serialized_end=415
 # @@protoc_insertion_point(module_scope)

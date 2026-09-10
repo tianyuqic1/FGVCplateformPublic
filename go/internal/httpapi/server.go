@@ -115,7 +115,17 @@ func (server *Server) PromoteModelVersion(ctx context.Context, request openapi.P
 	if request.Body == nil {
 		return openapi.PromoteModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
 	}
-	version, err := server.registry.Promote(ctx, request.ModelVersionId.String(), modelregistry.Status(request.Body.TargetStatus), request.Body.Actor, request.Body.Reason)
+	var version modelregistry.Version
+	var err error
+	if request.Body.TargetStatus == "production" {
+		precision := "FP32"
+		if request.Body.Precision != nil {
+			precision = string(*request.Body.Precision)
+		}
+		version, err = server.registry.PublishPrecision(ctx, request.ModelVersionId.String(), request.Body.Actor, request.Body.Reason, precision)
+	} else {
+		version, err = server.registry.Promote(ctx, request.ModelVersionId.String(), modelregistry.Status(request.Body.TargetStatus), request.Body.Actor, request.Body.Reason)
+	}
 	if err != nil {
 		if response := promoteError(ctx, err); response != nil {
 			return response, nil
@@ -363,9 +373,9 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error()))}, nil
 		}
 		payload["head_config"] = config
-		// Image training uses the approved backbone's native preprocessing size.
-		if backbone.Key != modelcatalog.DINOv3ViTSKey && imageSize != backbone.InputSize {
-			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training currently requires the backbone native input size"))}, nil
+		extractorConfig["image_size"] = imageSize // Persist the actual training/export resolution.
+		if imageSize < 128 || imageSize > 512 {
+			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training input size must be in [128,512]"))}, nil
 		}
 	}
 	if request.Body.TargetSelectiveRisk != nil {

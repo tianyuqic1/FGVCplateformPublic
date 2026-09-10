@@ -12,4 +12,5 @@ message ExportHeadRequest {
   string dataset_version_id = 2;
   string training_run_id = 3;
   ArtifactDescriptor source_bundle = 4;
+  string precision = 5; // FP32 (default for old clients) or FP16
 }

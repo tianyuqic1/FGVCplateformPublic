@@ -28,7 +28,7 @@ func (e testExporter) Export(_ context.Context, v modelregistry.Version) ([]arti
 		kinds = []string{"full_pt", "full_onnx"}
 	}
 	for _, kind := range kinds {
-		a := artifact.Descriptor{ArtifactID: kind, ArtifactType: kind, URI: "s3://test/" + kind, SizeBytes: 4, DatasetVersionID: v.DatasetVersionID, TrainingRunID: v.TrainingRunID, Metadata: map[string]any{"model_version_id": v.ID, "parity_passed": true}}
+		a := artifact.Descriptor{ArtifactID: kind, ArtifactType: kind, URI: "s3://test/" + kind, SizeBytes: 4, DatasetVersionID: v.DatasetVersionID, TrainingRunID: v.TrainingRunID, Metadata: map[string]any{"model_version_id": v.ID, "parity_passed": true, "precision": v.ReleasePrecision}}
 		if e.wrongScope {
 			a.DatasetVersionID = "wrong"
 		}
@@ -86,7 +86,7 @@ func TestPublicationFailsClosedAndCommitsBothArtifacts(t *testing.T) {
 				if err != nil || len(retry.Artifacts) != 2 {
 					t.Fatal("retry duplicated artifacts")
 				}
-			} else if err == nil || actual.Status == modelregistry.StatusProduction || len(actual.Artifacts) != 0 {
+			} else if err == nil || actual.Status == modelregistry.StatusProduction || len(actual.Artifacts) != 0 || actual.ReleaseVersion != "" {
 				t.Fatalf("failed export became published: %+v %v", actual, err)
 			}
 		})

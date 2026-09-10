@@ -82,7 +82,7 @@ class ImageClassifier(nn.Module):
         return self.head(features)
 
 
-def build_classifier(key, classes, mode, rank, *, checkpoint_path=None):
+def build_classifier(key, classes, mode, rank, *, checkpoint_path=None, image_size=None):
     import timm
     from timm.data import resolve_model_data_config
     key = WEIGHT_ALIASES.get(key, key)
@@ -100,12 +100,80 @@ def build_classifier(key, classes, mode, rank, *, checkpoint_path=None):
             raise ValueError("pretrained checkpoint does not match approved backbone")
     data_config = resolve_model_data_config(backbone)
     preprocessing = {name: data_config[name] for name in ("input_size", "mean", "std", "interpolation", "crop_pct")}
+    size = image_size if image_size is not None else preprocessing["input_size"][-1]
+    if isinstance(size, bool) or not isinstance(size, (int, float)) or not float(size).is_integer() or not 128 <= size <= 512 or ("vits" in key and size % 16):
+        raise ValueError("unsupported image input size")
+    size = int(size)
+    # Resize absolute positional embeddings AFTER loading pretrained weights,
+    # but BEFORE freezing parameters / constructing the optimizer. DINO uses
+    # dynamic RoPE and ResNet is spatially fully convolutional.
+    if key.startswith("imagenet_vits") and size != preprocessing["input_size"][-1]:
+        backbone.set_input_size(img_size=(size, size))
+    preprocessing["input_size"] = (3, size, size)
     return ImageClassifier(backbone, classes, mode, rank), preprocessing
 
 
 def image_transform(preprocessing):
     from timm.data import create_transform
     return create_transform(**preprocessing, is_training=False)
+
+
+AUGMENTATION_KEYS = ("random_resized_crop", "horizontal_flip", "vertical_flip", "color_jitter", "random_rotation", "random_erasing")
+
+
+def normalize_augmentations(value):
+    if value is None:
+        value = {}
+    if not isinstance(value, dict) or set(value) - set(AUGMENTATION_KEYS) or any(not isinstance(v, bool) for v in value.values()):
+        raise ValueError("augmentations must contain supported boolean options")
+    return {key: value.get(key, False) for key in AUGMENTATION_KEYS}
+
+
+def training_transform(preprocessing, augmentations):
+    from torchvision import transforms as T
+    from torchvision.transforms.functional import InterpolationMode
+    options = normalize_augmentations(augmentations)
+    # Start from the exact evaluation resize/crop + normalization contract.
+    transforms = list(image_transform(preprocessing).transforms)
+    if options["random_resized_crop"]:
+        interpolation = {"bicubic": InterpolationMode.BICUBIC, "bilinear": InterpolationMode.BILINEAR}.get(preprocessing["interpolation"], InterpolationMode.BICUBIC)
+        transforms[:2] = [T.RandomResizedCrop(preprocessing["input_size"][-2:], scale=(0.7, 1.0), ratio=(0.75, 4 / 3), interpolation=interpolation)]
+    # PIL-space changes before conversion/normalization; erasing afterward.
+    insert_at = next(i for i, item in enumerate(transforms) if isinstance(item, T.ToTensor))
+    extras = []
+    if options["horizontal_flip"]: extras.append(T.RandomHorizontalFlip(p=0.5))
+    if options["vertical_flip"]: extras.append(T.RandomVerticalFlip(p=0.5))
+    if options["color_jitter"]: extras.append(T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05))
+    if options["random_rotation"]: extras.append(T.RandomRotation(15))
+    transforms[insert_at:insert_at] = extras
+    if options["random_erasing"]: transforms.append(T.RandomErasing(p=0.25, scale=(0.02, 0.15), value=0))
+    return T.Compose(transforms)
+
+
+def learning_rates(config, mode):
+    fallback = config.get("learning_rate", 1e-3 if mode == "frozen" else 1e-4)
+    keys = ["head_learning_rate"] + (["backbone_learning_rate"] if mode == "full" else ["lora_learning_rate"] if mode == "lora" else [])
+    for name in ("learning_rate", "head_learning_rate", "backbone_learning_rate", "lora_learning_rate"):
+        if name in config:
+            value = config[name]
+            if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 < value <= 1:
+                raise ValueError(f"invalid {name}")
+            if name != "learning_rate" and name not in keys:
+                raise ValueError(f"{name} is not applicable to {mode} training")
+    return {key: float(config.get(key, fallback)) for key in keys}
+
+
+def optimizer_groups(model, rates):
+    groups = [{"name": "head", "params": list(model.head.parameters()), "lr": rates["head_learning_rate"]}]
+    if model.mode == "full":
+        groups.append({"name": "backbone", "params": list(model.backbone.parameters()), "lr": rates["backbone_learning_rate"]})
+    elif model.mode == "lora":
+        groups.append({"name": "lora", "params": [p for n, p in model.backbone.named_parameters() if "lora_" in n and p.requires_grad], "lr": rates["lora_learning_rate"]})
+    expected = {id(p) for p in model.parameters() if p.requires_grad}
+    actual = [id(p) for group in groups for p in group["params"]]
+    if len(actual) != len(set(actual)) or set(actual) != expected:
+        raise ValueError("optimizer parameter groups must cover each trainable parameter exactly once")
+    return groups
 
 
 class ImageSamples(Dataset):
@@ -145,7 +213,7 @@ def load_classifier(path):
     mode, rank = training_mode(checkpoint["backbone_key"], checkpoint["training_config"])
     if checkpoint.get("merged"):
         mode, rank = "full", 0
-    model, _ = build_classifier(checkpoint["backbone_key"], len(classes), mode, rank)
+    model, _ = build_classifier(checkpoint["backbone_key"], len(classes), mode, rank, image_size=checkpoint["preprocessing"]["input_size"][-1])
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     if any(not torch.isfinite(p).all() for p in model.parameters()):
         raise ValueError("non-finite checkpoint")
@@ -156,6 +224,8 @@ def train_images(manifest, payload, artifact_root, *, progress, check_control):
     key = WEIGHT_ALIASES.get(payload["backbone_id"], payload["backbone_id"])
     config = dict(payload.get("head_config") or {})
     mode, rank = training_mode(key, config)
+    rates = learning_rates(config, mode)
+    augmentations = normalize_augmentations(config.get("augmentations"))
     epochs, batch_size = config.get("epochs", 30), config.get("batch_size", 8)
     lr, decay = float(config.get("learning_rate", 1e-3 if mode == "frozen" else 1e-4)), float(config.get("weight_decay", 1e-4))
     if isinstance(epochs, bool) or not float(epochs).is_integer() or not 1 <= epochs <= 1000:
@@ -176,17 +246,14 @@ def train_images(manifest, payload, artifact_root, *, progress, check_control):
     if not weight_path:
         raise ValueError("verified managed pretrained weight is required")
     progress("weights", 0)
-    model, preprocessing = build_classifier(key, len(manifest.classes), mode, rank, checkpoint_path=weight_path)
-    size = int(payload.get("image_size") or preprocessing["input_size"][-1])
-    if not 128 <= size <= 512 or ("vits" in key and size % 16) or (key.startswith("imagenet_vits") and size != 224):
-        raise ValueError("unsupported image input size")
-    preprocessing["input_size"] = (3, size, size)
+    model, preprocessing = build_classifier(key, len(manifest.classes), mode, rank, checkpoint_path=weight_path, image_size=payload.get("image_size") or None)
     device = os.environ.get("FINEVISION_COMPUTE_DEVICE", "cpu")
     model.to(device)
     transform = image_transform(preprocessing)
+    augmented_transform = training_transform(preprocessing, augmentations)
     def loader(samples, shuffle=False):
-        return DataLoader(ImageSamples(samples, manifest.classes, transform), batch_size=batch_size, shuffle=shuffle, num_workers=0)
-    optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=decay)
+        return DataLoader(ImageSamples(samples, manifest.classes, augmented_transform if shuffle else transform), batch_size=batch_size, shuffle=shuffle, num_workers=0)
+    optimizer = torch.optim.AdamW(optimizer_groups(model, rates), weight_decay=decay)
     def predict(samples):
         model.eval()
         rows = []
@@ -218,7 +285,7 @@ def train_images(manifest, payload, artifact_root, *, progress, check_control):
     logits = predict(manifest.samples)
     config.update({"head_type": "image_classifier_v2", "training_mode": mode, "lora_enabled": mode == "lora", "lora_rank": rank or 8,
                    "lora_alpha": rank * 2, "lora_targets": ["attn.qkv"] if rank else [], "epochs": epochs, "batch_size": batch_size,
-                   "learning_rate": lr, "weight_decay": decay, "preprocessing": preprocessing,
+                   "learning_rate": lr, **rates, "augmentations": augmentations, "image_size": preprocessing["input_size"][-1], "weight_decay": decay, "preprocessing": preprocessing,
                    "trainable_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad),
                    "total_parameters": sum(p.numel() for p in model.parameters()), "evaluation_split": "test"})
     run_id = payload["training_run_id"]

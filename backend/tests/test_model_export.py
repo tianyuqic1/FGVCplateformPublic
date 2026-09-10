@@ -19,10 +19,15 @@ def write_head(path):
              feature_mean=np.ones(384,np.float32), feature_std=np.zeros(384,np.float32))
 
 
-def test_vits_head_export_roundtrip_and_class_mapping(tmp_path):
+@pytest.mark.parametrize("precision", ["FP32", "FP16"])
+def test_vits_head_export_roundtrip_and_class_mapping(tmp_path, precision):
     source = tmp_path / "head.npz"
     write_head(source)
-    pt, onnx, report = export_linear_head(source,tmp_path / "export",["猫","鸟","狗"],str(uuid4()))
+    pt, onnx, report = export_linear_head(source,tmp_path / "export",["猫","鸟","狗"],str(uuid4()), precision=precision)
+    assert report["precision"] == precision
+    import torch
+    state = torch.load(pt, weights_only=True)["state_dict"]
+    assert state["weights"].dtype == (torch.float16 if precision == "FP16" else torch.float32)
     assert pt.stat().st_size > 0 and onnx.stat().st_size > 0
     assert report["parity_passed"] and report["feature_dim"] == 384
     assert report["classes"] == ["猫","鸟","狗"]

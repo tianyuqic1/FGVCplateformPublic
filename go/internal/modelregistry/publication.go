@@ -24,6 +24,13 @@ func (s *Service) WithPublication(exporter HeadExporter, verifier ArtifactVerifi
 }
 
 func (s *Service) Publish(ctx context.Context, id, actor, reason string) (Version, error) {
+	return s.PublishPrecision(ctx, id, actor, reason, "FP32")
+}
+
+func (s *Service) PublishPrecision(ctx context.Context, id, actor, reason, precision string) (Version, error) {
+	if precision != "FP32" && precision != "FP16" {
+		return Version{}, fmt.Errorf("%w: precision must be FP32 or FP16", ErrInvalid)
+	}
 	if strings.TrimSpace(actor) == "" || strings.TrimSpace(reason) == "" {
 		return Version{}, fmt.Errorf("%w: actor and reason required", ErrInvalid)
 	}
@@ -36,7 +43,7 @@ func (s *Service) Publish(ctx context.Context, id, actor, reason string) (Versio
 	}
 	if current.Status == StatusProduction {
 		for _, a := range current.Artifacts {
-			if ((current.HeadType == "image_classifier_v2" && a.ArtifactType == "full_onnx") || (current.HeadType != "image_classifier_v2" && a.ArtifactType == "head_onnx")) && a.Metadata["model_version_id"] == current.ID {
+			if ((current.HeadType == "image_classifier_v2" && a.ArtifactType == "full_onnx") || (current.HeadType != "image_classifier_v2" && a.ArtifactType == "head_onnx")) && a.Metadata["model_version_id"] == current.ID && ArtifactPrecision(a.Metadata) == precision && current.ReleaseVersion != "" {
 				return current, nil
 			}
 		}
@@ -45,6 +52,7 @@ func (s *Service) Publish(ctx context.Context, id, actor, reason string) (Versio
 	if !ok || s.exporter == nil || s.verifier == nil {
 		return Version{}, fmt.Errorf("%w: model export is unavailable", ErrConflict)
 	}
+	current.ReleasePrecision = precision
 	artifacts, err := s.exporter.Export(ctx, current)
 	if err != nil {
 		return Version{}, fmt.Errorf("%w: model export failed; model remains unpublished", ErrConflict)
@@ -58,6 +66,9 @@ func (s *Service) Publish(ctx context.Context, id, actor, reason string) (Versio
 		ptKind, onnxKind = "full_pt", "full_onnx"
 	}
 	for _, a := range artifacts {
+		if ArtifactPrecision(a.Metadata) != precision {
+			return Version{}, fmt.Errorf("%w: exported precision mismatch", ErrConflict)
+		}
 		if (a.ArtifactType != ptKind && a.ArtifactType != onnxKind) || kinds[a.ArtifactType] || !strings.HasPrefix(a.URI, "s3://") || a.SizeBytes <= 0 || a.DatasetVersionID != current.DatasetVersionID || a.TrainingRunID != current.TrainingRunID || a.Metadata["model_version_id"] != current.ID || a.Metadata["parity_passed"] != true {
 			return Version{}, fmt.Errorf("%w: publication artifact contract mismatch", ErrConflict)
 		}
@@ -80,6 +91,12 @@ func (r *MemoryRepository) CompletePublication(_ context.Context, expected Versi
 		return Version{}, ErrConflict
 	}
 	current.Status = StatusProduction
+	all := make([]Version, 0, len(r.versions))
+	for _, v := range r.versions {
+		all = append(all, v)
+	}
+	current.ReleaseVersion, current.ReleaseReason, current.ReleaseSequence = NextRelease(current, LatestRelease(all, current.DatasetID))
+	current.ReleaseSignature = ModelSignature(current)
 	current.Artifacts = append(current.Artifacts, artifacts...)
 	current.UpdatedAt = r.clock().UTC()
 	current.Events = append(current.Events, Event{EventType: "published", Actor: actor, Reason: reason, CreatedAt: current.UpdatedAt})

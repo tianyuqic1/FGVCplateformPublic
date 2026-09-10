@@ -26,6 +26,9 @@ import { PaginatedList } from "../../design-system/components/PaginatedList.jsx"
 import { DatasetPicker } from "./DatasetPicker.jsx";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 
+import { TrainingParameters } from "./TrainingParameters.jsx";
+import { trainingHeadConfig, trainingParameterRows } from "./trainingParameters.js";
+
 const backbones = [
   {
     key: "dinov3_vits16_lvd1689m",
@@ -72,7 +75,7 @@ export function TrainingPage({ showToast }) {
   const [queueQuery, setQueueQuery] = useState("");
   const [queueDataset, setQueueDataset] = useState("");
   const [queueBackbone, setQueueBackbone] = useState("");
-  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", epochs: "30", batchSize: "8" });
+  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", epochs: "30", batchSize: "8", imageSize: "224", headLearningRate: "0.001", backboneLearningRate: "0.00001", loraLearningRate: "0.0001", augmentations: {} });
   const isDino = form.backboneKey.startsWith("dinov3_");
   const [submitting, setSubmitting] = useState(false);
   const counts = statusCounts(trainingRuns);
@@ -88,7 +91,8 @@ export function TrainingPage({ showToast }) {
         name: form.name.trim(),
         dataset_version_id: form.datasetVersionId.trim(),
         backbone_key: form.backboneKey,
-        head_config: { head_type: "image_classifier_v2", epochs: Number(form.epochs), batch_size: Number(form.batchSize), lora_enabled: isDino && form.loraEnabled, lora_rank: Number(form.loraRank) },
+        image_size: Number(form.imageSize),
+        head_config: trainingHeadConfig(form),
       });
       showToast?.("训练任务已进入队列");
       navigate(`/training/${encodeURIComponent(run.id)}`);
@@ -156,6 +160,7 @@ export function TrainingPage({ showToast }) {
             </section>
             <label><span>训练轮数</span><input type="number" required min="1" max="1000" step="1" value={form.epochs} onChange={event => setForm({ ...form, epochs: event.target.value })} /></label>
             <label><span>图片批大小</span><input type="number" required min="1" max="128" step="1" value={form.batchSize} onChange={event => setForm({ ...form, batchSize: event.target.value })} /></label>
+            <TrainingParameters form={form} setForm={setForm} />
             <p className="fv-training-note">保存完整训练检查点；发布时合并 LoRA 并导出完整图片分类 ONNX。本期不生成检索特征。</p>
             <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim() || !form.name.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练"}</button>
           </form>
@@ -249,6 +254,7 @@ export function TrainingDetailPage({ showToast }) {
         <aside className="fv-side-stack">
           {run.trainingProgress?.stages?.length > 0 && <Panel eyebrow="Pipeline" title="阶段进度"><div className="fv-artifact-list">{run.trainingProgress.stages.map(stage => <div key={stage.id}><span>{stage.label}</span><small>{run.status === "succeeded" ? "已完成" : `${stage.percent}% · ${stage.status}`}</small><progress max="100" value={run.status === "succeeded" ? 100 : stage.percent} aria-label={stage.label} /></div>)}</div></Panel>}
           <Panel eyebrow="Training mode" title="训练方式"><strong>{trainingModeLabel(run)}</strong><p>{run.headConfig?.head_type === "image_classifier_v2" ? "图片 → 骨干网络 → 分类头；保存完整模型，无离线特征或检索产物。" : "历史任务保留原训练方式与产物。"}</p></Panel>
+          <Panel eyebrow="Training parameters" title="训练参数"><dl className="fv-definition-list">{trainingParameterRows(run).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="fv-training-note">以上为任务保存的配置。验证与测试使用确定性预处理，不应用训练集随机增强。</p></Panel>
           <Panel eyebrow="Run context" title="实验配置"><dl className="fv-definition-list"><div><dt>Dataset Version</dt><dd><CodeValue>{run.datasetVersionId}</CodeValue></dd></div><div><dt>Backbone</dt><dd>{runBackboneLabel(run)}</dd></div><div><dt>Backbone Key</dt><dd><CodeValue>{run.backboneId}</CodeValue></dd></div><div><dt>Pooling</dt><dd>{run.featurePool || "未记录"}</dd></div><div><dt>Input Size</dt><dd>{run.imageSize || "未记录"}</dd></div><div><dt>Head</dt><dd>{run.headConfig?.head_type || "未记录"}</dd></div><div><dt>Attempt</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id}</CodeValue></dd></div></dl></Panel>
           <Panel eyebrow="Integrity" title="训练产物"><div className="fv-artifact-list">{[...(run.headConfig?.head_type === "image_classifier_v2" ? [] : [["Feature", run.featureArtifactId]]), ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "逻辑归属已登记；加载时校验 SHA/大小" : "尚未生成"}</small></div>)}</div></Panel>
           {run.modelVersionId && <Link className="primary-button fv-full-button" to={`/models/${run.modelVersionId}`}><Icon name="Boxes" size={15} />打开 Model Version</Link>}

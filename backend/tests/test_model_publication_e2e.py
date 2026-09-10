@@ -70,6 +70,7 @@ def test_http_publish_exports_checkpoint_onnx_and_commits_verified_minio_artifac
                     content_type=a.content_type,producer=a.producer,storage_version=a.storage_version,schema_version=1,
                     dataset_version_id=dv,training_run_id=tr,verified_at=datetime.now(UTC),created_at=datetime.now(UTC),artifact_metadata=a.metadata)
     template.update(id=version_id,model_key="publication-acceptance-"+version_id,name="ONNX 发布验收",status="candidate",model_artifact_id=head.artifact_id,updated_at=datetime.now(UTC),created_at=datetime.now(UTC))
+    template.update(release_version=None, release_sequence=None, release_reason=None, release_signature=None)
     template["head_type"] = "image_classifier_v2" if image_model else "ridge_linear"
     with engine.begin() as connection:
         connection.execute(artifacts.insert(),[record(head),record(bundle)])
@@ -91,6 +92,7 @@ def test_http_publish_exports_checkpoint_onnx_and_commits_verified_minio_artifac
             assert response.status_code==200,response.text
             version=response.json()["model_version"]
             assert version["status"]=="production"
+            assert version["release_version"].startswith("v") and version["release_sequence"] > 0
             output=[a for a in version["artifacts"] if (a.get("metadata") or {}).get("model_version_id")==version_id]
             assert {a["artifact_type"] for a in output}==({"full_pt","full_onnx"} if image_model else {"head_pt","head_onnx"})
             for a in output:
@@ -99,6 +101,20 @@ def test_http_publish_exports_checkpoint_onnx_and_commits_verified_minio_artifac
             retry=http.post(path,json={"target_status":"production","actor":"acceptance","reason":"retry"})
             assert retry.status_code==200
             assert len(retry.json()["model_version"]["artifacts"])==len(version["artifacts"])
+            half=http.post(path,json={"target_status":"production","actor":"acceptance","reason":"additional FP16","precision":"FP16"})
+            assert half.status_code == 200, half.text
+            half_version=half.json()["model_version"]
+            assert half_version["release_version"] == version["release_version"]
+            assert half_version["release_sequence"] == version["release_sequence"]
+            half_output=[a for a in half_version["artifacts"] if (a.get("metadata") or {}).get("model_version_id")==version_id and a["metadata"].get("precision")=="FP16"]
+            assert len(half_output)==2
+            for a in half_output:
+                assert reader.materialize(descriptor_from_dict(a)).stat().st_size == a["size_bytes"]
+            retry_half=http.post(path,json={"target_status":"production","actor":"acceptance","reason":"retry FP16","precision":"FP16"})
+            assert retry_half.status_code==200
+            assert len(retry_half.json()["model_version"]["artifacts"])==len(half_version["artifacts"])
+            invalid=http.post(path,json={"target_status":"production","actor":"acceptance","reason":"invalid","precision":"INT8"})
+            assert invalid.status_code == 422
             # Own test fixture only: a corrupt descriptor must not allow publication.
             failed_id=str(uuid4())
             template.update(id=failed_id,model_key="publication-failure-"+failed_id,status="candidate")

@@ -28,6 +28,7 @@ type ExportHeadRequest struct {
 	DatasetVersionId string                 `protobuf:"bytes,2,opt,name=dataset_version_id,json=datasetVersionId,proto3" json:"dataset_version_id,omitempty"`
 	TrainingRunId    string                 `protobuf:"bytes,3,opt,name=training_run_id,json=trainingRunId,proto3" json:"training_run_id,omitempty"`
 	SourceBundle     *ArtifactDescriptor    `protobuf:"bytes,4,opt,name=source_bundle,json=sourceBundle,proto3" json:"source_bundle,omitempty"`
+	Precision        string                 `protobuf:"bytes,5,opt,name=precision,proto3" json:"precision,omitempty"` // FP32 (default for old clients) or FP16
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -90,16 +91,24 @@ func (x *ExportHeadRequest) GetSourceBundle() *ArtifactDescriptor {
 	return nil
 }
 
+func (x *ExportHeadRequest) GetPrecision() string {
+	if x != nil {
+		return x.Precision
+	}
+	return ""
+}
+
 var File_finevision_compute_v1_model_export_proto protoreflect.FileDescriptor
 
 const file_finevision_compute_v1_model_export_proto_rawDesc = "" +
 	"\n" +
-	"(finevision/compute/v1/model_export.proto\x12\x15finevision.compute.v1\x1a$finevision/compute/v1/artifact.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xe3\x01\n" +
+	"(finevision/compute/v1/model_export.proto\x12\x15finevision.compute.v1\x1a$finevision/compute/v1/artifact.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x81\x02\n" +
 	"\x11ExportHeadRequest\x12(\n" +
 	"\x10model_version_id\x18\x01 \x01(\tR\x0emodelVersionId\x12,\n" +
 	"\x12dataset_version_id\x18\x02 \x01(\tR\x10datasetVersionId\x12&\n" +
 	"\x0ftraining_run_id\x18\x03 \x01(\tR\rtrainingRunId\x12N\n" +
-	"\rsource_bundle\x18\x04 \x01(\v2).finevision.compute.v1.ArtifactDescriptorR\fsourceBundle2^\n" +
+	"\rsource_bundle\x18\x04 \x01(\v2).finevision.compute.v1.ArtifactDescriptorR\fsourceBundle\x12\x1c\n" +
+	"\tprecision\x18\x05 \x01(\tR\tprecision2^\n" +
 	"\vModelExport\x12O\n" +
 	"\n" +
 	"ExportHead\x12(.finevision.compute.v1.ExportHeadRequest\x1a\x17.google.protobuf.StructBXZVgithub.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1;computev1b\x06proto3"

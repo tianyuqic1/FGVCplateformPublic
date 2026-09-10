@@ -56,7 +56,9 @@ def test_invalid_modes_rejected(key, config):
 
 
 @pytest.mark.parametrize("key,rank", [("dinov3_vits16_lvd1689m", 0), ("dinov3_vits16_lvd1689m", 8), ("dinov3_vits16_lvd1689m", 16), ("imagenet_vits16_augreg_in21k_ft_in1k", 0)])
-def test_real_vit_small_training_and_full_export(tmp_path, monkeypatch, key, rank):
+@pytest.mark.parametrize("precision", ["FP32", "FP16"])
+@pytest.mark.parametrize("image_size", [224, 320])
+def test_real_vit_small_training_and_full_export(tmp_path, monkeypatch, key, rank, precision, image_size):
     """Opt-in bounded acceptance: actual managed weights, all modes, 1 epoch."""
     import os
     if os.environ.get("RUN_IMAGE_MODEL_ACCEPTANCE") != "1":
@@ -79,15 +81,27 @@ def test_real_vit_small_training_and_full_export(tmp_path, monkeypatch, key, ran
     manifest = scan_imagefolder(tmp_path / "dataset", "acceptance", "snapshot")
     events = []
     config = {"lora_enabled": bool(rank), "lora_rank": rank or 8, "epochs": 1, "batch_size": 2}
-    context, artifact, report, logits = train_images(manifest, {"backbone_id": key, "training_run_id": "run", "head_config": config, "image_size": 224}, tmp_path,
+    config["head_learning_rate"] = 1e-3
+    if key.startswith("imagenet_"): config["backbone_learning_rate"] = 1e-5
+    elif rank: config["lora_learning_rate"] = 2e-4
+    if image_size == 320:
+        from finevision.ml_toolkit.image_training import AUGMENTATION_KEYS
+        config["augmentations"] = dict.fromkeys(AUGMENTATION_KEYS, True)
+    context, artifact, report, logits = train_images(manifest, {"backbone_id": key, "training_run_id": "run", "head_config": config, "image_size": image_size}, tmp_path,
         progress=lambda *args: events.append(args), check_control=lambda: None)
     assert context.features_path == "" and artifact.feature_artifact_id == ""
     assert logits.shape == (6, 2) and np.isfinite(logits).all()
     assert report.evaluation.run_config["evaluation_split"] == "test"
+    assert report.evaluation.run_config["head_learning_rate"] == 1e-3
+    assert report.evaluation.run_config["image_size"] == image_size
     assert {e[0] for e in events} == {"weights", "training", "evaluation"}
-    pt, onnx, metadata = export_image_classifier(Path(artifact.model_path), tmp_path / "export", manifest.classes, "version")
+    pt, onnx, metadata = export_image_classifier(Path(artifact.model_path), tmp_path / "export", manifest.classes, "version", precision=precision)
     assert metadata["parity_passed"] and metadata["model_format"] == "image_classifier_v2"
-    assert pt.stat().st_size > 80_000_000 and onnx.stat().st_size > 80_000_000
+    minimum = 40_000_000 if precision == "FP16" else 80_000_000
+    assert pt.stat().st_size > minimum and onnx.stat().st_size > minimum
+    assert metadata["precision"] == precision
+    state = torch.load(pt, weights_only=True)["state_dict"]
+    assert state["head.weight"].dtype == (torch.float16 if precision == "FP16" else torch.float32)
     merged, checkpoint = load_classifier(pt)
     assert checkpoint["merged"] and not any(isinstance(m, LoRALinear) for m in merged.modules())
     import onnxruntime as ort
@@ -97,8 +111,9 @@ def test_real_vit_small_training_and_full_export(tmp_path, monkeypatch, key, ran
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2
     session = ort.InferenceSession(str(onnx), sess_options=options, providers=["CPUExecutionProvider"])
-    np.testing.assert_allclose(session.run(["logits"], {"images": image_tensor})[0], logits[:1], rtol=1e-3, atol=1e-4)
-    if rank == 8:
+    from finevision.compute.export_precision import check_parity
+    check_parity(session.run(["logits"], {"images": image_tensor})[0], logits[:1], precision)
+    if rank == 8 and precision == "FP32" and image_size == 224:
         # Exercise the actual worker orchestration, artifact registration and
         # image runtime, not just the numerical training helper.
         from types import SimpleNamespace

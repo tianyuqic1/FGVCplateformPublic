@@ -1,0 +1,14 @@
+.fv-parameter-section { border: 1px solid #dce4ee; border-radius: 12px; padding: 16px; background: #f9fbfe; }
+.fv-parameter-section header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.fv-parameter-section header small { color: #71839c; font-size: 11px; }
+.fv-parameter-section p { margin: 12px 0 0; font-size: 12px; color: #75869e; line-height: 1.7; }
+.fv-parameter-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 12px; }
+.fv-parameter-grid label > span { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 600; color: #536a86; }
+.fv-parameter-section header strong { font-size: 13px; }
+.fv-parameter-section select { width: 100%; }
+.fv-augmentation-grid { display: grid; gap: 8px; }
+.fv-form .fv-augmentation-grid label { display: flex; align-items: flex-start; gap: 10px; padding: 11px; border: 1px solid #e0e7f0; border-radius: 9px; background: #fff; cursor: pointer; }
+.fv-form .fv-augmentation-grid label.is-selected { background: #eef4ff; border-color: #8ba8e5; }
+.fv-form .fv-augmentation-grid input { width: 15px; height: 15px; margin: 3px 0 0; padding: 0; accent-color: #416cd4; flex-shrink: 0; }
+.fv-augmentation-grid strong { display: block; font-size: 12px; color: #2d4363; }
+.fv-augmentation-grid small { display: block; margin-top: 4px; font-size: 11px; color: #7788a1; font-weight: normal; line-height: 1.6; }

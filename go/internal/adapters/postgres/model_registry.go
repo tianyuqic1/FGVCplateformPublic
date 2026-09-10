@@ -169,17 +169,21 @@ VALUES ($1,$2,'alias_set',$3,$4,$5,jsonb_build_object('dataset_id',$6::text),$7)
 }
 
 const modelVersionSelect = `
-SELECT mv.id::text, mv.model_key, COALESCE(mv.name,mv.model_key), COALESCE(mv.description,''),
+SELECT mv.id::text, mv.model_key, COALESCE(NULLIF(j.payload->>'name',''),mv.name,mv.model_key), COALESCE(mv.description,''),
        d.dataset_key, d.name, mv.dataset_version_id::text, dv.version_key,
        mv.training_run_id::text, mv.status, COALESCE(mv.backbone_key,tr.backbone_id),
        COALESCE(mv.architecture,''), COALESCE(mv.pretraining_method,''),
        COALESCE(mv.pretraining_dataset,''), mv.input_size, mv.feature_dim,
        mv.parameter_count, COALESCE(mv.pooling,''), COALESCE(mv.head_type,''),
-       mv.metrics, mv.evaluation_context, mv.created_at, mv.updated_at
+       mv.metrics, mv.evaluation_context, mv.created_at, mv.updated_at,
+       COALESCE(mv.release_version,''), COALESCE(mv.release_sequence,0),
+       COALESCE(mv.release_reason,''), COALESCE(mv.release_signature,''),
+       COALESCE(dv.version_number,1), COALESCE(tr.extractor_config,'{}'::jsonb) || COALESCE(tr.head_config,'{}'::jsonb)
 FROM model_versions mv
 JOIN datasets d ON d.id=mv.dataset_id
 JOIN dataset_versions dv ON dv.id=mv.dataset_version_id
 JOIN training_runs tr ON tr.id=mv.training_run_id
+LEFT JOIN jobs j ON j.id=tr.job_id
 `
 
 type rowScanner interface {
@@ -189,7 +193,7 @@ type rowScanner interface {
 func scanModelVersion(row rowScanner) (modelregistry.Version, error) {
 	var version modelregistry.Version
 	var status string
-	var metricsJSON, contextJSON []byte
+	var metricsJSON, contextJSON, configJSON []byte
 	err := row.Scan(
 		&version.ID, &version.ModelKey, &version.Name, &version.Description,
 		&version.DatasetID, &version.DatasetName, &version.DatasetVersionID, &version.DatasetVersionKey,
@@ -197,6 +201,8 @@ func scanModelVersion(row rowScanner) (modelregistry.Version, error) {
 		&version.PretrainingMethod, &version.PretrainingDataset, &version.InputSize, &version.FeatureDim,
 		&version.ParameterCount, &version.Pooling, &version.HeadType, &metricsJSON, &contextJSON,
 		&version.CreatedAt, &version.UpdatedAt,
+		&version.ReleaseVersion, &version.ReleaseSequence, &version.ReleaseReason, &version.ReleaseSignature,
+		&version.DatasetVersionNumber, &configJSON,
 	)
 	if err != nil {
 		return modelregistry.Version{}, err
@@ -204,6 +210,7 @@ func scanModelVersion(row rowScanner) (modelregistry.Version, error) {
 	version.Status = modelregistry.Status(status)
 	_ = json.Unmarshal(metricsJSON, &version.Metrics)
 	_ = json.Unmarshal(contextJSON, &version.EvaluationContext)
+	_ = json.Unmarshal(configJSON, &version.TrainingConfig)
 	return version, nil
 }
 

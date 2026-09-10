@@ -23,6 +23,7 @@ func (e HeadExporter) Export(ctx context.Context, version modelregistry.Version)
 		return nil, fmt.Errorf("source bundle missing")
 	}
 	result, err := e.Client.ExportHead(ctx, &computev1.ExportHeadRequest{
+		Precision:      version.ReleasePrecision,
 		ModelVersionId: version.ID, DatasetVersionId: version.DatasetVersionID, TrainingRunId: version.TrainingRunID,
 		SourceBundle: &computev1.ArtifactDescriptor{ArtifactId: source.ArtifactID, ArtifactType: source.ArtifactType, Uri: source.URI, Sha256: source.SHA256, SizeBytes: source.SizeBytes, ContentType: source.ContentType, StorageVersion: source.StorageVersion, Producer: source.Producer, DatasetVersionId: source.DatasetVersionID, TrainingRunId: source.TrainingRunID, SchemaVersion: int32(source.SchemaVersion)},
 	})

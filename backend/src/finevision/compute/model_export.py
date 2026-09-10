@@ -12,12 +12,14 @@ from google.protobuf.struct_pb2 import Struct
 
 from finevision.compute.artifacts import descriptor_from_dict, descriptor_from_proto
 from finevision.compute.v1 import model_export_pb2_grpc
+from finevision.compute.export_precision import validate_precision, convert_graph, deployment_state, check_parity
 
 
-def export_linear_head(source: Path, destination: Path, classes: list[str], model_version_id: str):
+def export_linear_head(source: Path, destination: Path, classes: list[str], model_version_id: str, precision="FP32"):
     import torch
     import onnx
     import onnxruntime as ort
+    validate_precision(precision)
 
     with np.load(source, allow_pickle=False) as data:
         arrays = {key: np.array(data[key], dtype=np.float32, copy=True) for key in ("weights", "bias", "feature_mean", "feature_std")}
@@ -45,14 +47,14 @@ def export_linear_head(source: Path, destination: Path, classes: list[str], mode
     destination.mkdir(parents=True, exist_ok=True)
     pt_path, onnx_path = destination / "linear_head.pt", destination / "linear_head.onnx"
     model = LinearHead().eval()
-    torch.save({"state_dict": model.state_dict(), "classes": classes, "feature_dim": dim, "model_version_id": model_version_id}, pt_path)
+    torch.save({"state_dict": deployment_state(model.state_dict(), precision), "classes": classes, "feature_dim": dim, "model_version_id": model_version_id, "precision": precision}, pt_path)
     # Reload the checkpoint produced above; arbitrary uploaded .pt files are not accepted.
     checkpoint = torch.load(pt_path, map_location="cpu", weights_only=True)
-    model.load_state_dict(checkpoint["state_dict"], strict=True)
+    # Export from the full-precision source; quantize once in the ONNX graph.
     torch.onnx.export(model, (torch.zeros(1, dim),), str(onnx_path), input_names=["features"], output_names=["logits"],
                       dynamic_axes={"features": {0: "batch"}, "logits": {0: "batch"}}, opset_version=17, dynamo=False)
-    graph = onnx.load(str(onnx_path))
-    metadata = {"model_version_id": model_version_id, "classes": json.dumps(classes, ensure_ascii=False), "input_contract": "float32[batch,feature_dim]", "output_contract": "unnormalized_logits", "feature_dim": str(dim)}
+    graph = convert_graph(onnx.load(str(onnx_path)), precision)
+    metadata = {"precision": precision, "validation_provider": "CPUExecutionProvider", "model_version_id": model_version_id, "classes": json.dumps(classes, ensure_ascii=False), "input_contract": "float32[batch,feature_dim]", "output_contract": "unnormalized_logits", "feature_dim": str(dim)}
     onnx.helper.set_model_props(graph, metadata)
     onnx.checker.check_model(graph)
     onnx.save(graph, str(onnx_path))
@@ -67,8 +69,8 @@ def export_linear_head(source: Path, destination: Path, classes: list[str], mode
         with torch.inference_mode():
             pytorch = model(torch.from_numpy(samples)).numpy()
         actual = session.run(["logits"], {"features": samples})[0]
-        np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-4)
-        np.testing.assert_allclose(actual, pytorch, rtol=1e-4, atol=1e-4)
+        check_parity(actual, expected, precision)
+        check_parity(actual, pytorch, precision)
         max_error = max(max_error, float(np.abs(actual - expected).max()))
     return pt_path, onnx_path, {**metadata, "classes": classes, "feature_dim": dim, "opset": 17, "max_abs_error": max_error, "parity_passed": True}
 
@@ -82,6 +84,7 @@ class ModelExportService(model_export_pb2_grpc.ModelExportServicer):
         if not self.slots.acquire(blocking=False):
             context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, "another export is running; retry later")
         try:
+            precision = validate_precision(request.precision or "FP32")
             for value in (request.model_version_id, request.dataset_version_id, request.training_run_id):
                 UUID(value)
             bundle_descriptor = descriptor_from_proto(request.source_bundle)
@@ -105,7 +108,7 @@ class ModelExportService(model_export_pb2_grpc.ModelExportServicer):
                 if image_model:
                     from finevision.compute.image_export import export_image_classifier
                     exporter = export_image_classifier
-                pt, onnx, metadata = exporter(self.reader.materialize(source), Path(directory), artifact["classes"], request.model_version_id)
+                pt, onnx, metadata = exporter(self.reader.materialize(source), Path(directory), artifact["classes"], request.model_version_id, precision=precision)
                 if not context.is_active():
                     raise TimeoutError("export request expired")
                 metadata.update({"source_sha256": source.sha256, "source_bundle_sha256": bundle_descriptor.sha256})

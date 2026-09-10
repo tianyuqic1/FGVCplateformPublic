@@ -7,6 +7,11 @@ function numberOrNull(value) {
 export function normalizeModelVersion(raw) {
   return {
     id: raw?.model_version_id ?? raw?.id ?? "",
+    releaseVersion: raw?.release_version ?? "",
+    nextReleaseVersion: raw?.next_release_version ?? "",
+    nextReleaseReason: raw?.next_release_reason ?? "",
+    releaseReason: raw?.release_reason ?? "",
+    datasetVersionNumber: raw?.dataset_version_number ?? null,
     modelKey: raw?.model_key ?? "",
     name: raw?.name ?? raw?.model_key ?? "未命名模型",
     description: raw?.description ?? "",
@@ -75,11 +80,11 @@ export async function compareModelVersions(ids) {
   }, 8000);
 }
 
-export async function promoteModelVersion(id, targetStatus, reason, actor = "local-user") {
+export async function promoteModelVersion(id, targetStatus, reason, actor = "local-user", precision = "FP32") {
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/model-versions/${encodeURIComponent(id)}/promote`, {
       method: "POST",
-      body: { target_status: targetStatus, actor, reason },
+      body: { target_status: targetStatus, actor, reason, precision },
       signal,
     });
     return normalizeModelVersion(payload?.model_version);
