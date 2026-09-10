@@ -88,7 +88,8 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 	defer writer.Close()
 	seen := map[string]string{}
 	names := map[string]bool{}
-	count, total, added, duplicates := 0, 0, 0, 0
+	count, added, duplicates := 0, 0, 0
+	var total int64
 	sources := map[string]any{}
 	write := func(name, label string, b []byte, addition bool, source any) error {
 		if err := ctx.Err(); err != nil {
@@ -106,7 +107,7 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 			return ErrInvalidArchive
 		}
 		count++
-		total += len(b)
+		total += int64(len(b))
 		if count > MaxUploadImages || total > maxDatasetBytes {
 			return fmt.Errorf("%w: 合并后上限为 100000 张、5 GB", ErrInvalid)
 		}
