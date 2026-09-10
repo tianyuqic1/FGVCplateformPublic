@@ -39,7 +39,7 @@ class DatabaseMetadataStore:
 
         with self.engine.begin() as conn:
             dataset_row = conn.execute(
-                sa.select(datasets.c.id).where(datasets.c.dataset_key == manifest.dataset_id)
+                sa.select(datasets.c.id).where(datasets.c.dataset_key == manifest.dataset_id).with_for_update()
             ).mappings().first()
             if dataset_row is None:
                 dataset_db_id = uuid4()
@@ -71,6 +71,10 @@ class DatabaseMetadataStore:
                         id=version_db_id,
                         dataset_id=dataset_db_id,
                         version_key=manifest.dataset_version_id,
+                        version_number=conn.execute(
+                            sa.select(sa.func.coalesce(sa.func.max(dataset_versions.c.version_number), 0) + 1)
+                            .where(dataset_versions.c.dataset_id == dataset_db_id)
+                        ).scalar_one(),
                         root_uri=manifest.root,
                         sample_count=len(manifest.samples),
                         class_count=len(manifest.classes),

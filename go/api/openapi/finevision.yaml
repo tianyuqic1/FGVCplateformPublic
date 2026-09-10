@@ -67,10 +67,10 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [dataset_id, dataset_version_id, files]
+              required: [name, request_id, files]
               properties:
-                dataset_id: {type: string}
-                dataset_version_id: {type: string}
+                name: {type: string, minLength: 1, maxLength: 120}
+                request_id: {type: string, format: uuid}
                 files:
                   type: array
                   items: {type: string, format: binary}
@@ -83,6 +83,46 @@ paths:
         "422": {$ref: "#/components/responses/ErrorResponse"}
         "409": {$ref: "#/components/responses/ErrorResponse"}
         "503": {$ref: "#/components/responses/ErrorResponse"}
+  /api/datasets/{dataset_id}/training-candidates:
+    parameters:
+      - $ref: "#/components/parameters/DatasetID"
+    get:
+      operationId: listTrainingCandidates
+      responses:
+        "200":
+          description: Reviewed, labelled samples not yet included in this dataset
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        default: {$ref: "#/components/responses/ErrorResponse"}
+  /api/datasets/{dataset_id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/DatasetID"
+    post:
+      operationId: expandDataset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [base_version_id, request_id]
+              properties:
+                base_version_id: {type: string}
+                request_id: {type: string, format: uuid}
+                feedback_ids:
+                  type: string
+                  description: JSON array of approved feedback UUIDs from training-candidates
+                files:
+                  type: array
+                  items: {type: string, format: binary}
+      responses:
+        "201":
+          description: Immutable full snapshot with training additions and unchanged evaluation sets
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        default: {$ref: "#/components/responses/ErrorResponse"}
   /api/health:
     get:
       operationId: getHealth

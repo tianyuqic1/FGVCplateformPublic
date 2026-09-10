@@ -5,7 +5,7 @@ import "../training/trainingFilters.css";
 export function DashboardDatasetPagination({ items, children, showStatus = true }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const filtered = items.filter(item => (!status || item.status === status) && `${item.name} ${item.id} ${item.datasetVersionId}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = items.filter(item => (!status || item.status === status || (status === "production" && item.versions?.some(version => version.hasWeights && version.models.some(model => model.status !== "archived")))) && `${item.name} ${item.id} ${item.datasetVersionId} ${(item.versions ?? []).map(version => `v${version.number} ${version.id}`).join(" ")}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <>
     <div className="training-queue-filters">
       <input aria-label="搜索数据集" placeholder="搜索数据集名称 / 版本" value={query} onChange={event => setQuery(event.target.value)} />

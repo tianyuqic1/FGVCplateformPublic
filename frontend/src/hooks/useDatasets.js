@@ -42,6 +42,8 @@ export function useDatasets() {
 }
 
 export function useDataset(datasetId) {
+  const [revision, setRevision] = useState(0);
+  const refresh = useCallback(() => setRevision(value => value + 1), []);
   const [state, setState] = useState({
     dataset: null,
     source: "loading",
@@ -74,9 +76,9 @@ export function useDataset(datasetId) {
     return () => {
       active = false;
     };
-  }, [datasetId]);
+  }, [datasetId, revision]);
 
-  return state;
+  return { ...state, refresh };
 }
 
 export function useDatasetSamplePreviews(datasetVersionId, limit = 6) {

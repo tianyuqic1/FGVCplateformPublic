@@ -3,32 +3,37 @@ package httpapi
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"io"
 	"log/slog"
 	"mime"
+	"mime/multipart"
 	"os"
 	"path"
 	"strings"
 )
 
-func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefolderRequestObject) (openapi.UploadImagefolderResponseObject, error) {
-	invalid := func(message string) (openapi.UploadImagefolderResponseObject, error) {
-		return openapi.UploadImagefolder422JSONResponse(errorEnvelope(ctx, "INVALID_IMAGEFOLDER", message)), nil
+func readDatasetUpload(body *multipart.Reader) (map[string]string, string, error) {
+	invalid := func(message string) (map[string]string, string, error) {
+		return nil, "", fmt.Errorf("%w: %s", dataset.ErrInvalid, message)
 	}
-	if r.Body == nil {
-		return invalid("请选择 ImageFolder 文件夹")
+	if body == nil {
+		return invalid("请选择数据")
 	}
-	if s.datasets == nil {
-		return openapi.UploadImagefolder503JSONResponse(errorEnvelope(ctx, "DATASET_SERVICE_UNAVAILABLE", "数据集服务不可用")), nil
-	}
+	success := false
 	file, err := os.CreateTemp("", "finevision-upload-*.zip")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	defer os.Remove(file.Name())
+	defer func() {
+		if !success {
+			os.Remove(file.Name())
+		}
+	}()
 	defer file.Close()
 	writer := zip.NewWriter(file)
 	defer writer.Close()
@@ -37,7 +42,7 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 	count := 0
 	var total int64
 	for {
-		part, err := r.Body.NextPart()
+		part, err := body.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -50,9 +55,9 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 		}
 		filename := params["filename"]
 		if filename == "" {
-			data, err := io.ReadAll(io.LimitReader(part, 1025))
+			data, err := io.ReadAll(io.LimitReader(part, 512*1024+1))
 			part.Close()
-			if err != nil || len(data) > 1024 {
+			if err != nil || len(data) > 512*1024 {
 				return invalid("字段过长")
 			}
 			fields[part.FormName()] = strings.TrimSpace(string(data))
@@ -90,7 +95,7 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 		}
 		destination, err := writer.Create(filename)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		n, err := io.Copy(destination, io.LimitReader(part, (32<<20)+1))
 		part.Close()
@@ -99,28 +104,90 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 			return invalid("单张图片上限 32 MiB，数据集上限 5 GB")
 		}
 	}
-	if count == 0 {
-		return invalid("未找到图片，请选择包含类别子文件夹的 ImageFolder")
-	}
-	if fields["dataset_id"] == "" || fields["dataset_version_id"] == "" {
-		return invalid("请填写数据集名称和版本")
-	}
+
 	if err = writer.Close(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if err = file.Close(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	result, err := s.datasets.Import(ctx, fields["dataset_id"], fields["dataset_version_id"], file.Name())
-	if errors.Is(err, dataset.ErrInvalidArchive) {
-		return invalid("图片损坏或 ImageFolder 目录结构不合法")
+	if count == 0 {
+		return fields, "", nil
 	}
-	if errors.Is(err, dataset.ErrConflict) {
-		return openapi.UploadImagefolder409JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "DATASET_VERSION_EXISTS", "该数据集版本已存在，请填写新的版本号"))}, nil
+	success = true
+	return fields, file.Name(), nil
+}
+
+func datasetError(ctx context.Context, err error) (int, openapi.ErrorEnvelope) {
+	status, code, message := 503, "DATASET_IMPORT_FAILED", "数据集扫描或存储失败，请检查计算服务"
+	switch {
+	case errors.Is(err, dataset.ErrNotFound):
+		status, code, message = 404, "DATASET_NOT_FOUND", err.Error()
+	case errors.Is(err, dataset.ErrConflict):
+		status, code, message = 409, "DATASET_VERSION_CONFLICT", err.Error()
+	case errors.Is(err, dataset.ErrInvalid), errors.Is(err, dataset.ErrInvalidArchive):
+		status, code, message = 422, "INVALID_DATASET", err.Error()
+	default:
+		slog.ErrorContext(ctx, "dataset request failed", "error", err)
+	}
+	return status, errorEnvelope(ctx, code, message)
+}
+func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefolderRequestObject) (openapi.UploadImagefolderResponseObject, error) {
+	fields, archive, err := readDatasetUpload(r.Body)
+	if archive != "" {
+		defer os.Remove(archive)
+	}
+	var result map[string]any
+	if err == nil && s.datasets != nil {
+		result, err = s.datasets.Import(ctx, fields["name"], fields["request_id"], archive)
+	} else if err == nil {
+		err = errors.New("dataset service unavailable")
 	}
 	if err != nil {
-		slog.ErrorContext(ctx, "dataset import failed", "error", err)
-		return openapi.UploadImagefolder503JSONResponse(errorEnvelope(ctx, "DATASET_IMPORT_FAILED", "数据集扫描或存储失败，请检查图片文件与计算服务")), nil
+		status, body := datasetError(ctx, err)
+		switch status {
+		case 422:
+			return openapi.UploadImagefolder422JSONResponse(body), nil
+		case 409:
+			return openapi.UploadImagefolder409JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(body)}, nil
+		default:
+			return openapi.UploadImagefolder503JSONResponse(body), nil
+		}
 	}
 	return openapi.UploadImagefolder201JSONResponse(result), nil
+}
+func (s *Server) ExpandDataset(ctx context.Context, r openapi.ExpandDatasetRequestObject) (openapi.ExpandDatasetResponseObject, error) {
+	fields, archive, err := readDatasetUpload(r.Body)
+	if archive != "" {
+		defer os.Remove(archive)
+	}
+	var result map[string]any
+	var feedbackIDs []string
+	if err == nil && fields["feedback_ids"] != "" {
+		if json.Unmarshal([]byte(fields["feedback_ids"]), &feedbackIDs) != nil {
+			err = fmt.Errorf("%w: feedback_ids 必须是数组", dataset.ErrInvalid)
+		}
+	}
+	if err == nil && s.datasets != nil {
+		result, err = s.datasets.Expand(ctx, r.DatasetId, fields["base_version_id"], fields["request_id"], archive, feedbackIDs)
+	} else if err == nil {
+		err = errors.New("dataset service unavailable")
+	}
+	if err != nil {
+		status, body := datasetError(ctx, err)
+		return openapi.ExpandDatasetdefaultJSONResponse{StatusCode: status, Body: body}, nil
+	}
+	return openapi.ExpandDataset201JSONResponse(result), nil
+}
+func (s *Server) ListTrainingCandidates(ctx context.Context, r openapi.ListTrainingCandidatesRequestObject) (openapi.ListTrainingCandidatesResponseObject, error) {
+	if s.datasets == nil {
+		status, body := datasetError(ctx, errors.New("dataset service unavailable"))
+		return openapi.ListTrainingCandidatesdefaultJSONResponse{StatusCode: status, Body: body}, nil
+	}
+	candidates, err := s.datasets.Repository.Candidates(ctx, r.DatasetId)
+	if err != nil {
+		status, body := datasetError(ctx, err)
+		return openapi.ListTrainingCandidatesdefaultJSONResponse{StatusCode: status, Body: body}, nil
+	}
+	return openapi.ListTrainingCandidates200JSONResponse{"candidates": candidates}, nil
 }

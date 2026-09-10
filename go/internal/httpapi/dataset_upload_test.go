@@ -4,10 +4,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
+	"github.com/google/uuid"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
@@ -37,12 +40,21 @@ type uploadRepository struct {
 	saved    bool
 }
 
-func (r *uploadRepository) Save(ctx context.Context, key, versionKey, versionID string, a, m artifact.Descriptor, data map[string]any) error {
+func (r *uploadRepository) FindPublication(context.Context, string, string) (map[string]any, error) {
+	return nil, nil
+}
+func (r *uploadRepository) Base(context.Context, string, string) (dataset.Snapshot, error) {
+	return dataset.Snapshot{}, dataset.ErrNotFound
+}
+func (r *uploadRepository) Candidates(context.Context, string) ([]dataset.Feedback, error) {
+	return nil, nil
+}
+func (r *uploadRepository) Save(ctx context.Context, p dataset.Publication) (map[string]any, error) {
 	if r.conflict {
-		return dataset.ErrConflict
+		return nil, dataset.ErrConflict
 	}
 	r.saved = true
-	return nil
+	return dataset.Result(p), nil
 }
 func TestUploadImagefolderPublicRoute(t *testing.T) {
 	for _, tc := range []struct {
@@ -60,8 +72,8 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 			handler := NewRouter(Dependencies{DatasetImport: &dataset.Service{Store: artifact.NewLocalStore(t.TempDir()), Scanner: uploadScanner{t}, Repository: repository}})
 			var body bytes.Buffer
 			form := multipart.NewWriter(&body)
-			form.WriteField("dataset_id", "example")
-			form.WriteField("dataset_version_id", "example-v1")
+			form.WriteField("name", "鸟类识别")
+			form.WriteField("request_id", uuid.NewString())
 			file, _ := form.CreateFormFile("files", tc.path)
 			file.Write([]byte("image compute validates bytes"))
 			form.Close()
@@ -72,6 +84,23 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 			result, _ := io.ReadAll(response.Result().Body)
 			if response.Code != tc.status {
 				t.Fatalf("status %d: %s", response.Code, result)
+			}
+			if tc.status == 201 {
+				var payload struct{ Dataset map[string]any }
+				if err := json.Unmarshal(result, &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.Dataset["name"] != "鸟类识别" || payload.Dataset["version_number"] != float64(1) {
+					t.Fatalf("name/version: %s", result)
+				}
+				for _, key := range []string{"dataset_id", "dataset_version_id"} {
+					if _, err := uuid.Parse(payload.Dataset[key].(string)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if strings.Contains(payload.Dataset["dataset_id"].(string), "鸟") {
+					t.Fatal("name used as identity")
+				}
 			}
 			if repository.saved != (tc.status == 201) {
 				t.Fatal("unexpected registration")

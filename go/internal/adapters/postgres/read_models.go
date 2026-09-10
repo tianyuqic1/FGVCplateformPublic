@@ -16,42 +16,55 @@ type ReadModels struct {
 
 func NewReadModels(pool *pgxpool.Pool) *ReadModels { return &ReadModels{pool: pool} }
 
-func (models *ReadModels) ListDatasets(ctx context.Context) ([]map[string]any, error) {
-	return queryObjects(ctx, models.pool, `
+const datasetSelect = `
 SELECT jsonb_build_object(
-  'id', d.dataset_key, 'dataset_id', d.dataset_key, 'name', d.name,
-  'description', COALESCE(d.description, ''), 'domain', COALESCE(d.domain, ''), 'status', d.status,
-  'dataset_version_id', latest.id, 'latest_version_id', latest.id,
-  'sample_count', COALESCE(latest.sample_count, 0), 'class_count', COALESCE(latest.class_count, 0),
-  'readiness', COALESCE(latest.readiness_report, '{}'::jsonb),
-  'split_counts', COALESCE(latest.split_summary, '{}'::jsonb),
-  'created_at', d.created_at, 'updated_at', d.updated_at
+ 'id',d.dataset_key,'dataset_id',d.dataset_key,'name',d.name,
+ 'description',COALESCE(d.description,''),'status',d.status,
+ 'dataset_version_id',latest.id,'latest_version_id',latest.id,
+ 'version_number',latest.version_number,
+ 'sample_count',COALESCE(latest.sample_count,0),'class_count',COALESCE(latest.class_count,0),
+ 'classes',COALESCE(latest.classes,'[]'::jsonb),
+ 'readiness',COALESCE(latest.readiness_report,'{}'::jsonb),'split_counts',COALESCE(latest.split_summary,'{}'::jsonb),
+ 'versions',COALESCE(history.versions,'[]'::jsonb),
+ 'pending_candidate_count',(SELECT count(*) FROM feedback_items f JOIN review_items ri ON ri.id=f.review_item_id
+   WHERE f.dataset_id=d.id AND f.destination='training_candidate' AND f.final_outcome IN ('confirmed_label','corrected_label')
+   AND f.final_label IS NOT NULL AND ri.status='feedbacked'
+   AND NOT EXISTS(SELECT 1 FROM dataset_version_feedback used WHERE used.dataset_id=d.id AND used.feedback_item_id=f.id)),
+ 'created_at',d.created_at,'updated_at',d.updated_at
 )
 FROM datasets d
 LEFT JOIN LATERAL (
-  SELECT id::text, sample_count, class_count, readiness_report, split_summary
-  FROM dataset_versions WHERE dataset_id=d.id ORDER BY created_at DESC LIMIT 1
+ SELECT v.*,a.artifact_metadata->'manifest'->'classes' classes FROM dataset_versions v
+ LEFT JOIN artifacts a ON a.id=v.manifest_artifact_id
+ WHERE v.dataset_id=d.id ORDER BY v.version_number DESC LIMIT 1
 ) latest ON true
-ORDER BY d.updated_at DESC`)
-}
+LEFT JOIN LATERAL (
+ SELECT jsonb_agg(jsonb_build_object(
+  'dataset_version_id',v.id,'version_key',v.version_key,'version_number',v.version_number,
+  'parent_version_id',v.parent_version_id,'source_type',v.source_type,'change_summary',v.change_summary - 'sample_sources',
+  'sample_count',v.sample_count,'class_count',v.class_count,'split_counts',v.split_summary,
+  'readiness',v.readiness_report,'created_at',v.created_at,
+  'has_weights',weights.model_count>0,'model_count',weights.model_count,'models',weights.models,
+  'training_status',CASE WHEN weights.model_count>0 THEN 'trained'
+   WHEN EXISTS(SELECT 1 FROM training_runs tr WHERE tr.dataset_version_id=v.id AND tr.status IN ('queued','running','paused')) THEN 'training'
+   WHEN EXISTS(SELECT 1 FROM training_runs tr WHERE tr.dataset_version_id=v.id AND tr.status='failed') THEN 'failed'
+   ELSE 'untrained' END
+ ) ORDER BY v.version_number DESC) versions
+ FROM dataset_versions v
+ LEFT JOIN LATERAL (
+  SELECT count(*) model_count,COALESCE(jsonb_agg(jsonb_build_object('id',mv.id,'name',COALESCE(mv.name,mv.model_key),'status',mv.status) ORDER BY mv.created_at DESC),'[]'::jsonb) models
+  FROM model_versions mv JOIN artifacts a ON a.id=mv.model_artifact_id
+  WHERE mv.dataset_version_id=v.id AND a.verified_at IS NOT NULL AND mv.status<>'failed'
+ ) weights ON true
+ WHERE v.dataset_id=d.id
+) history ON true
+`
 
+func (models *ReadModels) ListDatasets(ctx context.Context) ([]map[string]any, error) {
+	return queryObjects(ctx, models.pool, datasetSelect+` ORDER BY d.updated_at DESC`)
+}
 func (models *ReadModels) GetDataset(ctx context.Context, id string) (map[string]any, error) {
-	return queryObject(ctx, models.pool, `
-SELECT jsonb_build_object(
-  'id', d.dataset_key, 'dataset_id', d.dataset_key, 'name', d.name,
-  'description', COALESCE(d.description, ''), 'domain', COALESCE(d.domain, ''), 'status', d.status,
-  'dataset_version_id', latest.id, 'latest_version_id', latest.id,
-  'sample_count', COALESCE(latest.sample_count, 0), 'class_count', COALESCE(latest.class_count, 0),
-  'readiness', COALESCE(latest.readiness_report, '{}'::jsonb),
-  'split_counts', COALESCE(latest.split_summary, '{}'::jsonb),
-  'created_at', d.created_at, 'updated_at', d.updated_at
-)
-FROM datasets d
-LEFT JOIN LATERAL (
-  SELECT id::text, sample_count, class_count, readiness_report, split_summary
-  FROM dataset_versions WHERE dataset_id=d.id ORDER BY created_at DESC LIMIT 1
-) latest ON true
-WHERE d.dataset_key=$1 OR d.id::text=$1`, id)
+	return queryObject(ctx, models.pool, datasetSelect+` WHERE d.dataset_key=$1 OR d.id::text=$1`, id)
 }
 
 func (models *ReadModels) ListJobs(ctx context.Context) ([]map[string]any, error) {

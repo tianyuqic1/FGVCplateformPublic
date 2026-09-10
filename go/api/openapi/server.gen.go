@@ -534,9 +534,19 @@ type GenerateDatasetCardJSONBody struct {
 
 // UploadImagefolderMultipartBody defines parameters for UploadImagefolder.
 type UploadImagefolderMultipartBody struct {
-	DatasetId        string               `json:"dataset_id"`
-	DatasetVersionId string               `json:"dataset_version_id"`
-	Files            []openapi_types.File `json:"files"`
+	Files     []openapi_types.File `json:"files"`
+	Name      string               `json:"name"`
+	RequestId openapi_types.UUID   `json:"request_id"`
+}
+
+// ExpandDatasetMultipartBody defines parameters for ExpandDataset.
+type ExpandDatasetMultipartBody struct {
+	BaseVersionId string `json:"base_version_id"`
+
+	// FeedbackIds JSON array of approved feedback UUIDs from training-candidates
+	FeedbackIds *string               `json:"feedback_ids,omitempty"`
+	Files       *[]openapi_types.File `json:"files,omitempty"`
+	RequestId   openapi_types.UUID    `json:"request_id"`
 }
 
 // ListModelVersionsParams defines parameters for ListModelVersions.
@@ -575,6 +585,9 @@ type GenerateDatasetCardJSONRequestBody GenerateDatasetCardJSONBody
 
 // UploadImagefolderMultipartRequestBody defines body for UploadImagefolder for multipart/form-data ContentType.
 type UploadImagefolderMultipartRequestBody UploadImagefolderMultipartBody
+
+// ExpandDatasetMultipartRequestBody defines body for ExpandDataset for multipart/form-data ContentType.
+type ExpandDatasetMultipartRequestBody ExpandDatasetMultipartBody
 
 // GenerateLLMAssistanceJSONRequestBody defines body for GenerateLLMAssistance for application/json ContentType.
 type GenerateLLMAssistanceJSONRequestBody = LLMAssistanceRequest
@@ -629,6 +642,12 @@ type ServerInterface interface {
 
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
+
+	// (GET /api/datasets/{dataset_id}/training-candidates)
+	ListTrainingCandidates(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
+
+	// (POST /api/datasets/{dataset_id}/versions)
+	ExpandDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
 
 	// (GET /api/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -731,6 +750,16 @@ func (_ Unimplemented) UploadImagefolder(w http.ResponseWriter, r *http.Request)
 
 // (GET /api/datasets/{dataset_id})
 func (_ Unimplemented) GetDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /api/datasets/{dataset_id}/training-candidates)
+func (_ Unimplemented) ListTrainingCandidates(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /api/datasets/{dataset_id}/versions)
+func (_ Unimplemented) ExpandDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -981,6 +1010,58 @@ func (siw *ServerInterfaceWrapper) GetDataset(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDataset(w, r, datasetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTrainingCandidates operation middleware
+func (siw *ServerInterfaceWrapper) ListTrainingCandidates(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dataset_id" -------------
+	var datasetId DatasetID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset_id", chi.URLParam(r, "dataset_id"), &datasetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTrainingCandidates(w, r, datasetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExpandDataset operation middleware
+func (siw *ServerInterfaceWrapper) ExpandDataset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dataset_id" -------------
+	var datasetId DatasetID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset_id", chi.URLParam(r, "dataset_id"), &datasetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExpandDataset(w, r, datasetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1744,6 +1825,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/datasets/upload-imagefolder", wrapper.UploadImagefolder)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/datasets/{dataset_id}/training-candidates", wrapper.ListTrainingCandidates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/datasets/{dataset_id}/versions", wrapper.ExpandDataset)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/health", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
@@ -2076,6 +2163,85 @@ func (response GetDataset404JSONResponse) VisitGetDatasetResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrainingCandidatesRequestObject struct {
+	DatasetId DatasetID `json:"dataset_id"`
+}
+
+type ListTrainingCandidatesResponseObject interface {
+	VisitListTrainingCandidatesResponse(w http.ResponseWriter) error
+}
+
+type ListTrainingCandidates200JSONResponse FreeFormObject
+
+func (response ListTrainingCandidates200JSONResponse) VisitListTrainingCandidatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrainingCandidatesdefaultJSONResponse struct {
+	Body       ErrorEnvelope
+	StatusCode int
+}
+
+func (response ListTrainingCandidatesdefaultJSONResponse) VisitListTrainingCandidatesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExpandDatasetRequestObject struct {
+	DatasetId DatasetID `json:"dataset_id"`
+	Body      *multipart.Reader
+}
+
+type ExpandDatasetResponseObject interface {
+	VisitExpandDatasetResponse(w http.ResponseWriter) error
+}
+
+type ExpandDataset201JSONResponse FreeFormObject
+
+func (response ExpandDataset201JSONResponse) VisitExpandDatasetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExpandDatasetdefaultJSONResponse struct {
+	Body       ErrorEnvelope
+	StatusCode int
+}
+
+func (response ExpandDatasetdefaultJSONResponse) VisitExpandDatasetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3108,6 +3274,12 @@ type StrictServerInterface interface {
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(ctx context.Context, request GetDatasetRequestObject) (GetDatasetResponseObject, error)
 
+	// (GET /api/datasets/{dataset_id}/training-candidates)
+	ListTrainingCandidates(ctx context.Context, request ListTrainingCandidatesRequestObject) (ListTrainingCandidatesResponseObject, error)
+
+	// (POST /api/datasets/{dataset_id}/versions)
+	ExpandDataset(ctx context.Context, request ExpandDatasetRequestObject) (ExpandDatasetResponseObject, error)
+
 	// (GET /api/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 
@@ -3383,6 +3555,65 @@ func (sh *strictHandler) GetDataset(w http.ResponseWriter, r *http.Request, data
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetDatasetResponseObject); ok {
 		if err := validResponse.VisitGetDatasetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTrainingCandidates operation middleware
+func (sh *strictHandler) ListTrainingCandidates(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
+	var request ListTrainingCandidatesRequestObject
+
+	request.DatasetId = datasetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTrainingCandidates(ctx, request.(ListTrainingCandidatesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTrainingCandidates")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTrainingCandidatesResponseObject); ok {
+		if err := validResponse.VisitListTrainingCandidatesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExpandDataset operation middleware
+func (sh *strictHandler) ExpandDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
+	var request ExpandDatasetRequestObject
+
+	request.DatasetId = datasetId
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExpandDataset(ctx, request.(ExpandDatasetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExpandDataset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExpandDatasetResponseObject); ok {
+		if err := validResponse.VisitExpandDatasetResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
