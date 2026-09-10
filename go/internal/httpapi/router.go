@@ -10,12 +10,14 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/hardware"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 )
 
 type Dependencies struct {
+	Hardware       hardware.Handler
 	DatasetCards   *datasetcard.Service
 	DatasetImport  *dataset.Service
 	Lifecycle      *training.Service
@@ -71,5 +73,6 @@ func NewRouter(dependencies Dependencies) http.Handler {
 			middleware.Timeout(timeout)(next).ServeHTTP(w, r)
 		})
 	})
+	dependencies.Hardware.Register(router)
 	return openapi.HandlerFromMux(strict, router)
 }

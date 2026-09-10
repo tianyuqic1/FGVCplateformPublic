@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { gpuSummary, ratio, trendData, freshness, percent } from "../src/features/hardware/metrics.js";
+const snapshot = { gpu_status: "ok", gpus: [{ percent: 40, memory: { used_bytes: 4, total_bytes: 8 } }, { percent: 80, memory: { used_bytes: 6, total_bytes: 8 } }] };
+assert.deepEqual(gpuSummary(snapshot), { percent: 60, memory: { used_bytes: 10, total_bytes: 16 } });
+snapshot.gpus[1].percent = null;
+snapshot.gpus[1].memory.used_bytes = null;
+assert.equal(gpuSummary(snapshot).percent, null);
+assert.equal(gpuSummary(snapshot).memory.used_bytes, null);
+assert.equal(ratio({ used_bytes: null, total_bytes: 4 }), null);
+assert.equal(ratio({ used_bytes: 0, total_bytes: 4 }), 0);
+assert.equal(percent(null), "—");
+const start = Date.now();
+const samples = [0, 5, 40].map((seconds) => ({ received_at: new Date(start + seconds * 1000).toISOString(), value: seconds }));
+assert.deepEqual(trendData(samples, (s) => s.value, 5).map((point) => point[1]), [0, 5, null, 40]);
+assert.equal(freshness(samples[0], start + 16000).status, "stale");
+assert.equal(freshness(samples[0], start + 61000).status, "offline");
+console.log("Hardware metrics: missing values, multi-GPU totals, outage gaps, freshness passed.");

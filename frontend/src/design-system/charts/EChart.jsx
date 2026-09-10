@@ -19,7 +19,7 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-export function EChart({ option, className = "fv-chart", ariaLabel }) {
+export function EChart({ option, className = "fv-chart", ariaLabel, group }) {
   const elementRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -27,6 +27,7 @@ export function EChart({ option, className = "fv-chart", ariaLabel }) {
     if (!elementRef.current) return undefined;
     const chart = echarts.init(elementRef.current, null, { renderer: "canvas" });
     chartRef.current = chart;
+    if (group) { chart.group = group; echarts.connect(group); }
     const resize = () => chart.resize();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
     observer?.observe(elementRef.current);
@@ -35,12 +36,13 @@ export function EChart({ option, className = "fv-chart", ariaLabel }) {
       observer?.disconnect();
       window.removeEventListener("resize", resize);
       chart.dispose();
+      if (group) echarts.disconnect(group);
       chartRef.current = null;
     };
-  }, []);
+  }, [group]);
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true });
+    chartRef.current?.setOption(option, { notMerge: false, lazyUpdate: true, replaceMerge: ["series"] });
   }, [option]);
 
   return <div ref={elementRef} className={className} role="img" aria-label={ariaLabel} />;

@@ -47,7 +47,7 @@ echo "Validating compose configuration..."
 echo "Starting FineVision demo stack..."
 "${compose[@]}" up -d "${build_flag[@]}" \
   frontend go-control-plane outbox-relay go-llm-gateway \
-  python-training-worker python-inference-runtime
+  python-training-worker python-inference-runtime hardware-collector
 
 if [[ "$run_smoke" -eq 1 ]]; then
   scripts/smoke-demo.sh
@@ -57,6 +57,7 @@ cat <<'INFO'
 
 FineVision demo is starting:
   frontend  http://localhost:5173
+  hardware  http://localhost:5173/hardware
   Go API    http://localhost:8001
   MinIO     http://localhost:9001
   RabbitMQ  http://localhost:15672
