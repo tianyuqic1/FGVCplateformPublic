@@ -1,0 +1,44 @@
+.fv-model-detail { width: 100%; box-sizing: border-box; max-width: 1180px; margin: 0 auto; padding: 20px 0 36px; }
+.fv-model-back { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 12px; text-decoration: none; }
+.fv-model-detail .fv-page-heading { padding: 18px 0 28px; align-items: center; }
+.fv-model-detail .fv-page-heading h2 { overflow-wrap: anywhere; }
+.fv-model-overview { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: stretch; }
+.fv-model-detail .fv-panel { box-shadow: none; }
+.fv-model-detail .fv-panel-head { min-height: auto; padding: 20px 24px 0; border-bottom: 0; }
+.fv-model-detail .fv-definition-list { padding: 12px 24px 18px; }
+.fv-model-detail .fv-definition-list dt { color: var(--text-secondary); flex-shrink: 0; }
+.fv-model-detail .fv-definition-list dd { font-weight: 500; }
+.fv-model-evaluation { display: flex; flex-direction: column; }
+.fv-model-metrics { display: flex; flex-wrap: wrap; gap: 28px; padding: 32px 24px; }
+.fv-model-metrics > div { min-width: 110px; }
+.fv-model-metrics span { display: block; font-size: 12px; color: var(--text-secondary); }
+.fv-model-metrics strong { display: block; margin-top: 12px; font-size: clamp(28px, 3vw, 40px); line-height: 1.2; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.fv-model-footnote { margin: auto 24px 24px; padding-top: 20px; max-width: 380px; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
+.fv-model-disclosures { margin-top: 24px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-panel); }
+.fv-model-disclosure + .fv-model-disclosure { border-top: 1px solid var(--border-subtle); }
+.fv-model-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; cursor: pointer; list-style: none; font-size: 14px; font-weight: 600; }
+.fv-model-disclosure > summary::-webkit-details-marker { display: none; }
+.fv-model-disclosure > summary small { margin-left: 16px; color: var(--text-secondary); font-size: 12px; font-weight: 400; }
+.fv-model-disclosure > summary svg { flex-shrink: 0; color: var(--text-secondary); transition: transform .15s; }
+.fv-model-disclosure[open] > summary svg { transform: rotate(180deg); }
+.fv-model-disclosure > summary:focus-visible, .fv-model-back:focus-visible { outline: 2px solid #3569e8; outline-offset: 3px; border-radius: 6px; }
+.fv-model-disclosure code { font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+.fv-model-files { padding: 0 24px 24px; }
+.fv-model-files h4 { margin: 8px 0 16px; font-size: 13px; }
+.fv-model-file { padding: 16px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.fv-model-file + .fv-model-file { margin-top: 12px; }
+.fv-model-file > strong { font-size: 12px; }
+.fv-model-detail .fv-model-file .fv-definition-list { padding: 4px 0 0; }
+.fv-model-empty { padding: 20px 24px; color: var(--text-secondary); font-size: 13px; }
+.fv-model-management { padding: 0 24px 24px; }
+.fv-model-management p { margin: 0 0 16px; color: var(--text-secondary); font-size: 12px; }
+.fv-model-detail .fv-event-list { padding: 0 24px 20px; }
+.fv-model-detail .fv-event-list li { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .fv-model-overview { grid-template-columns: 1fr; gap: 16px; }
+  .fv-model-detail .fv-page-heading { align-items: flex-start; }
+  .fv-model-detail .fv-heading-actions { justify-content: flex-start; }
+  .fv-model-disclosure > summary small { display: block; margin: 5px 0 0; }
+  .fv-model-detail .fv-event-list li { flex-wrap: wrap; }
+  .fv-model-detail .fv-definition-list dd { max-width: 65%; }
+}
