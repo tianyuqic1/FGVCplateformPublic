@@ -18,6 +18,7 @@ import (
 type Dependencies struct {
 	DatasetCards   *datasetcard.Service
 	DatasetImport  *dataset.Service
+	DatasetQueue   *dataset.ImportQueue
 	Lifecycle      *training.Service
 	ReadModels     ReadModels
 	LLMApplication *llm.Application
@@ -36,6 +37,8 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	}
 	application := NewServer(dependencies.Lifecycle, dependencies.ReadModels, dependencies.LLMApplication, dependencies.ModelRegistry)
 	application.datasets = dependencies.DatasetImport
+	application.datasetQueue = dependencies.DatasetQueue
+	application.uploadSlots = make(chan struct{}, 2)
 	application.cards = dependencies.DatasetCards
 	strict := openapi.NewStrictHandler(application, nil)
 	router := chi.NewRouter()
@@ -45,6 +48,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit := int64(512 << 20)
+			if r.URL.Path == "/api/datasets/upload-imagefolder" {
+				limit += 16 << 20
+			} // multipart headers are separate from the image-byte cap
 			if strings.HasPrefix(r.URL.Path, "/api/dataset-versions/") && (strings.HasSuffix(r.URL.Path, "/card") || strings.HasSuffix(r.URL.Path, "/card/generate")) {
 				limit = 256 << 10
 			}
@@ -55,6 +61,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			timeout := 30 * time.Second
+			if r.Method == http.MethodPost && r.URL.Path == "/api/datasets/upload-imagefolder" {
+				timeout = 10 * time.Minute
+			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/dataset-versions/") && strings.HasSuffix(r.URL.Path, "/card/generate") {
 				timeout = 115 * time.Second
 			}

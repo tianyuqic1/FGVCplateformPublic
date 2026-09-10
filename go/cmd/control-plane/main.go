@@ -85,11 +85,16 @@ func main() {
 	}
 	defer computeConnection.Close()
 	datasetImport := &dataset.Service{Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
+	datasetQueue := &dataset.ImportQueue{Service: datasetImport, Repository: &postgresadapter.DatasetImportQueue{Pool: pool}}
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); datasetQueue.Run(ctx) }()
+	defer func() { stop(); <-workerDone }()
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,
+			DatasetQueue:  datasetQueue,
 			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
 			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)),
 		}),

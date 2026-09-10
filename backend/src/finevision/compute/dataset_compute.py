@@ -14,7 +14,7 @@ from finevision.compute.v1 import dataset_compute_pb2_grpc
 from finevision.ml_toolkit.datasets import scan_imagefolder, IMAGE_EXTENSIONS
 
 
-def unpack_dataset(archive: Path, destination: Path) -> None:
+def unpack_dataset(archive: Path, destination: Path, is_active=lambda: True) -> None:
     """Extract bounded ImageFolder bytes; never trust archive member paths."""
     with zipfile.ZipFile(archive) as source:
         members = source.infolist()
@@ -22,6 +22,8 @@ def unpack_dataset(archive: Path, destination: Path) -> None:
             raise ValueError("ImageFolder exceeds 10000 files or 512 MiB")
         seen = set()
         for member in members:
+            if not is_active():
+                raise TimeoutError("Dataset import cancelled")
             path = PurePosixPath(member.filename)
             if path.is_absolute() or ".." in path.parts or "\\" in member.filename or len(path.parts) < 2:
                 raise ValueError("Invalid ImageFolder relative path")
@@ -47,7 +49,9 @@ class DatasetComputeService(dataset_compute_pb2_grpc.DatasetComputeServicer):
             archive = self.runtime._materialize(_descriptor_from_proto(request.archive))
             with tempfile.TemporaryDirectory(prefix="finevision-dataset-") as directory:
                 root = Path(directory)
-                unpack_dataset(archive, root)
+                unpack_dataset(archive, root, context.is_active)
+                if not context.is_active():
+                    raise TimeoutError("Dataset import cancelled")
                 manifest = scan_imagefolder(root, request.dataset_id, request.dataset_version_id)
                 data = asdict(manifest)
                 data["root"] = request.archive.uri

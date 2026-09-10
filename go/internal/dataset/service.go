@@ -26,10 +26,18 @@ type Service struct {
 
 func (s *Service) Import(ctx context.Context, key, versionKey, archivePath string) (map[string]any, error) {
 	versionID := uuid.NewString()
-	archive, err := s.Store.PutFile(ctx, archivePath, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-upload", DatasetVersionID: versionID})
+	archive, err := s.StoreArchive(ctx, archivePath, versionID)
 	if err != nil {
 		return nil, err
 	}
+	return s.ImportArchive(ctx, key, versionKey, versionID, archive)
+}
+
+func (s *Service) StoreArchive(ctx context.Context, archivePath, versionID string) (artifact.Descriptor, error) {
+	return s.Store.PutFile(ctx, archivePath, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-upload", DatasetVersionID: versionID})
+}
+
+func (s *Service) ImportArchive(ctx context.Context, key, versionKey, versionID string, archive artifact.Descriptor) (map[string]any, error) {
 	manifest, err := s.Scanner.Scan(ctx, archive, key, versionID)
 	if err != nil {
 		return nil, err

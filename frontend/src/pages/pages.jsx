@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { uploadImagefolder } from "../api/datasets.js";
+import { DatasetImportJobs } from "../features/datasets/DatasetImportJobs.jsx";
 import { DatasetCardPanel } from "../features/datasets/DatasetCardPanel.jsx";
 import { DashboardDatasetPagination } from "../features/datasets/DashboardDatasetPagination.jsx";
 import { PaginatedSelect } from "../design-system/components/PaginatedSelect.jsx";
@@ -819,6 +820,10 @@ export function DashboardPage({ showToast }) {
 export function DatasetsPage({ showToast }) {
   const { datasets: datasetItems, source, loading, refresh } = useDatasets();
   const folderInputRef = useRef(null);
+  const uploadController = useRef(null);
+  const [submittedJob, setSubmittedJob] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  useEffect(() => () => uploadController.current?.abort(), []);
   const [showImport, setShowImport] = useState(false);
   const [datasetFilter, setDatasetFilter] = useState("all");
   const [importForm, setImportForm] = useState({
@@ -867,20 +872,35 @@ export function DatasetsPage({ showToast }) {
   }
 
   async function handleImportDataset() {
-    if (!canImport) return;
+    if (!canImport || uploadController.current) return;
+    const controller = new AbortController();
+    uploadController.current = controller;
     setImportState({ status: "running", result: null, error: null });
     try {
       const result = await uploadImagefolder({
         files: folderSelection.files,
+        signal: controller.signal,
+        onProgress: setUploadProgress,
         dataset_id: importForm.datasetId.trim(),
         dataset_version_id: importForm.datasetVersionId.trim(),
       });
-      setImportState({ status: "succeeded", result, error: null });
-      refresh();
-      showToast("数据集导入完成，列表已刷新");
+      if (result.job) {
+        setSubmittedJob(result.job);
+        setImportState({ status: "queued", result: null, error: null });
+        showToast("上传完成，已加入后台导入队列");
+      } else {
+        setImportState({ status: "succeeded", result, error: null });
+        refresh();
+        showToast("数据集导入完成，列表已刷新");
+      }
+      setFolderSelection({ valid: false, error: "可继续选择下一个文件夹。", files: [], rootName: "" });
+      if (folderInputRef.current) folderInputRef.current.value = "";
     } catch (error) {
       setImportState({ status: "failed", result: null, error });
-      showToast("数据集导入失败");
+      showToast(error.name === "AbortError" ? "上传已停止，请查看后台任务状态" : "数据集上传失败");
+    } finally {
+      uploadController.current = null;
+      setUploadProgress(null);
     }
   }
 
@@ -899,7 +919,7 @@ export function DatasetsPage({ showToast }) {
       {showImport && (
         <Panel
           title="导入本地 ImageFolder"
-          caption="选择本地分类图片文件夹，图片与清单经校验后存入 MinIO。当前上传上限为 10000 张、512 MiB，单张 32 MiB。"
+          caption="选择本地分类图片文件夹，上传完成后由后台队列校验并创建版本，可离开页面等待。当前上传上限为 10000 张、512 MiB，单张 32 MiB。"
           action={<StatusChip tone={importState.status === "failed" ? "risk" : importState.status === "succeeded" ? "default" : "info"}>{uiStateLabel(importState.status)}</StatusChip>}
         >
           <div className="field-grid">
@@ -909,6 +929,7 @@ export function DatasetsPage({ showToast }) {
                 <input
                   ref={folderInputRef}
                   type="file"
+                  disabled={importState.status === "running"}
                   multiple
                   webkitdirectory=""
                   directory=""
@@ -918,6 +939,7 @@ export function DatasetsPage({ showToast }) {
                 <span>{folderSelection.valid ? folderSelection.rootName : "选择 ImageFolder 文件夹"}</span>
                 <button
                   className="ghost-button"
+                  disabled={importState.status === "running"}
                   type="button"
                   onClick={(event) => {
                     event.preventDefault();
@@ -935,20 +957,28 @@ export function DatasetsPage({ showToast }) {
             </div>
             <div className="field">
               <label>dataset_id</label>
-              <input value={importForm.datasetId} onChange={(event) => updateImportField("datasetId", event.target.value)} placeholder="cifar10-mini" />
+              <input disabled={importState.status === "running"} value={importForm.datasetId} onChange={(event) => updateImportField("datasetId", event.target.value)} placeholder="cifar10-mini" />
             </div>
             <div className="field">
               <label>dataset_version_id</label>
-              <input value={importForm.datasetVersionId} onChange={(event) => updateImportField("datasetVersionId", event.target.value)} placeholder="dataset@cifar10-mini-001" />
+              <input disabled={importState.status === "running"} value={importForm.datasetVersionId} onChange={(event) => updateImportField("datasetVersionId", event.target.value)} placeholder="dataset@cifar10-mini-001" />
             </div>
             <div className="field">
               <label>执行</label>
               <button className="primary-button" onClick={handleImportDataset} disabled={!canImport}>
                 <Icon name={importState.status === "running" ? "LoaderCircle" : "FolderInput"} size={16} />
-                {importState.status === "running" ? "上传导入中" : "上传并导入"}
+                {importState.status === "running" ? "上传中" : "上传并导入"}
               </button>
             </div>
           </div>
+          {uploadProgress && (
+            <div className="row-meta section-gap-small" role="status">
+              {uploadProgress.stage === "preparing" ? "准备上传" : uploadProgress.stage === "persisting" ? "文件已发送，正在存储并加入后台队列" : "正在上传"}
+              {uploadProgress.percent != null && ` · ${uploadProgress.percent}%`}
+              <button type="button" className="ghost-button" onClick={() => uploadController.current?.abort()}>停止上传</button>
+            </div>
+          )}
+          {importState.status === "queued" && <div className="row-meta section-gap-small" role="status">上传完成，已加入后台导入队列。可以离开页面，任务会继续处理。</div>}
           {folderSelection.valid && (
             <div className="chips section-gap-small">
               <StatusChip tone="default">格式合法</StatusChip>
@@ -997,6 +1027,7 @@ export function DatasetsPage({ showToast }) {
           {importState.error && <div className="row-meta section-gap-small">{importState.error.message}</div>}
         </Panel>
       )}
+      <DatasetImportJobs submittedJob={submittedJob} onCompleted={refresh} />
       <Panel
         title="数据集列表"
         caption={`${loading ? "正在读取数据资产" : sourceLabel} · 共 ${datasetItems.length} 个数据集 · 每页 6 个 · 筛选结果数量见页脚。`}

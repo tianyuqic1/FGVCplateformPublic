@@ -50,14 +50,24 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 		conflict   bool
 		status     int
 	}{
-		{"browser folder", "selected/class/image.png", false, 201},
+		{"browser folder", "selected/class/image.png", false, 202},
 		{"duplicate version", "selected/class/image.png", true, 409},
+		{"queue full", "selected/class/image.png", false, 429},
 		{"traversal", "selected/../image.png", false, 422},
 		{"flat file", "image.png", false, 422},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repository := &uploadRepository{conflict: tc.conflict}
-			handler := NewRouter(Dependencies{DatasetImport: &dataset.Service{Store: artifact.NewLocalStore(t.TempDir()), Scanner: uploadScanner{t}, Repository: repository}})
+			service := &dataset.Service{Store: artifact.NewLocalStore(t.TempDir()), Scanner: uploadScanner{t}, Repository: repository}
+			jobs := &testImportJobs{}
+			if tc.conflict {
+				jobs.enqueueErr = dataset.ErrConflict
+			}
+			if tc.status == 429 {
+				jobs.enqueueErr = dataset.ErrQueueFull
+			}
+			queue := &dataset.ImportQueue{Service: service, Repository: jobs}
+			handler := NewRouter(Dependencies{DatasetImport: service, DatasetQueue: queue})
 			var body bytes.Buffer
 			form := multipart.NewWriter(&body)
 			form.WriteField("dataset_id", "example")
@@ -73,8 +83,16 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 			if response.Code != tc.status {
 				t.Fatalf("status %d: %s", response.Code, result)
 			}
-			if repository.saved != (tc.status == 201) {
+			if repository.saved {
 				t.Fatal("unexpected registration")
+			}
+			if tc.status == 202 {
+				if err := queue.ProcessNext(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+				if !repository.saved {
+					t.Fatal("worker did not register dataset")
+				}
 			}
 		})
 	}

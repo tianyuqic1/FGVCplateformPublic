@@ -26,6 +26,15 @@ func (r DatasetRepository) Save(ctx context.Context, key, versionKey, versionID 
 	splits, _ := json.Marshal(data["split_counts"])
 	metadata, _ := json.Marshal(map[string]any{"manifest": data, "archive": archive})
 	err := pgx.BeginFunc(ctx, r.Pool, func(tx pgx.Tx) error {
+		// Reclaiming a job after Save committed but before its result was
+		// acknowledged must not create a second version or fail as a conflict.
+		var registered bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM dataset_versions v JOIN datasets d ON d.id=v.dataset_id WHERE v.id=$1 AND v.version_key=$2 AND d.dataset_key=$3)`, versionID, versionKey, key).Scan(&registered); err != nil {
+			return err
+		}
+		if registered {
+			return nil
+		}
 		var datasetID string
 		err := tx.QueryRow(ctx, `INSERT INTO datasets(id,dataset_key,name,status,created_at,updated_at) VALUES($1,$2,$2,$3,now(),now()) ON CONFLICT(dataset_key) DO UPDATE SET updated_at=now() RETURNING id::text`, uuid.NewString(), key, datasetState).Scan(&datasetID)
 		if err != nil {

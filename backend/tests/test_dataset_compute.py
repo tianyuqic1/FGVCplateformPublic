@@ -50,6 +50,9 @@ def test_scan_uses_verified_artifact_and_returns_portable_manifest(tmp_path):
     )
     runtime = InferenceRuntimeService(tmp_path / "cache")
     class Context:
+        def is_active(self):
+            return True
+
         def abort(self, code, message):
             raise RuntimeError(message)
     result = DatasetComputeService(runtime).Scan(ScanDatasetRequest(
@@ -64,3 +67,16 @@ def test_scan_uses_verified_artifact_and_returns_portable_manifest(tmp_path):
     descriptor.sha256 = "0" * 64
     with pytest.raises(RuntimeError, match="ArtifactIntegrityError"):
         DatasetComputeService(runtime).Scan(ScanDatasetRequest(archive=descriptor), Context())
+
+
+def test_unpack_stops_between_images_when_import_is_cancelled(tmp_path):
+    archive = tmp_path / "upload.zip"
+    with zipfile.ZipFile(archive, "w") as target:
+        target.writestr("class/first.png", image_bytes())
+        target.writestr("class/second.png", image_bytes())
+    checks = iter([True, False])
+    destination = tmp_path / "out"
+    with pytest.raises(TimeoutError, match="cancelled"):
+        unpack_dataset(archive, destination, lambda: next(checks))
+    assert (destination / "class/first.png").exists()
+    assert not (destination / "class/second.png").exists()
