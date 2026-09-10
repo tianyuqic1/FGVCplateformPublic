@@ -62,14 +62,24 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 		conflict   bool
 		status     int
 	}{
-		{"browser folder", "selected/class/image.png", false, 201},
+		{"browser folder", "selected/class/image.png", false, 202},
 		{"duplicate version", "selected/class/image.png", true, 409},
+		{"queue full", "selected/class/image.png", false, 429},
 		{"traversal", "selected/../image.png", false, 422},
 		{"flat file", "image.png", false, 422},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repository := &uploadRepository{conflict: tc.conflict}
-			handler := NewRouter(Dependencies{DatasetImport: &dataset.Service{Store: artifact.NewLocalStore(t.TempDir()), Scanner: uploadScanner{t}, Repository: repository}})
+			service := &dataset.Service{Store: artifact.NewLocalStore(t.TempDir()), Scanner: uploadScanner{t}, Repository: repository}
+			jobs := &testImportJobs{}
+			if tc.conflict {
+				jobs.enqueueErr = dataset.ErrConflict
+			}
+			if tc.status == 429 {
+				jobs.enqueueErr = dataset.ErrQueueFull
+			}
+			queue := &dataset.ImportQueue{Service: service, Repository: jobs}
+			handler := NewRouter(Dependencies{DatasetImport: service, DatasetQueue: queue})
 			var body bytes.Buffer
 			form := multipart.NewWriter(&body)
 			form.WriteField("name", "鸟类识别")
@@ -85,25 +95,32 @@ func TestUploadImagefolderPublicRoute(t *testing.T) {
 			if response.Code != tc.status {
 				t.Fatalf("status %d: %s", response.Code, result)
 			}
-			if tc.status == 201 {
-				var payload struct{ Dataset map[string]any }
-				if err := json.Unmarshal(result, &payload); err != nil {
+			if repository.saved {
+				t.Fatal("unexpected registration")
+			}
+			if tc.status == 202 {
+				var accepted struct{ Job dataset.ImportJob }
+				if err := json.Unmarshal(result, &accepted); err != nil || accepted.Job.Name != "鸟类识别" {
+					t.Fatalf("invalid queued response: %s", result)
+				}
+				if err := queue.ProcessNext(context.Background()); err != nil {
 					t.Fatal(err)
 				}
-				if payload.Dataset["name"] != "鸟类识别" || payload.Dataset["version_number"] != float64(1) {
-					t.Fatalf("name/version: %s", result)
+				if !repository.saved {
+					t.Fatal("worker did not register dataset")
+				}
+				published := jobs.job.Result["dataset"].(map[string]any)
+				if published["name"] != "鸟类识别" || published["version_number"] != 1 {
+					t.Fatalf("name/version: %#v", published)
 				}
 				for _, key := range []string{"dataset_id", "dataset_version_id"} {
-					if _, err := uuid.Parse(payload.Dataset[key].(string)); err != nil {
+					if _, err := uuid.Parse(published[key].(string)); err != nil {
 						t.Fatal(err)
 					}
 				}
-				if strings.Contains(payload.Dataset["dataset_id"].(string), "鸟") {
+				if strings.Contains(published["dataset_id"].(string), "鸟") {
 					t.Fatal("name used as identity")
 				}
-			}
-			if repository.saved != (tc.status == 201) {
-				t.Fatal("unexpected registration")
 			}
 		})
 	}

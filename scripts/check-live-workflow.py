@@ -23,10 +23,25 @@ def main():
         inputs = [("files", (f"{args.dataset.name}/{path.relative_to(args.dataset).as_posix()}", files.enter_context(path.open("rb")), "image/png")) for path in sorted(args.dataset.rglob("*.png"))]
         assert inputs, "fixture contains no PNG images"
         response = client.post("/api/datasets/upload-imagefolder", data={"name": key, "request_id": str(uuid.uuid4())}, files=inputs)
-        assert response.status_code == 201, response.text
-        key = response.json()["dataset"]["dataset_id"]
-        version = response.json()["version"]["dataset_version_id"]
-        assert response.json()["upload"]["image_count"] == len(inputs), response.text
+        assert response.status_code == 202, response.text
+        job_id = response.json()["job"]["id"]
+        print(f"IMPORT QUEUED job={job_id}", flush=True)
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            response = client.get("/api/dataset-imports")
+            assert response.status_code == 200, response.text
+            job = next((item for item in response.json()["jobs"] if item["id"] == job_id), None)
+            assert job is not None, "accepted import missing from queue"
+            if job["status"] in ("succeeded", "failed"):
+                assert job["status"] == "succeeded", job
+                imported = job["result"]
+                break
+            time.sleep(1)
+        else:
+            raise AssertionError(f"Import timed out; inspect job {job_id}")
+        key = imported["dataset"]["dataset_id"]
+        version = imported["version"]["dataset_version_id"]
+        assert imported["upload"]["image_count"] == len(inputs), imported
         print(f"UPLOAD PASS dataset={key} version={version}", flush=True)
         detail = client.get(f"/api/datasets/{key}")
         assert detail.status_code == 200, detail.text

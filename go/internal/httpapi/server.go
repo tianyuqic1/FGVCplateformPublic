@@ -42,13 +42,15 @@ type MetricsQuery struct {
 }
 
 type Server struct {
-	cards     *datasetcard.Service
-	datasets  *dataset.Service
-	lifecycle *training.Service
-	reads     ReadModels
-	llm       *llm.Application
-	registry  *modelregistry.Service
-	created   sync.Map
+	cards        *datasetcard.Service
+	datasets     *dataset.Service
+	datasetQueue *dataset.ImportQueue
+	uploadSlots  chan struct{}
+	lifecycle    *training.Service
+	reads        ReadModels
+	llm          *llm.Application
+	registry     *modelregistry.Service
+	created      sync.Map
 }
 
 func NewServer(lifecycle *training.Service, reads ReadModels, llmApplication *llm.Application, registry *modelregistry.Service) *Server {

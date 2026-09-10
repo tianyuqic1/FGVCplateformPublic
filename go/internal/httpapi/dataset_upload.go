@@ -93,7 +93,7 @@ func readDatasetUpload(body *multipart.Reader) (map[string]string, string, error
 		if count > dataset.MaxUploadImages {
 			return invalid("最多支持 100000 张图片")
 		}
-		destination, err := writer.Create(filename)
+		destination, err := writer.CreateHeader(&zip.FileHeader{Name: filename, Method: zip.Store})
 		if err != nil {
 			return nil, "", err
 		}
@@ -133,15 +133,25 @@ func datasetError(ctx context.Context, err error) (int, openapi.ErrorEnvelope) {
 	return status, errorEnvelope(ctx, code, message)
 }
 func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefolderRequestObject) (openapi.UploadImagefolderResponseObject, error) {
+	if s.datasets == nil || s.datasetQueue == nil {
+		return openapi.UploadImagefolder503JSONResponse(errorEnvelope(ctx, "DATASET_SERVICE_UNAVAILABLE", "数据集服务不可用")), nil
+	}
+	select {
+	case s.uploadSlots <- struct{}{}:
+		defer func() { <-s.uploadSlots }()
+	default:
+		return openapi.UploadImagefolder429JSONResponse(errorEnvelope(ctx, "UPLOAD_BUSY", "当前同时上传的任务已达 2 个，请稍后重试")), nil
+	}
 	fields, archive, err := readDatasetUpload(r.Body)
 	if archive != "" {
 		defer os.Remove(archive)
 	}
-	var result map[string]any
-	if err == nil && s.datasets != nil {
-		result, err = s.datasets.Import(ctx, fields["name"], fields["request_id"], archive)
-	} else if err == nil {
-		err = errors.New("dataset service unavailable")
+	var result dataset.ImportJob
+	if err == nil {
+		result, err = s.datasetQueue.Enqueue(ctx, fields["name"], fields["request_id"], archive)
+	}
+	if errors.Is(err, dataset.ErrQueueFull) {
+		return openapi.UploadImagefolder429JSONResponse(errorEnvelope(ctx, "IMPORT_QUEUE_FULL", "导入队列已满（最多 20 个任务），请稍后重试")), nil
 	}
 	if err != nil {
 		status, body := datasetError(ctx, err)
@@ -154,7 +164,18 @@ func (s *Server) UploadImagefolder(ctx context.Context, r openapi.UploadImagefol
 			return openapi.UploadImagefolder503JSONResponse(body), nil
 		}
 	}
-	return openapi.UploadImagefolder201JSONResponse(result), nil
+	return openapi.UploadImagefolder202JSONResponse(openapi.FreeFormObject{"job": jsonValue(result)}), nil
+}
+
+func (s *Server) ListDatasetImports(ctx context.Context, r openapi.ListDatasetImportsRequestObject) (openapi.ListDatasetImportsResponseObject, error) {
+	if s.datasetQueue == nil {
+		return openapi.ListDatasetImports503JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "DATASET_SERVICE_UNAVAILABLE", "导入队列不可用"))}, nil
+	}
+	jobs, err := s.datasetQueue.Repository.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.ListDatasetImports200JSONResponse(openapi.FreeFormObject{"jobs": jsonValue(jobs)}), nil
 }
 func (s *Server) ExpandDataset(ctx context.Context, r openapi.ExpandDatasetRequestObject) (openapi.ExpandDatasetResponseObject, error) {
 	fields, archive, err := readDatasetUpload(r.Body)

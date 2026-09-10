@@ -651,6 +651,9 @@ type ReportTrainingProgressJSONRequestBody ReportTrainingProgressJSONBody
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 
+	// (GET /api/dataset-imports)
+	ListDatasetImports(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/dataset-versions/{dataset_version_id}/card)
 	GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
 
@@ -748,6 +751,11 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// (GET /api/dataset-imports)
+func (_ Unimplemented) ListDatasetImports(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // (GET /api/dataset-versions/{dataset_version_id}/card)
 func (_ Unimplemented) GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
@@ -912,6 +920,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListDatasetImports operation middleware
+func (siw *ServerInterfaceWrapper) ListDatasetImports(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDatasetImports(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetDatasetCard operation middleware
 func (siw *ServerInterfaceWrapper) GetDatasetCard(w http.ResponseWriter, r *http.Request) {
@@ -1848,6 +1870,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/api/dataset-versions/{dataset_version_id}/card/generate", wrapper.GenerateDatasetCard)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/dataset-imports", wrapper.ListDatasetImports)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/datasets/upload-imagefolder", wrapper.UploadImagefolder)
 	})
 	r.Group(func(r chi.Router) {
@@ -1950,6 +1975,41 @@ type JobResponseJSONResponse JobEnvelope
 type LLMAssistanceResponseJSONResponse LLMAssistanceEnvelope
 
 type TrainingRunResponseJSONResponse TrainingRunEnvelope
+
+type ListDatasetImportsRequestObject struct {
+}
+
+type ListDatasetImportsResponseObject interface {
+	VisitListDatasetImportsResponse(w http.ResponseWriter) error
+}
+
+type ListDatasetImports200JSONResponse FreeFormObject
+
+func (response ListDatasetImports200JSONResponse) VisitListDatasetImportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDatasetImports503JSONResponse struct{ ErrorResponseJSONResponse }
+
+func (response ListDatasetImports503JSONResponse) VisitListDatasetImportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetDatasetCardRequestObject struct {
 	DatasetVersionId string `json:"dataset_version_id"`
@@ -2101,16 +2161,16 @@ type UploadImagefolderResponseObject interface {
 	VisitUploadImagefolderResponse(w http.ResponseWriter) error
 }
 
-type UploadImagefolder201JSONResponse FreeFormObject
+type UploadImagefolder202JSONResponse FreeFormObject
 
-func (response UploadImagefolder201JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+func (response UploadImagefolder202JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
+	w.WriteHeader(202)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2139,6 +2199,20 @@ func (response UploadImagefolder422JSONResponse) VisitUploadImagefolderResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadImagefolder429JSONResponse ErrorEnvelope
+
+func (response UploadImagefolder429JSONResponse) VisitUploadImagefolderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3282,6 +3356,9 @@ func (response ReportTrainingProgress409JSONResponse) VisitReportTrainingProgres
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
+	// (GET /api/dataset-imports)
+	ListDatasetImports(ctx context.Context, request ListDatasetImportsRequestObject) (ListDatasetImportsResponseObject, error)
+
 	// (GET /api/dataset-versions/{dataset_version_id}/card)
 	GetDatasetCard(ctx context.Context, request GetDatasetCardRequestObject) (GetDatasetCardResponseObject, error)
 
@@ -3413,6 +3490,30 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListDatasetImports operation middleware
+func (sh *strictHandler) ListDatasetImports(w http.ResponseWriter, r *http.Request) {
+	var request ListDatasetImportsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDatasetImports(ctx, request.(ListDatasetImportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDatasetImports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDatasetImportsResponseObject); ok {
+		if err := validResponse.VisitListDatasetImportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetDatasetCard operation middleware

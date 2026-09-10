@@ -20,6 +20,7 @@ type Dependencies struct {
 	Hardware       hardware.Handler
 	DatasetCards   *datasetcard.Service
 	DatasetImport  *dataset.Service
+	DatasetQueue   *dataset.ImportQueue
 	Lifecycle      *training.Service
 	ReadModels     ReadModels
 	LLMApplication *llm.Application
@@ -38,6 +39,8 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	}
 	application := NewServer(dependencies.Lifecycle, dependencies.ReadModels, dependencies.LLMApplication, dependencies.ModelRegistry)
 	application.datasets = dependencies.DatasetImport
+	application.datasetQueue = dependencies.DatasetQueue
+	application.uploadSlots = make(chan struct{}, 2)
 	application.cards = dependencies.DatasetCards
 	strict := openapi.NewStrictHandler(application, nil)
 	router := chi.NewRouter()

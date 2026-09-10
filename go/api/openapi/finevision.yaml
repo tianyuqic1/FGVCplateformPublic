@@ -58,6 +58,16 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/FreeFormObject"}
         default: {$ref: "#/components/responses/ErrorResponse"}
+  /api/dataset-imports:
+    get:
+      operationId: listDatasetImports
+      responses:
+        "200":
+          description: Active imports and recent completed imports (up to 40)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/FreeFormObject"}
+        "503": {$ref: "#/components/responses/ErrorResponse"}
   /api/datasets/upload-imagefolder:
     post:
       operationId: uploadImagefolder
@@ -75,13 +85,14 @@ paths:
                   type: array
                   items: {type: string, format: binary}
       responses:
-        "201":
-          description: Verified imported Dataset Version
+        "202":
+          description: Upload persisted and queued for background validation and registration
           content:
             application/json:
               schema: {$ref: "#/components/schemas/FreeFormObject"}
         "422": {$ref: "#/components/responses/ErrorResponse"}
         "409": {$ref: "#/components/responses/ErrorResponse"}
+        "429": {$ref: "#/components/responses/ErrorResponse"}
         "503": {$ref: "#/components/responses/ErrorResponse"}
   /api/datasets/{dataset_id}/training-candidates:
     parameters:

@@ -21,7 +21,15 @@ globalThis.fetch = async (url, options) => {
   request = { url, options };
   return { ok: true, json: async () => ({ version: { dataset_version_id: "version-3" } }) };
 };
-await uploadImagefolder({ name: "鸟类识别", request_id: "request-a", files: [] });
+globalThis.XMLHttpRequest = class {
+  upload = {};
+  status = 202;
+  responseText = JSON.stringify({ job: { id: "job-a", status: "queued" } });
+  open() {}
+  setRequestHeader() {}
+  send(body) { request = { options: { body } }; this.onload(); }
+};
+await uploadImagefolder({ name: "鸟类识别", request_id: "request-a", files: [new File(["image"], "class/image.png")] });
 assert.equal(request.options.body.get("name"), "鸟类识别");
 assert.equal(request.options.body.get("request_id"), "request-a");
 assert.equal(request.options.body.has("dataset_id"), false);

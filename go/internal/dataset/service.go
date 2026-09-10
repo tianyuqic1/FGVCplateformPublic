@@ -66,10 +66,34 @@ type Service struct {
 
 func (s *Service) Import(ctx context.Context, name, requestID, archivePath string) (map[string]any, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || utf8.RuneCountInString(name) > 120 {
-		return nil, fmt.Errorf("%w: 请填写 1–120 字的数据集名称", ErrInvalid)
+	if err := validateImport(name, requestID); err != nil {
+		return nil, err
 	}
 	return s.publish(ctx, "", "", name, requestID, archivePath, nil)
+}
+
+func validateImport(name, requestID string) error {
+	if name == "" || utf8.RuneCountInString(name) > 120 {
+		return fmt.Errorf("%w: 请填写 1–120 字的数据集名称", ErrInvalid)
+	}
+	if _, err := uuid.Parse(requestID); err != nil {
+		return fmt.Errorf("%w: request_id 必须是 UUID", ErrInvalid)
+	}
+	return nil
+}
+
+func (s *Service) StoreArchive(ctx context.Context, archivePath, versionID string) (artifact.Descriptor, error) {
+	return s.Store.PutFile(ctx, archivePath, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-upload", DatasetVersionID: versionID})
+}
+
+// Replay the same persisted archive and request identity after a worker restart.
+func (s *Service) ImportArchive(ctx context.Context, name, requestID, versionID string, archive artifact.Descriptor) (map[string]any, error) {
+	name = strings.TrimSpace(name)
+	if err := validateImport(name, requestID); err != nil {
+		return nil, err
+	}
+	archive.DatasetVersionID = versionID
+	return s.publish(ctx, "", "", name, requestID, "", nil, archive)
 }
 func (s *Service) Expand(ctx context.Context, datasetID, baseID, requestID, archivePath string, feedbackIDs []string) (map[string]any, error) {
 	if datasetID == "" || baseID == "" {
@@ -77,7 +101,7 @@ func (s *Service) Expand(ctx context.Context, datasetID, baseID, requestID, arch
 	}
 	return s.publish(ctx, datasetID, baseID, "", requestID, archivePath, feedbackIDs)
 }
-func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestID, archivePath string, feedbackIDs []string) (map[string]any, error) {
+func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestID, archivePath string, feedbackIDs []string, prepared ...artifact.Descriptor) (map[string]any, error) {
 	if _, err := uuid.Parse(requestID); err != nil {
 		return nil, fmt.Errorf("%w: request_id 必须是 UUID", ErrInvalid)
 	}
@@ -94,6 +118,12 @@ func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestI
 	p := Publication{DatasetID: uuid.NewString(), VersionID: uuid.NewString(), RequestID: requestID, Name: name, Number: 1, SourceType: "initial_import", Changes: map[string]any{}}
 	p.DatasetKey = p.DatasetID
 	var incoming artifact.Descriptor
+	if len(prepared) > 0 {
+		incoming = prepared[0]
+		p.VersionID = incoming.DatasetVersionID
+		p.DatasetID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("dataset-import:"+p.VersionID)).String()
+		p.DatasetKey = p.DatasetID
+	}
 	if archivePath != "" {
 		var err error
 		incoming, err = s.Store.PutFile(ctx, archivePath, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-upload", DatasetVersionID: p.VersionID})

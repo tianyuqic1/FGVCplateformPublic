@@ -200,32 +200,73 @@ export async function importImagefolder(input) {
   }, 10000);
 }
 
+export async function listDatasetImports() {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson("/api/dataset-imports", { signal });
+    return Array.isArray(payload?.jobs) ? payload.jobs : [];
+  }, 5000);
+}
+
 export async function uploadImagefolder(input) {
+  const { signal, onProgress = () => {} } = input;
+  signal?.throwIfAborted();
+  if (!input.files?.length || input.files.length > 100000) throw new Error("请选择 1–100000 张图片");
+  let totalBytes = 0;
+  for (const file of input.files) {
+    if (file.size > 32 * 1024 * 1024) throw new Error("单张图片上限 32 MiB");
+    totalBytes += file.size;
+  }
+  if (totalBytes > 5 * 1024 * 1024 * 1024) throw new Error("数据集上限 5 GiB");
+
   const form = new FormData();
   form.append("name", input.name);
   form.append("request_id", input.request_id);
-  input.files.forEach((file) => {
-    form.append("files", file, file.webkitRelativePath || file.name);
-  });
-
-  const response = await fetch(`${apiBaseUrl()}/api/datasets/upload-imagefolder`, {
-    method: "POST",
-    body: form,
-  });
-
-  if (!response.ok) {
-    let detail = `${response.status} POST /api/datasets/upload-imagefolder`;
-    try {
-      const payload = await response.json();
-      const message = payload?.error?.message ?? (typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message);
-      detail = message ? `${detail}: ${message}` : detail;
-    } catch {
-      // Keep the HTTP status fallback when the response body is not JSON.
+  // Yield in bounded batches so the spinner, progress and cancel button paint
+  // even for large folders. Files stay as Blob references; no base64 copies.
+  for (let start = 0; start < input.files.length; start += 100) {
+    onProgress({ stage: "preparing", percent: Math.round(start / input.files.length * 100) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    signal?.throwIfAborted();
+    for (let index = start; index < Math.min(start + 100, input.files.length); index++) {
+      const file = input.files[index];
+      form.append("files", file, file.webkitRelativePath || file.name);
     }
-    throw new Error(detail);
   }
 
-  return extractImportedDataset(await response.json());
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const fail = (error) => { cleanup(); reject(error); };
+    xhr.open("POST", `${apiBaseUrl()}/api/datasets/upload-imagefolder`);
+    xhr.timeout = 30 * 60 * 1000;
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.upload.onprogress = (event) => {
+      onProgress({ stage: "uploading", percent: event.lengthComputable ? Math.round(event.loaded / event.total * 100) : null });
+    };
+    xhr.upload.onload = () => onProgress({ stage: "persisting", percent: null });
+    xhr.onload = () => {
+      cleanup();
+      let payload;
+      try { payload = JSON.parse(xhr.responseText); } catch { reject(new Error(`上传响应异常（${xhr.status}），请查看后台导入任务后再重试。`)); return; }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const message = payload?.error?.message ?? payload?.detail?.message ?? payload?.detail;
+        reject(new Error(typeof message === "string" ? message : `上传失败（${xhr.status}）`));
+        return;
+      }
+      if (xhr.status === 202 && payload?.job?.id) { resolve({ job: payload.job }); return; }
+      // Keep compatibility with the older Python API while deployments roll out.
+      if (xhr.status === 201) { resolve(extractImportedDataset(payload)); return; }
+      reject(new Error("上传响应缺少任务编号，请查看后台导入任务。"));
+    };
+    xhr.onerror = () => fail(new Error("上传连接中断，请查看后台导入任务后再重试。"));
+    xhr.ontimeout = () => fail(new Error("上传超时，请查看后台导入任务后再重试。"));
+    xhr.onabort = () => fail(new DOMException("已停止上传；若服务器已接收，请查看后台导入任务。", "AbortError"));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) { fail(signal.reason); return; }
+    onProgress({ stage: "uploading", percent: 0 });
+    xhr.send(form);
+  });
 }
 
 export async function listTrainingCandidates(datasetId) {

@@ -88,12 +88,17 @@ func main() {
 	datasetImport := &dataset.Service{UploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
 	hardwareStore := &hardware.PostgresStore{Pool: pool}
 	go hardwareStore.RunRetention(ctx)
+	datasetQueue := &dataset.ImportQueue{Service: datasetImport, Repository: &postgresadapter.DatasetImportQueue{Pool: pool}}
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); datasetQueue.Run(ctx) }()
+	defer func() { stop(); <-workerDone }()
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
 			Hardware:      hardware.Handler{Store: hardwareStore, Token: os.Getenv("FINEVISION_HARDWARE_TOKEN")},
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,
+			DatasetQueue:  datasetQueue,
 			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
 			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)).WithPublication(grpcadapter.HeadExporter{Client: computev1.NewModelExportClient(computeConnection)}, artifactVerifier),
 		}),
