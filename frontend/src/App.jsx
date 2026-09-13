@@ -6,7 +6,6 @@ import { ModelComparisonPage, ModelVersionDetailPage, ModelVersionsPage } from "
 import { TrainingDetailPage, TrainingPage } from "./features/training/TrainingPages.jsx";
 import {
   DashboardPage,
-  DatasetDetailPage,
   DatasetsPage,
   InferencePage,
   FeedbackPage,
@@ -18,6 +17,8 @@ import {
 } from "./pages/pages.jsx";
 
 import { HardwarePage } from "./features/hardware/HardwarePage.jsx";
+import { DatasetDetailPage } from "./features/datasets/DatasetDetailPage.jsx";
+import { AnnotationPage } from "./features/annotation/AnnotationPage.jsx";
 
 const legacyPageMap = {
   hardware: "/hardware",
@@ -45,6 +46,7 @@ const legacyAliases = {
 };
 
 function titleForPath(pathname) {
+  if (pathname === "/annotation") return "AI 标注";
   if (pathname.startsWith("/datasets/")) return "数据集详情";
   if (pathname === "/hardware") return "硬件监控";
   if (pathname === "/datasets") return "数据集";
@@ -64,6 +66,7 @@ function titleForPath(pathname) {
 }
 
 function crumbForPath(pathname) {
+  if (pathname === "/annotation") return "数据资产 / AI 标注工作区";
   if (pathname.startsWith("/datasets/")) return "数据集 / 版本详情";
   if (pathname === "/hardware") return "系统 / 计算资源";
   if (pathname === "/datasets") return "数据资产";
@@ -133,6 +136,7 @@ export default function App() {
           <Route path="/" element={<DashboardPage showToast={showToast} />} />
           <Route path="/dashboard" element={<Navigate to="/" replace />} />
           <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
+          <Route path="/annotation" element={<AnnotationPage />} />
           <Route path="/datasets/:datasetId" element={<DatasetTitleRoute showToast={showToast} />} />
           <Route path="/training" element={<TrainingPage showToast={showToast} />} />
           <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />

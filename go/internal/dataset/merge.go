@@ -87,15 +87,20 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 	writer := zip.NewWriter(file)
 	defer writer.Close()
 	seen := map[string]string{}
+	evaluation := map[string]bool{}
 	names := map[string]bool{}
 	count, added, duplicates := 0, 0, 0
 	var total int64
 	sources := map[string]any{}
+	splitCounts := map[string]map[string]int{"train": {}, "val": {}, "test": {}}
 	write := func(name, label string, b []byte, addition bool, source any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		digest := fmt.Sprintf("%x", sha256.Sum256(b))
+		if addition && evaluation[digest] {
+			return fmt.Errorf("%w: 图片已属于验证集或测试集，禁止回流到训练集", ErrInvalid)
+		}
 		if previous, ok := seen[digest]; ok && addition {
 			if previous != label {
 				return fmt.Errorf("%w: 同一图片存在不同标签，请先处理标签冲突", ErrInvalid)
@@ -125,6 +130,7 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 			seen[digest] = label
 		}
 		names[name] = true
+		splitCounts[strings.Split(name, "/")[0]][label]++
 		if addition {
 			added++
 			sources[name] = source
@@ -165,6 +171,9 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 		}
 		if e = write(name, label, b, false, nil); e != nil {
 			return "", nil, e
+		}
+		if split != "train" {
+			evaluation[fmt.Sprintf("%x", sha256.Sum256(b))] = true
 		}
 	}
 	add := func(label, filename string, b []byte, source any) error {
@@ -286,6 +295,6 @@ func (s *Service) merge(ctx context.Context, base Snapshot, incoming string, fee
 	if err = file.Close(); err != nil {
 		return
 	}
-	changes = map[string]any{"added_count": added, "duplicate_count": duplicates, "train_only": true, "evaluation_preserved": true, "sample_sources": sources}
+	changes = map[string]any{"added_count": added, "duplicate_count": duplicates, "train_only": true, "evaluation_preserved": true, "sample_sources": sources, "split_counts": splitCounts}
 	return
 }

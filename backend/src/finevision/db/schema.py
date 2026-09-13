@@ -5,6 +5,9 @@ from sqlalchemy.dialects import postgresql
 
 metadata = sa.MetaData()
 
+from .annotation_schema import register as register_annotation
+register_annotation(metadata)
+
 dataset_card_revisions = sa.Table(
     "dataset_card_revisions", metadata,
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), primary_key=True),
@@ -150,7 +153,7 @@ dataset_versions = sa.Table(
     sa.Column("import_fingerprint", sa.Text()),
     sa.UniqueConstraint("dataset_id", "version_number", name="dataset_version_number_unique"),
     sa.CheckConstraint("version_number > 0", name="dataset_version_number_positive"),
-    sa.CheckConstraint("source_type IN ('initial_import','manual_expansion','review_feedback','mixed_expansion')", name="dataset_version_source_type"),
+    sa.CheckConstraint("source_type IN ('initial_import','manual_expansion','review_feedback','mixed_expansion','annotation_publish','annotation_append')", name="dataset_version_source_type"),
     sa.Column("root_uri", sa.Text(), nullable=False),
     sa.Column("sample_count", sa.Integer(), nullable=False),
     sa.Column("class_count", sa.Integer(), nullable=False),
@@ -380,6 +383,8 @@ inference_events = sa.Table(
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), nullable=False),
     sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
     sa.Column("model_status", sa.Text(), nullable=False),
+    sa.Column("deployment_id", sa.Text()),
+    sa.Column("runtime_metadata", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("model_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
     sa.Column("feature_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
     sa.Column("threshold_strategy_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
@@ -625,3 +630,42 @@ hardware_samples = sa.Table(
     sa.Column("snapshot", postgresql.JSONB(), nullable=False),
 )
 sa.Index("hardware_samples_retention", hardware_samples.c.received_at)
+
+model_deployments = sa.Table(
+    "model_deployments", metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("model_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_versions.id"), nullable=False),
+    sa.Column("source_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id"), nullable=False),
+    sa.Column("compiled_artifact_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("artifacts.id")),
+    sa.Column("runtime", sa.Text(), nullable=False),
+    sa.Column("precision", sa.Text(), nullable=False),
+    sa.Column("target_profile", sa.Text(), nullable=False),
+    sa.Column("max_batch", sa.Integer(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("source_descriptor", postgresql.JSONB(), nullable=False),
+    sa.Column("compiled_descriptor", postgresql.JSONB()),
+    sa.Column("validation", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("build_token", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("worker_id", sa.Text()),
+    sa.Column("lease_expires_at", sa.DateTime(timezone=True)),
+    sa.Column("error", sa.Text(), nullable=False, server_default=""),
+    sa.Column("actor", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.UniqueConstraint("model_version_id", "source_artifact_id", "runtime", "precision", "target_profile", "max_batch"),
+    sa.CheckConstraint("runtime IN ('tensorrt','ascend_acl')"),
+    sa.CheckConstraint("precision IN ('FP32','FP16')"),
+    sa.CheckConstraint("max_batch BETWEEN 1 AND 32"),
+    sa.CheckConstraint("status IN ('queued','building','ready','failed')"),
+)
+sa.Index("model_deployments_model", model_deployments.c.model_version_id, model_deployments.c.created_at)
+deployment_outbox = sa.Table(
+    "deployment_outbox", metadata,
+    sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("deployment_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("model_deployments.id"), nullable=False),
+    sa.Column("build_token", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("runtime", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("published_at", sa.DateTime(timezone=True)),
+    sa.UniqueConstraint("deployment_id", "build_token"),
+)

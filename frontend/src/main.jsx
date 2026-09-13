@@ -6,6 +6,7 @@ import "./styles.css";
 import "./design-system/tokens.css";
 import "./design-system/workbench.css";
 import "./design-system/table-polish.css";
+import "./design-system/page-polish.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

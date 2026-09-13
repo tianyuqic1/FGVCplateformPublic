@@ -1,0 +1,15 @@
+# Supply a site-approved CANN development image (ATC + PyACL, Python >=3.11).
+# The image MUST match the server architecture, NPU driver and firmware.
+ARG ASCEND_BASE_IMAGE
+FROM ${ASCEND_BASE_IMAGE}
+USER root
+WORKDIR /app
+COPY pyproject.toml ./
+COPY backend ./backend
+# Torch is CPU-only: used for the exact same image preprocessing, not NPU execution.
+RUN python -m pip install --no-cache-dir torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu \
+    && python -m pip install --no-cache-dir . 'grpcio>=1.83.1' 'onnx==1.17.0' 'onnxruntime==1.20.1' 'timm>=1.0.19' \
+    && python -c "import acl; from finevision.compute.inference_runtime import InferenceRuntimeService" \
+    && mkdir -p /data/builds /data/cache
+ENV FINEVISION_INFERENCE_BACKEND=ascend_acl
+CMD ["python", "-m", "finevision.compute.inference_runtime"]

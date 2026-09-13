@@ -22,9 +22,11 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/llmgatewayclient"
 	postgresadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/postgres"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/s3artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/annotation"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/deployment"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/hardware"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
@@ -85,16 +87,57 @@ func main() {
 		os.Exit(1)
 	}
 	defer computeConnection.Close()
+	inferenceAddress := os.Getenv("FINEVISION_INFERENCE_GRPC")
+	if inferenceAddress == "" {
+		inferenceAddress = "python-inference-runtime:9100"
+	}
+	inferenceConnection, err := grpc.NewClient(inferenceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		slog.Error("configure inference connection", "error", err)
+		os.Exit(1)
+	}
+	defer inferenceConnection.Close()
+	targets := []deployment.Target{}
+	runtimeClients := map[string]computev1.InferenceRuntimeClient{}
+	for _, spec := range []struct{ runtime, prefix string }{{"tensorrt", "FINEVISION_TENSORRT"}, {"ascend_acl", "FINEVISION_ASCEND"}} {
+		address, profile := os.Getenv(spec.prefix+"_GRPC"), os.Getenv(spec.prefix+"_TARGET")
+		if address == "" {
+			continue
+		}
+		if profile == "" || os.Getenv("FINEVISION_DEPLOYMENT_TOKEN") == "" {
+			slog.Error("target profile and deployment token required", "runtime", spec.runtime)
+			os.Exit(1)
+		}
+		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			slog.Error("invalid runtime address")
+			os.Exit(1)
+		}
+		defer connection.Close()
+		runtimeClients[spec.runtime] = computev1.NewInferenceRuntimeClient(connection)
+		targets = append(targets, deployment.Target{Runtime: spec.runtime, Profile: profile, Address: address})
+	}
+	deployments := &postgresadapter.DeploymentRepository{Pool: pool, Store: artifactVerifier, Targets: targets}
 	datasetImport := &dataset.Service{UploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Store: artifactVerifier, Scanner: grpcadapter.DatasetScanner{Client: computev1.NewDatasetComputeClient(computeConnection)}, Repository: postgresadapter.DatasetRepository{Pool: pool}}
 	hardwareStore := &hardware.PostgresStore{Pool: pool}
 	go hardwareStore.RunRetention(ctx)
 	datasetQueue := &dataset.ImportQueue{Service: datasetImport, Repository: &postgresadapter.DatasetImportQueue{Pool: pool}}
+	annotationRepo := &annotation.Repository{Pool: pool}
+	annotationPublisher := &annotation.Publisher{Repo: annotationRepo, Datasets: datasetImport}
+	publicationDone := make(chan struct{})
+	go func() { defer close(publicationDone); annotationPublisher.Run(ctx) }()
+	defer func() { stop(); <-publicationDone }()
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); datasetQueue.Run(ctx) }()
 	defer func() { stop(); <-workerDone }()
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: httpapi.NewRouter(httpapi.Dependencies{
+			Annotation:  &annotation.Handler{Repo: annotationRepo, Store: artifactVerifier, Token: configuration.LLMInternalToken, Publisher: annotationPublisher},
+			Deployments: deployments, DeploymentToken: os.Getenv("FINEVISION_DEPLOYMENT_TOKEN"),
+			Inference:     &postgresadapter.InferenceService{LegacyUploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Pool: pool, Store: artifactVerifier, Preview: &dataset.PreviewService{Repository: postgresadapter.DatasetRepository{Pool: pool}, Store: artifactVerifier}, Client: computev1.NewInferenceRuntimeClient(inferenceConnection), Deployments: deployments, RuntimeClients: runtimeClients},
+			Policies:      &postgresadapter.PolicyRepository{Pool: pool},
+			Reviews:       &postgresadapter.ReviewRepository{Pool: pool},
 			Hardware:      hardware.Handler{Store: hardwareStore, Token: os.Getenv("FINEVISION_HARDWARE_TOKEN")},
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,

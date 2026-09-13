@@ -1,0 +1,111 @@
+/* A-workbench compatibility layer for legacy and newer feature surfaces.
+   Keep semantic status colors and image previews intact; unify presentation only. */
+.main { padding: 0; }
+.topbar { margin-bottom: 0; }
+.page { width: 100%; margin-inline: auto; font-size: 13px; line-height: 1.6; }
+.page > .panel + .panel { margin-top: 16px; }
+.sidebar { overflow-y: auto; }
+.page-hero, .fv-page-heading, .ann-hero {
+  padding: 24px 0 20px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.page-hero h2, .fv-page-heading h2, .ann-hero h1 {
+  font-size: clamp(23px, 2.1vw, 28px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -.025em;
+}
+.page-hero p, .fv-page-heading p, .ann-hero p {
+  max-width: 760px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+.panel, .metric, .card, .fv-panel,
+.ann-project-bar, .ann-queue, .ann-canvas, .ann-inspector, .ann-create, .pub-card {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-panel);
+}
+.panel { padding: 18px; }
+.panel-title { margin-bottom: 16px; align-items: flex-start; }
+.panel-title h2, .fv-panel-head h3 { font-size: 15px; line-height: 1.5; font-weight: 650; }
+.panel-title > div > span { display: block; margin-top: 4px; font-size: 12px; line-height: 1.65; }
+.fv-panel-head { padding: 14px 16px; }
+.timeline-item, .sample-card { box-shadow: none; }
+.metric { padding: 16px; }
+.metric::before { display: none; }
+.metric strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.metric span { font-size: 12px; line-height: 1.8; }
+.metric .bar { height: 4px; }
+
+.primary-button, .secondary-button, .ghost-button, .tab-button, .seg-button,
+.annotation-page .btn { min-height: 36px; font-size: 12px; font-weight: 600; border-radius: var(--radius-md); }
+.annotation-page .btn.primary {
+  background: var(--action-primary);
+  border-color: var(--action-primary);
+  box-shadow: 0 3px 8px #3569e81a;
+}
+.annotation-page .btn.primary:hover:not(:disabled) { background: var(--action-primary-hover); border-color: var(--action-primary-hover); }
+.secondary-button:hover:not(:disabled), .ghost-button:hover:not(:disabled),
+.annotation-page .btn:not(.primary):hover:not(:disabled) { background: var(--surface-selected); border-color: #c4d4f5; }
+.tab-button.active, .seg-button.active {
+  color: #2859b8;
+  border-color: #c9d8f8;
+  background: var(--surface-selected);
+}
+.ann-tabs { margin: 0; padding-bottom: 4px; }
+.dataset-pagination__pages button[aria-current="page"] { background: var(--action-primary); border-color: var(--action-primary); box-shadow: none; }
+.dataset-pagination__pages button[aria-current="page"]:hover { background: var(--action-primary-hover); }
+.annotation-page button:focus-visible, .annotation-page input:focus-visible,
+textarea:focus-visible, summary:focus-visible { outline: 3px solid #3569e838; outline-offset: 2px; }
+.field input, .field select, .field textarea, .fv-form input, .fv-form select {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.fv-form > label, .fv-form legend { font-size: 12px; }
+.fv-backbone-picker strong { font-size: 12px; }
+.fv-backbone-picker small { font-size: 10px; }
+.fv-filter-row { row-gap: 8px; }
+.fv-table-wrap { overscroll-behavior-x: contain; }
+.fv-table th { font-weight: 600; }
+.fv-table td { padding-block: 13px; }
+.ann-policy { line-height: 1.7; }
+.ann-project-stats strong { font-size: 23px; }
+.ann-thumb.active, .ann-candidates > button.chosen {
+  background: var(--surface-selected);
+  border-color: #c9d8f8;
+  color: #2859b8;
+}
+.ann-confirm { background: var(--surface-panel-soft); }
+.pub-card .pub-sample { background: var(--surface-panel); }
+.pub-card .pub-sample.selected { background: var(--surface-selected); border-color: #adc5f5; }
+.pub-table-wrap th { background: var(--surface-panel-soft); color: var(--text-secondary); }
+.inference-stack > .panel { border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); padding: 20px; }
+.inference-stack .panel-title h2 { font-size: 15px; }
+.inference-intro h2 { font-size: clamp(23px, 2.1vw, 28px); }
+.inference-intro p { font-size: 13px; }
+
+@media (max-width: 760px) {
+  .page-hero, .ann-hero { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .page-hero, .fv-page-heading, .ann-hero { padding: 18px 0 16px; }
+  .panel { padding: 14px; }
+  .page-hero > *, .ann-hero > * { min-width: 0; max-width: 100%; }
+  .page-hero .toolbar { justify-content: flex-start; }
+  .ann-project-select { min-width: 0; flex-basis: 100%; }
+  .panel-title .toolbar { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .sidebar { overflow-y: hidden; }
+  .sidebar .brand, .sidebar .nav-section, .sidebar .nav-button { flex-shrink: 0; }
+  .topbar { top: 50px; flex-direction: row; align-items: center; gap: 12px; }
+  .topbar-actions { width: auto; flex-wrap: nowrap; }
+  .topbar-actions .ghost-button { width: auto; }
+  .inference-stack > .panel { padding: 14px; }
+}

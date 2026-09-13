@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { expandDataset, listTrainingCandidates } from "../../api/datasets.js";
 import { Panel, StatusChip } from "../../components/ui.jsx";
+import { Icon } from "../../components/icons.jsx";
 import { PaginatedList } from "../../design-system/components/PaginatedList.jsx";
 import "./datasetVersions.css";
 
-const sourceLabels = { initial_import: "首次导入", manual_expansion: "手动扩充", review_feedback: "复核回流", mixed_expansion: "上传 + 复核回流" };
+const sourceLabels = { initial_import: "首次导入", manual_expansion: "手动扩充", review_feedback: "复核回流", mixed_expansion: "上传 + 复核回流", annotation_publish: "标注发布", annotation_append: "标注追加" };
 const trainingLabels = { untrained: "未训练", training: "训练中 / 等待中", failed: "训练失败", trained: "已训练" };
 const splitTotal = (counts, split) => Object.values(counts?.[split] ?? {}).reduce((sum, n) => sum + Number(n), 0);
 
@@ -23,7 +24,7 @@ export function DatasetVersionList({ dataset }) {
           <small>{version.createdAt ? new Date(version.createdAt).toLocaleString() : ""}</small>
         </td>
         <td><span>{splitTotal(version.splitCounts, "train")} / {splitTotal(version.splitCounts, "val")} / {splitTotal(version.splitCounts, "test")}</span>
-          {version.parentId && <small>验证集、测试集沿用基础版本</small>}
+          {version.parentId && <small>原划分保留{version.sourceType === "annotation_append" ? " · 新样本按发布策略分配" : " · 仅扩充训练集"}</small>}
         </td>
         <td><StatusChip tone={version.hasWeights ? "default" : "neutral"}>{version.hasWeights ? `已有 ${version.modelCount} 份权重` : "暂无权重"}</StatusChip>
           <small>{trainingLabels[version.trainingStatus] ?? "未训练"}</small>
@@ -58,6 +59,7 @@ export function DatasetExpansionPanel({ dataset, onPublished, showToast }) {
   const [fileError, setFileError] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const folderInput = useRef(null);
   const requestId = useRef(crypto.randomUUID());
   useEffect(() => {
     let active = true;
@@ -82,13 +84,26 @@ export function DatasetExpansionPanel({ dataset, onPublished, showToast }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  return <div id="training-expansion"><Panel title="扩充训练集" caption={`基于最新 v${dataset.versionNumber || 1} 生成 v${next}。原有图片和标签保持不变，新图片仅进入训练集，验证集和测试集保持不变。`}>
+  return <div id="training-expansion"><Panel className="expansion-panel" title="扩充训练集" caption="补充新图片或纳入已复核样本，生成独立的数据版本。" action={<div className="expansion-version"><span>当前 v{dataset.versionNumber || 1}</span><Icon name="ChevronRight" size={14} /><strong>新版本 v{next}</strong></div>}>
+    <div className="expansion-notice"><Icon name="ShieldCheck" size={16} /><span>原有图片与标签保留；新样本仅加入训练集，验证集和测试集不变。</span></div>
     <fieldset className="dataset-expansion-fields" disabled={busy}>
-      <label className="field"><span>手动补充图片（可选）</span><input type="file" multiple webkitdirectory="" directory="" onChange={chooseFiles} /></label>
-      <p className="row-meta">已选 {files.length} 张上传图片；选择类别子文件夹或 train 文件夹，文件夹名称不影响数据集名称。</p>
+      <div className="expansion-sources">
+      <section className="expansion-source" aria-label="手动补充图片">
+        <div className="expansion-source-heading"><div><span className="expansion-step">01</span><strong>手动补充图片</strong></div><span className="expansion-optional">可选</span></div>
+        <input ref={folderInput} className="expansion-file-input" aria-label="选择训练图片文件夹" type="file" multiple webkitdirectory="" directory="" onChange={chooseFiles} />
+        <button className={`expansion-upload ${files.length ? "has-files" : ""}`} type="button" onClick={() => folderInput.current?.click()}>
+          <span className="expansion-upload-icon"><Icon name={files.length ? "CheckCircle2" : "FolderInput"} size={24} /></span>
+          <strong>{files.length ? `已选择 ${files.length.toLocaleString()} 张图片` : "选择图片文件夹"}</strong>
+          <span>{files.length ? "点击重新选择文件夹" : "支持 JPG、PNG、WebP 和 BMP"}</span>
+        </button>
+        <p className="expansion-hint">选择类别子文件夹或 train 目录，保留「类别 / 图片」结构。文件夹名称不会修改数据集名称。</p>
       {fileError && <p className="error-text" role="alert">{fileError}</p>}
-      <strong>已复核的训练候选</strong>
-      <p className="row-meta">{loading ? "正在读取候选…" : `${candidates.length} 张待纳入，已选择 ${selected.length} 张。旧模型的复核数据也合入最新数据版本。`}</p>
+      </section>
+      <section className="expansion-source" aria-label="已复核的训练候选">
+      <div className="expansion-source-heading"><div><span className="expansion-step">02</span><strong>已复核的训练候选</strong></div><span className="expansion-optional">已选 {selected.length} / {candidates.length}</span></div>
+      <p className="expansion-hint">人工确认的样本可纳入本次版本，支持旧模型的复核数据。</p>
+      {loading && <div className="expansion-empty" role="status"><Icon name="LoaderCircle" size={24} /><span>正在读取候选…</span></div>}
+      {!loading && !candidateError && !candidates.length && <div className="expansion-empty"><Icon name="Inbox" size={28} /><strong>暂无待纳入样本</strong><span>完成图片复核后，训练候选会显示在这里。</span></div>}
       {candidateError && <p className="error-text" role="alert">候选暂不可用：{candidateError}</p>}
       {candidates.length > 0 && <>
         <button className="ghost-button" type="button" onClick={() => { resetRequest(); setSelected(selected.length === candidates.length ? [] : candidates.map(item => item.id)); }}>{selected.length === candidates.length ? "取消全选" : "选择全部候选"}</button>
@@ -97,8 +112,10 @@ export function DatasetExpansionPanel({ dataset, onPublished, showToast }) {
           <span><strong>{item.label}</strong><small>复核 {item.review_id} · 来源模型 {item.model_version_id}</small></span>
         </label>)}</div>}</PaginatedList>
       </>}
-      <div className="toolbar spread section-gap-small"><span className="row-meta">本批选择 {files.length + selected.length} 张，后端按图片内容去重。合并后的完整数据集上限为 10000 张、512 MiB。</span>
-        <button className="primary-button" type="button" onClick={publish} disabled={busy || Boolean(fileError) || (!files.length && !selected.length)}>{busy ? "正在校验并生成版本…" : `生成 v${next}`}</button>
+      </section>
+      </div>
+      <div className="expansion-footer"><div><strong>本次已选 <span>{(files.length + selected.length).toLocaleString()}</span> 张图片</strong><p>上传 {files.length} 张 · 复核 {selected.length} 张 · 保存时按图片内容去重</p><small>单次上传上限 10000 张 / 512 MiB；合并后上限 100000 张 / 5 GiB。</small></div>
+        <button className="primary-button" type="button" onClick={publish} disabled={busy || Boolean(fileError) || (!files.length && !selected.length)}><Icon name={busy ? "LoaderCircle" : "Plus"} size={16} />{busy ? "正在校验并生成版本…" : `生成新版本 v${next}`}</button>
       </div>
     </fieldset>
     {error && <p className="error-text" role="alert">{error} <button type="button" className="ghost-button" onClick={onPublished}>刷新数据版本</button></p>}

@@ -1,0 +1,69 @@
+# Optional hardware services. See docs/inference-deployments.md before enabling.
+x-deployment-env: &deployment-env
+  FINEVISION_CONTROL_PLANE_HTTP: http://go-control-plane:8000
+  FINEVISION_DEPLOYMENT_TOKEN: ${FINEVISION_DEPLOYMENT_TOKEN:-}
+  FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/
+  FINEVISION_S3_ENDPOINT: http://object-store:9000
+  FINEVISION_S3_REGION: us-east-1
+  FINEVISION_S3_ACCESS_KEY: ${FINEVISION_S3_ACCESS_KEY:-finevision}
+  FINEVISION_S3_SECRET_KEY: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
+  FINEVISION_ARTIFACT_BUCKET: finevision-artifacts
+  FINEVISION_BUILD_ROOT: /data/builds
+  FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
+  FINEVISION_INFERENCE_GRPC_ADDRESS: '[::]:9100'
+  FINEVISION_DEVICE_ID: '0'
+  OMP_NUM_THREADS: '2'
+
+services:
+  tensorrt-inference:
+    profiles: [tensorrt]
+    image: fgvc-tensorrt:10.9
+    build: { context: ., dockerfile: Dockerfile.tensorrt }
+    restart: unless-stopped
+    gpus: all
+    environment:
+      <<: *deployment-env
+      FINEVISION_INFERENCE_BACKEND: tensorrt
+      FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
+    volumes: [fgvc-trt-cache:/data/cache]
+  tensorrt-builder:
+    profiles: [tensorrt]
+    image: fgvc-tensorrt:10.9
+    command: [python, -m, finevision.compute.deployment_worker]
+    restart: unless-stopped
+    gpus: all
+    environment:
+      <<: *deployment-env
+      FINEVISION_INFERENCE_BACKEND: tensorrt
+      FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
+    volumes: [fgvc-trt-builds:/data/builds, fgvc-trt-cache:/data/cache]
+  ascend-inference:
+    profiles: [ascend]
+    image: fgvc-ascend:local
+    build:
+      context: .
+      dockerfile: Dockerfile.ascend
+      args: { ASCEND_BASE_IMAGE: '${ASCEND_BASE_IMAGE:-}' }
+    restart: unless-stopped
+    devices: [/dev/davinci0:/dev/davinci0, /dev/davinci_manager:/dev/davinci_manager, /dev/devmm_svm:/dev/devmm_svm, /dev/hisi_hdc:/dev/hisi_hdc]
+    environment:
+      <<: *deployment-env
+      FINEVISION_INFERENCE_BACKEND: ascend_acl
+      FINEVISION_TARGET_PROFILE: ${FINEVISION_ASCEND_TARGET:-}
+    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, fgvc-ascend-cache:/data/cache]
+  ascend-builder:
+    profiles: [ascend]
+    image: fgvc-ascend:local
+    command: [python, -m, finevision.compute.deployment_worker]
+    restart: unless-stopped
+    devices: [/dev/davinci0:/dev/davinci0, /dev/davinci_manager:/dev/davinci_manager, /dev/devmm_svm:/dev/devmm_svm, /dev/hisi_hdc:/dev/hisi_hdc]
+    environment:
+      <<: *deployment-env
+      FINEVISION_INFERENCE_BACKEND: ascend_acl
+      FINEVISION_TARGET_PROFILE: ${FINEVISION_ASCEND_TARGET:-}
+    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, fgvc-ascend-builds:/data/builds, fgvc-ascend-cache:/data/cache]
+volumes:
+  fgvc-trt-cache:
+  fgvc-trt-builds:
+  fgvc-ascend-cache:
+  fgvc-ascend-builds:

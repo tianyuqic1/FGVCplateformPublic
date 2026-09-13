@@ -30,8 +30,19 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
     def __init__(self, cache_root: str | Path, s3_client: object | None = None) -> None:
         self.cache_root = Path(cache_root).resolve()
         self.s3_client = s3_client
+        from finevision.compute.deployment_sessions import Sessions
+        self.backend = os.environ.get("FINEVISION_INFERENCE_BACKEND", "onnx_cpu")
+        if self.backend not in ("onnx_cpu", "tensorrt", "ascend_acl"):
+            raise ValueError("unknown inference backend")
+        self.sessions = Sessions(self.backend, maximum=1 if self.backend != "onnx_cpu" else 2)
 
     def Health(self, request, context):  # noqa: N802 - generated gRPC contract
+        if self.backend != "onnx_cpu":
+            try:
+                from finevision.compute.deployment_backends import fingerprint
+                fingerprint(self.backend)
+            except Exception:
+                context.abort(grpc.StatusCode.UNAVAILABLE, "configured hardware runtime unavailable")
         return inference_runtime_pb2.HealthResponse(status="ok")
 
     def EvictCache(self, request, context):  # noqa: N802
@@ -42,6 +53,7 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             return inference_runtime_pb2.EvictCacheResponse(evicted=False)
         path = self.cache_root / "sha256" / sha256
         existed = path.is_file()
+        self.sessions.evict(sha256)
         path.unlink(missing_ok=True)
         return inference_runtime_pb2.EvictCacheResponse(evicted=existed)
 
@@ -50,6 +62,12 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             bundle_descriptor = _descriptor_from_proto(request.model_bundle)
             bundle_path = self._materialize(bundle_descriptor)
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+            from google.protobuf.json_format import MessageToDict
+            policy = MessageToDict(request.policy)
+            if policy.get("published_onnx"):
+                return self._predict_published(request, bundle_descriptor, bundle, policy)
+            if self.backend != "onnx_cpu":
+                raise ValueError("accelerated worker only accepts published deployments")
             if bundle.get("model_format") == "image_classifier_v2":
                 return self._predict_image_model(request, bundle_descriptor, bundle)
             model_descriptor = _descriptor_from_dict(bundle["model"])
@@ -92,6 +110,8 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
             )
         except ArtifactIntegrityError as error:
             context.abort(grpc.StatusCode.DATA_LOSS, str(error))
+        except RuntimeError as error:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(error))
         except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"invalid verified model bundle: {error}")
 
@@ -109,6 +129,81 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
 
     def _materialize(self, descriptor: ArtifactDescriptor) -> Path:
         return VerifiedArtifactReader(self.cache_root, self.s3_client).materialize(descriptor)
+
+    def _predict_published(self, request, source, bundle, policy):
+        from PIL import Image
+        from finevision.ml_toolkit.image_training import image_transform
+        from finevision.ml_toolkit.metrics import softmax
+        published = _descriptor_from_dict(policy["published_onnx"])
+        metadata = policy["published_onnx"].get("metadata", {})
+        _validate_bundle_scope(source, published, published, bundle)
+        if metadata.get("source_bundle_sha256") != source.sha256:
+            raise ValueError("published ONNX does not match source bundle")
+        classes = bundle["model_artifact"]["classes"]
+        if metadata.get("classes") != classes:
+            raise ValueError("published ONNX class mapping differs from bundle")
+        image_path = self._materialize(_descriptor_from_proto(request.input_image))
+        ood_score = None
+        neighbors = []
+        if published.artifact_type == "full_onnx":
+            if policy.get("ood_distance_threshold") is not None:
+                raise ValueError("embedding-distance OOD is unavailable for image classifiers")
+            with Image.open(image_path) as image:
+                inputs = image_transform(metadata["preprocessing"])(image.convert("RGB")).unsqueeze(0).numpy()
+        elif published.artifact_type == "head_onnx":
+            config = bundle["extractor_config"]
+            key = str(config.get("backbone_key") or config.get("preset") or "")
+            if key in MANAGED_WEIGHTS:
+                prepare_managed_weight(S3ArtifactStore(client=self.s3_client or _create_s3_client(), bucket=os.environ.get("FINEVISION_ARTIFACT_BUCKET", "finevision-artifacts")), self.cache_root, key)
+            inputs = build_extractor_from_config(config).extract_paths([str(image_path)]).astype(np.float32)
+            features = _descriptor_from_dict(bundle["features"])
+            _validate_bundle_scope(source, published, features, bundle)
+            with np.load(self._materialize(features), allow_pickle=False) as reference:
+                ref = reference["features"].astype(np.float32)
+                distances = np.linalg.norm(ref - inputs[0], axis=1)
+                ood_score = float(np.min(distances))
+                neighbors = [{"sample_id": str(reference["sample_ids"][i]), "label": str(reference["labels"][i]), "distance": float(distances[i])} for i in np.argsort(distances)[:int(policy.get("evidence_k", 3))]]
+        else:
+            raise ValueError("unsupported published artifact type")
+        deployment = policy.get("deployment")
+        executable = published
+        if deployment is not None:
+            executable = _descriptor_from_dict(deployment["compiled"])
+            _validate_bundle_scope(source, executable, published, bundle)
+            if (published.artifact_type != "full_onnx" or deployment.get("status") != "ready"
+                    or executable.metadata.get("source_onnx_sha256") != published.sha256
+                    or executable.metadata.get("deployment_id") != deployment.get("id")
+                    or executable.metadata.get("precision") != deployment.get("precision")
+                    or executable.metadata.get("parity_passed") is not True):
+                raise ValueError("compiled deployment provenance mismatch")
+        logits = self.sessions.run(executable, self._materialize, inputs, deployment)
+        if logits.ndim != 2 or logits.shape != (1, len(classes)):
+            raise ValueError("invalid classifier output shape")
+        strategy = bundle["threshold_strategy"]
+        probabilities = softmax(logits, temperature=float(strategy["temperature"]))[0]
+        if len(probabilities) != len(classes) or not np.isfinite(probabilities).all():
+            raise ValueError("invalid ONNX classifier output")
+        order = np.argsort(probabilities)[::-1]
+        confidence = float(probabilities[order[0]])
+        margin = confidence - (float(probabilities[order[1]]) if len(order) > 1 else 0)
+        thresholds = {k: float(policy.get(k, strategy[k])) for k in ("accept_threshold", "margin_threshold")}
+        reasons = []
+        if confidence + 1e-6 < thresholds["accept_threshold"]:
+            reasons.append("confidence_below_threshold")
+        if margin + 1e-6 < thresholds["margin_threshold"]:
+            reasons.append("top1_top2_margin_below_threshold")
+        decision = "abstain" if reasons else "accept"
+        if policy.get("ood_distance_threshold") is not None:
+            thresholds["ood_distance_threshold"] = float(policy["ood_distance_threshold"])
+            if ood_score is not None and ood_score > thresholds["ood_distance_threshold"]:
+                reasons.append("ood_distance_above_threshold")
+                decision = "reject_ood"
+        evidence = Struct()
+        evidence.update({"nearest_neighbors": neighbors, "thresholds": thresholds, "ood_available": ood_score is not None, "published_onnx_sha256": published.sha256})
+        evidence.update({"runtime": {"backend": self.backend, "worker_id": os.environ.get("HOSTNAME", "local"),
+                                    "artifact_sha256": executable.sha256, "deployment_id": policy.get("deployment_id", ""),
+                                    "precision": deployment["precision"] if deployment else metadata.get("precision", "FP32")}})
+        return inference_runtime_pb2.Prediction(top_k=[inference_runtime_pb2.LabelScore(label=classes[i], score=float(probabilities[i])) for i in order[:int(policy.get("top_k", 3))]], decision=decision, confidence=confidence, margin=margin, ood_score=ood_score or 0., reasons=reasons or ["meets_acceptance_thresholds"], evidence=evidence)
 
     def _predict_image_model(self, request, bundle_descriptor, bundle):
         import torch

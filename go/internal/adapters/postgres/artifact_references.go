@@ -34,6 +34,8 @@ WITH candidate AS (
       mv.model_artifact_id,mv.calibration_artifact_id,mv.threshold_strategy_artifact_id
     )
   ) OR EXISTS (
+    SELECT 1 FROM model_deployments md WHERE c.id IN (md.source_artifact_id, md.compiled_artifact_id)
+  ) OR EXISTS (
     SELECT 1 FROM inference_events ie WHERE c.id IN (
       ie.model_artifact_id,ie.feature_artifact_id,ie.threshold_strategy_artifact_id
     )

@@ -29,6 +29,16 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  /* Compatibility aliases: legacy pages and feature pages share one palette. */
+  --bg: var(--surface-canvas);
+  --panel: var(--surface-panel);
+  --panel-soft: var(--surface-panel-soft);
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --muted: var(--text-secondary);
+  --line: var(--border-subtle);
+  --line-2: #edf0f5;
+  --soft-shadow: var(--shadow-panel);
 }

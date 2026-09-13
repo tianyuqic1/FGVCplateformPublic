@@ -21,6 +21,9 @@ import {
 import { useModelVersion, useModelVersions } from "./useModelVersions.js";
 import "./model-detail.css";
 import { PublishDialog } from "./PublishDialog.jsx";
+import { ModelGroups } from "./ModelGroups.jsx";
+import { ModelDeployments } from "./ModelDeployments.jsx";
+import { modelScope, toggleModelSelection } from "./modelGroups.js";
 
 function backboneLabel(version) {
   if (version.backboneKey === "dinov3_vits16_lvd1689m") return "ViT-S/16 · DINOv3";
@@ -44,8 +47,9 @@ export function ModelVersionsPage() {
   const production = versions.filter((version) => version.status === "production").length;
   const champion = versions.filter((version) => version.aliases.includes("champion")).length;
 
-  function toggle(id) {
-    setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 5 ? [...current, id] : current);
+  useEffect(() => { setSelected([]); }, [filters, versions]);
+  function toggle(version) {
+    setSelected(current => toggleModelSelection(current, version, versions));
   }
 
   return (
@@ -56,7 +60,7 @@ export function ModelVersionsPage() {
         {loading && <EmptyState icon="LoaderCircle" title="正在读取 Model Registry" description="连接 Go Control Plane…" />}
         {!loading && error && <EmptyState icon="TriangleAlert" title="Model Registry 不可用" description={error.message} />}
         {!loading && !error && versions.length === 0 && <EmptyState icon="Boxes" title="尚无 Model Version" description="训练成功后，Control Plane 会创建不可变候选版本。" />}
-        {versions.length > 0 && <div className="fv-table-wrap"><table className="fv-table fv-registry-table"><thead><tr><th aria-label="选择比较" /><th>模型 / 发布版本</th><th>别名</th><th>数据集名称</th><th>模型方案</th><th>状态</th><th className="numeric">Accuracy</th><th className="numeric">Macro F1</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{versions.map((version) => <tr key={version.id}><td><input aria-label={`选择 ${version.name}`} type="checkbox" checked={selected.includes(version.id)} onChange={() => toggle(version.id)} disabled={!selected.includes(version.id) && selected.length >= 5} /></td><td><Link to={`/models/${version.id}`}><strong title={version.name}>{version.name}</strong><small className="fv-release-tag">{version.releaseVersion || (version.status === "production" ? "历史发布" : "尚未发布")}</small></Link></td><td><AliasBadges aliases={version.aliases} /></td><td><strong>{version.datasetName}</strong><small className="fv-cell-note" title={version.datasetVersionKey}>训练数据 {version.datasetVersionNumber ? `v${version.datasetVersionNumber}` : "历史快照"}</small></td><td>{backboneLabel(version)}<small className="fv-cell-note">{version.pretrainingDataset || "预训练信息未记录"}</small></td><td><StatusBadge status={version.status} /></td><td className="numeric">{formatPercent(version.metrics.accuracy)}</td><td className="numeric">{formatNumber(version.metrics.macro_f1)}</td><td>{version.createdAt ? new Date(version.createdAt).toLocaleString("zh-CN") : "未记录"}</td><td><div className="fv-registry-actions"><Link className="secondary-button" to={`/models/${version.id}`}>详情</Link><button className="primary-button" disabled={!["candidate", "staging", "production"].includes(version.status)} onClick={() => setPublishing(version)}>发布</button></div></td></tr>)}</tbody></table></div>}
+        {!loading && !error && versions.length > 0 && <ModelGroups versions={versions} onScopeChange={() => setSelected([])}>{groupVersions => <div className="fv-table-wrap"><table className="fv-table fv-registry-table"><thead><tr><th aria-label="选择比较" /><th>模型 / 发布版本</th><th>别名</th><th>数据集名称</th><th>模型方案</th><th>状态</th><th className="numeric">Accuracy</th><th className="numeric">Macro F1</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{groupVersions.map((version) => <tr key={version.id}><td><input aria-label={`选择 ${version.name}`} type="checkbox" checked={selected.includes(version.id)} onChange={() => toggle(version)} disabled={!modelScope(version) || (!selected.includes(version.id) && selected.length >= 5)} /></td><td><Link to={`/models/${version.id}`}><strong title={version.name}>{version.name}</strong><small className="fv-release-tag">{version.releaseVersion || (version.status === "production" ? "历史发布" : "尚未发布")}</small></Link></td><td><AliasBadges aliases={version.aliases} /></td><td><strong>{version.datasetName}</strong><small className="fv-cell-note" title={version.datasetVersionKey}>训练数据 {version.datasetVersionNumber ? `v${version.datasetVersionNumber}` : "历史快照"}</small></td><td>{backboneLabel(version)}<small className="fv-cell-note">{version.pretrainingDataset || "预训练信息未记录"}</small></td><td><StatusBadge status={version.status} /></td><td className="numeric">{formatPercent(version.metrics.accuracy)}</td><td className="numeric">{formatNumber(version.metrics.macro_f1)}</td><td>{version.createdAt ? new Date(version.createdAt).toLocaleString("zh-CN") : "未记录"}</td><td><div className="fv-registry-actions"><Link className="secondary-button" to={`/models/${version.id}`}>详情</Link><button className="primary-button" disabled={!["candidate", "staging", "production"].includes(version.status)} onClick={() => setPublishing(version)}>发布</button></div></td></tr>)}</tbody></table></div>}</ModelGroups>}
       </Panel>
       {notice && <p role="status">{notice}</p>}
       {publishing && <PublishDialog key={publishing.id} version={publishing} onClose={() => setPublishing(null)} onPublished={v => { setPublishing(null); setNotice(`发布成功 · ${v.releaseVersion}`); refresh(); }} />}
@@ -131,6 +135,7 @@ export function ModelVersionDetailPage({ showToast }) {
         </dl>
       </Panel>
     </div>
+    <ModelDeployments key={version.id} version={version} />
     <div className="fv-model-disclosures">
       <details className="fv-model-disclosure"><summary><span>技术详情<small>版本标识、完整配置与模型文件</small></span><Icon name="ChevronDown" size={16} /></summary>
         <dl className="fv-definition-list fv-model-technical">{technical.map(([label, value]) => <div key={label}><dt>{label}</dt><dd><code>{value}</code></dd></div>)}</dl>
@@ -178,12 +183,19 @@ export function ModelComparisonPage() {
       setState({ comparison: null, loading: false, error: null });
       return undefined;
     }
-    compareModelVersions(ids).then((comparison) => active && setState({ comparison, loading: false, error: null })).catch((error) => active && setState({ comparison: null, loading: false, error }));
+    setState({ comparison: null, loading: true, error: null });
+    compareModelVersions(ids).then((comparison) => {
+      const scope = modelScope(comparison.versions[0] ?? {});
+      if (!scope || comparison.versions.length !== ids.length || comparison.versions.some(version => modelScope(version) !== scope)) {
+        throw new Error("只能比较同一数据集、同一数据版本下的模型，请返回列表重新选择。");
+      }
+      if (active) setState({ comparison, loading: false, error: null });
+    }).catch((error) => active && setState({ comparison: null, loading: false, error }));
     return () => { active = false; };
   }, [ids]);
   if (ids.length < 2) return <EmptyState icon="GitCompareArrows" title="请选择 2–5 个版本" description="回到模型版本列表勾选可比较版本。" />;
   if (state.loading) return <EmptyState icon="LoaderCircle" title="正在校验可比性" description="检查 Dataset Version 与评估协议…" />;
-  if (state.error || !state.comparison) return <EmptyState icon="TriangleAlert" title="比较不可用" description={state.error?.message} />;
+  if (state.error || !state.comparison) return <><Link className="secondary-button" to="/models">返回模型列表</Link><EmptyState icon="TriangleAlert" title="比较不可用" description={state.error?.message} /></>;
   const { comparison } = state;
   const option = comparisonChartOption(comparison.versions);
   const configRows = ["backboneKey", "pretrainingDataset", "inputSize", "featureDim", "pooling", "headType"];

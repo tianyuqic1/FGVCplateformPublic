@@ -16,15 +16,9 @@ func TestComparisonRejectsIncompatibleDatasetVersionsAndPreservesMissingMetrics(
 		modelregistry.Version{ID: "two", DatasetID: "dataset", DatasetVersionID: "v2", Status: modelregistry.StatusCandidate,
 			Metrics: map[string]any{"macro_f1": .8}, EvaluationContext: map[string]any{"protocol_fingerprint": "p2"}},
 	)
-	comparison, err := modelregistry.NewService(repository).Compare(context.Background(), []string{"one", "two"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if comparison.Comparable || len(comparison.Warnings) != 2 {
-		t.Fatalf("comparison = %#v", comparison)
-	}
-	if _, exists := comparison.Versions[1].Metrics["accuracy"]; exists {
-		t.Fatal("missing accuracy must remain absent/N/A")
+	_, err := modelregistry.NewService(repository).Compare(context.Background(), []string{"one", "two"})
+	if !errors.Is(err, modelregistry.ErrInvalid) {
+		t.Fatalf("expected scope rejection, got %v", err)
 	}
 }
 
@@ -56,8 +50,8 @@ func TestGovernedPromotionAndDatasetScopedAliases(t *testing.T) {
 func TestComparisonWithoutProtocolFingerprintIsNotRankable(t *testing.T) {
 	t.Parallel()
 	repository := modelregistry.NewMemoryRepository(
-		modelregistry.Version{ID: "one", DatasetVersionID: "v1", Status: modelregistry.StatusCandidate},
-		modelregistry.Version{ID: "two", DatasetVersionID: "v1", Status: modelregistry.StatusCandidate},
+		modelregistry.Version{ID: "one", DatasetID: "dataset", DatasetVersionID: "v1", Status: modelregistry.StatusCandidate},
+		modelregistry.Version{ID: "two", DatasetID: "dataset", DatasetVersionID: "v1", Status: modelregistry.StatusCandidate},
 	)
 	comparison, err := modelregistry.NewService(repository).Compare(context.Background(), []string{"one", "two"})
 	if err != nil {

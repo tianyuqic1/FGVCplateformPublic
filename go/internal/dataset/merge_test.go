@@ -56,7 +56,7 @@ func TestTrainingExpansionPreservesEveryEvaluationImage(t *testing.T) {
 		samples = append(samples, map[string]any{"path": "bird/" + split + ".png", "label": "bird", "split": split})
 	}
 	base := Snapshot{Archive: descriptor, Manifest: map[string]any{"samples": samples}}
-	incoming := testArchive(t, map[string]string{"bird/new.png": "new image", "bird/duplicate-evaluation.png": "testing"})
+	incoming := testArchive(t, map[string]string{"bird/new.png": "new image", "bird/duplicate-training.png": "old training"})
 	result, changes, err := s.merge(ctx, base, incoming, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +92,8 @@ func TestTrainingExpansionPreservesEveryEvaluationImage(t *testing.T) {
 		{"test addition", map[string]string{"test/bird/new.png": "new"}, "仅支持扩充训练集"},
 		{"validation addition", map[string]string{"val/bird/new.png": "new"}, "仅支持扩充训练集"},
 		{"duplicate only", map[string]string{"bird/new.png": "old training"}, "没有新增图片"},
-		{"conflicting label", map[string]string{"cat/new.png": "testing"}, "不同标签"},
+		{"conflicting label", map[string]string{"cat/new.png": "old training"}, "不同标签"},
+		{"evaluation leakage", map[string]string{"bird/new.png": "testing"}, "禁止回流"},
 		{"unsafe label", map[string]string{"../new.png": "new"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

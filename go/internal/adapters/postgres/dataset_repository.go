@@ -109,8 +109,11 @@ func (r DatasetRepository) Save(ctx context.Context, p dataset.Publication) (map
 			if err := tx.QueryRow(ctx, `SELECT id::text,version_number FROM dataset_versions WHERE dataset_id=$1 ORDER BY version_number DESC LIMIT 1`, p.DatasetID).Scan(&latest, &number); err != nil {
 				return err
 			}
-			if latest != p.ParentID || number+1 != p.Number {
+			if !p.AllowHistoricalBase && (latest != p.ParentID || number+1 != p.Number) {
 				return dataset.ErrConflict
+			}
+			if p.AllowHistoricalBase {
+				p.Number = number + 1
 			}
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO dataset_versions(id,dataset_id,version_key,version_number,parent_version_id,source_type,change_summary,import_request_id,import_fingerprint,root_uri,sample_count,class_count,split_summary,readiness_status,readiness_report,created_at) VALUES($1::uuid,$2,$1::text,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())`, p.VersionID, p.DatasetID, p.Number, p.ParentID, p.SourceType, changes, p.RequestID, p.Fingerprint, p.Archive.URI, int(readiness["sample_count"].(float64)), int(readiness["class_count"].(float64)), splits, state, report)

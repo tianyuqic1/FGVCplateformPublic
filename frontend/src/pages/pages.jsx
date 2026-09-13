@@ -2,7 +2,11 @@ import { formatBytes, modelWeightTone, modelWeightLabel, modelWeightDetails } fr
 import { useInferenceModels } from "../hooks/useInferenceModels.js";
 import { inferenceModelLabel } from "../api/inferenceModels.js";
 import { getModelVersion } from "../api/modelVersions.js";
+import { listDeployments, deploymentLabel } from "../api/deployments.js";
 import "./inference.css";
+import "./review-queue.css";
+import { pageNumbers } from "../design-system/components/pagination.js";
+import "../design-system/components/pagination.css";
 import { DatasetVersionList, DatasetExpansionPanel } from "../features/datasets/DatasetVersions.jsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -499,7 +503,7 @@ function ReviewImage({ item, risk, detail = false }) {
   return <VisualPlaceholder type={risk.visualType} label={label} low={item.riskType !== "ood_candidate"} />;
 }
 
-function ApiReviewCard({ item, queryString = "" }) {
+function ApiReviewCard({ item, queryString = "", datasetName }) {
   const risk = reviewRisk(item);
   const statusInfo = reviewStatus(item);
   const topCandidate = item.topK[0];
@@ -507,26 +511,27 @@ function ApiReviewCard({ item, queryString = "" }) {
   const hasLLMAssistance = Boolean(item.assistanceMetadata?.llm_assistance);
   const target = `/review/${item.id}${queryString ? `?${queryString}` : ""}`;
   return (
-    <Link className="sample-card clickable" to={target}>
-      <ReviewImage item={item} risk={risk} />
-      <div>
+    <Link className="review-queue-card" to={target} aria-label={`复核 ${topCandidate?.label || item.sampleId || item.id}`}>
+      <QueueThumbnail key={item.imageUrl} item={item} />
+      <div className="review-queue-card__body">
         <div className="chips">
           <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
           <StatusChip tone={statusInfo.tone}>{statusInfo.label}</StatusChip>
-          <StatusChip tone="info">优先级 {item.priority}</StatusChip>
-          <StatusChip tone={hasLLMAssistance ? "default" : "neutral"}>{hasLLMAssistance ? "LLM 已生成" : "LLM 未生成"}</StatusChip>
         </div>
-        <h3>{item.sampleId || item.id}</h3>
-        <p className="small">{item.datasetVersionId} · {item.modelVersionId}</p>
-        <p className="small">运行 {displayValue(item.inferenceRunId)} · 事件 {displayValue(item.inferenceEventId)}</p>
-        <p className="small">
-          {topCandidate ? `${topCandidate.label} ${topCandidate.score.toFixed(2)}` : "无候选"} ·{" "}
-          {secondCandidate ? `${secondCandidate.label} ${secondCandidate.score.toFixed(2)}` : "无第二候选"}
-        </p>
-        <p className="small review-reason">{item.reason}</p>
+        <h3 title={topCandidate?.label}>{topCandidate?.label || "待确认类别"}<span>{topCandidate ? `${(topCandidate.score * 100).toFixed(1)}%` : "—"}</span></h3>
+        <p className="review-queue-card__secondary">次选：{secondCandidate ? `${secondCandidate.label} · ${(secondCandidate.score * 100).toFixed(1)}%` : "暂无"}</p>
+        <p className="review-queue-card__dataset" title={datasetName || item.datasetId}>{datasetName || item.datasetId || "未关联数据集"}</p>
+        <div className="review-queue-card__footer"><span title={`复核编号：${item.id}\n数据版本：${item.datasetVersionId}\n模型：${item.modelVersionId}`}>{hasLLMAssistance ? "AI 建议已就绪" : "人工确认"} · 优先级 {item.priority}</span><span>查看<Icon name="ChevronRight" size={14} /></span></div>
       </div>
     </Link>
   );
+}
+
+function QueueThumbnail({ item }) {
+  const [failed, setFailed] = useState(false);
+  return <div className="review-queue-card__image">
+    {item.imageUrl && !failed ? <img src={item.imageUrl} alt={item.topK[0]?.label || "待复核样本"} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : <div className="review-queue-card__missing"><Icon name="Image" size={24} /><span>{failed ? "图片暂不可用" : "暂无图片"}</span></div>}
+  </div>;
 }
 
 function DatasetTable({ items = [] }) {
@@ -536,6 +541,7 @@ function DatasetTable({ items = [] }) {
       <span><strong>{dataset.name}</strong><small>{dataset.classes} 类 · {dataset.images.toLocaleString()} 张 · {dataset.versions.length} 个版本</small></span>
       <span>最新 v{dataset.versionNumber || 1}</span>
       <StatusChip tone={dataset.versions[0]?.hasWeights ? "default" : "neutral"}>{dataset.versions[0]?.hasWeights ? `已有 ${dataset.versions[0].modelCount} 份权重` : "暂无权重"}</StatusChip>
+      <Link className="ghost-button dataset-view-link" to={`/datasets/${encodeURIComponent(dataset.id)}`} onClick={event => event.stopPropagation()}><Icon name="ExternalLink" size={15} />查看数据集</Link>
     </summary>
     <div className="dataset-group-body">
       <div className="toolbar spread"><span className="row-meta">{dataset.pendingCandidateCount} 张复核候选待纳入</span><Link className="ghost-button" to={`/datasets/${encodeURIComponent(dataset.id)}`}>管理数据集 / 扩充训练集</Link></div>
@@ -550,7 +556,7 @@ function RunRow({ run, onAction, busy = false, highlighted = false, legacy = fal
   const canPause = ["queued", "running"].includes(run.status);
   const canResume = run.status === "paused";
   const canCancel = ["queued", "paused", "running"].includes(run.status);
-  const canDelete = !["running", "succeeded"].includes(run.status) && !run.featureArtifactId && !run.modelVersionId;
+  const canDelete = ["failed", "cancelled"].includes(run.status) && !run.featureArtifactId && !run.modelVersionId;
   return (
     <div className={`timeline-item queue-row ${highlighted ? "recommended" : ""} ${legacy ? "legacy" : ""}`}>
       <Link className="queue-row-main" to={`/training/${run.id}`}>
@@ -2195,6 +2201,20 @@ export function InferencePage({ showToast }) {
   });
   const [state, setState] = useState({ status: "idle", result: null, error: null });
   const [previewUrl, setPreviewUrl] = useState("");
+  const [deployments, setDeployments] = useState({ model: "", rows: [], error: "" });
+  const [deploymentId, setDeploymentId] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setDeploymentId("");
+    setDeployments({ model: "", rows: [], error: "" });
+    if (form.modelVersionId) listDeployments(form.modelVersionId, controller.signal).then(data => {
+      if (controller.signal.aborted) return;
+      const rows = (data.deployments || []).filter(row => row.status === "ready");
+      setDeployments({ model: form.modelVersionId, rows, error: "" });
+      setDeploymentId(rows[0]?.id || "");
+    }).catch(e => { if (!controller.signal.aborted) setDeployments({ model: form.modelVersionId, rows: [], error: e.message }); });
+    return () => controller.abort();
+  }, [form.modelVersionId]);
   const datasetVersionOptions = datasetOptions.map((dataset) => dataset.datasetVersionId).filter(Boolean);
   const selectedDatasetVersionId = form.datasetVersionId.trim();
   const selectedDataset = datasetOptions.find((dataset) => dataset.datasetVersionId === selectedDatasetVersionId) ?? null;
@@ -2205,6 +2225,7 @@ export function InferencePage({ showToast }) {
   const canUseInferenceInputs = datasetSource === "api" && modelSource === "api" && datasetVersionOptions.length > 0 && modelVersionIds.includes(form.modelVersionId);
   const canRun =
     canUseInferenceInputs &&
+    deployments.model === form.modelVersionId && deployments.rows.some(row => row.id === deploymentId) &&
     state.status !== "running" &&
     form.datasetVersionId.trim() &&
     form.modelVersionId.trim() &&
@@ -2283,6 +2304,7 @@ export function InferencePage({ showToast }) {
         throw new Error("该模型已下架或不属于当前数据集，请刷新并选择已发布模型。");
       }
       const commonInput = {
+        deployment_id: deploymentId,
         dataset_version_id: form.datasetVersionId.trim(),
         model_version_id: form.modelVersionId.trim(),
         top_k: Number(form.topK),
@@ -2381,6 +2403,12 @@ export function InferencePage({ showToast }) {
             <span className="field-hint">仅展示当前数据集的 {modelVersionIds.length} 个已发布模型</span>
           </div>
         </div>
+        <div className="field inference-selection section-gap-small">
+          <label>推理部署 / 运行精度</label>
+          <PaginatedSelect aria-label="推理部署" value={deploymentId} onChange={e => setDeploymentId(e.target.value)} disabled={state.status === "running" || !deployments.rows.length} placeholder="暂无就绪部署" options={deployments.rows.map(row => ({ value: row.id, label: deploymentLabel(row), detail: `批上限 ${row.max_batch} · 已校验` }))} />
+          <span className="field-hint">{deployments.error || "明确选择实际运行后端；加速部署失败时不会自动切换到 CPU。"}</span>
+          {result?.runtime && <span className="field-hint">本次运行：{result.runtime.actual_runtime} · {result.runtime.precision} · {Number(result.runtime.latency_ms).toFixed(0)} ms（含 RPC）</span>}
+        </div>
         <div className="inference-input-workspace">
           <div className="inference-preview-area">
         {isBatchFolderMode ? (
@@ -2441,7 +2469,7 @@ export function InferencePage({ showToast }) {
           </div>
         </div>
         <details className="advanced-fields inference-parameters">
-          <summary>推理参数与其他输入方式 <span>样本 ID · Top-k · 近邻数 · 图片路径</span></summary>
+          <summary>推理参数与其他输入方式 <span>样本 ID · Top-k · 近邻数</span></summary>
           <div className="field-grid section-gap-small">
           <div className="field">
             <label>样本 ID</label>
@@ -2449,7 +2477,7 @@ export function InferencePage({ showToast }) {
               value={form.sampleId}
               onChange={(event) => updateField("sampleId", event.target.value)}
               disabled={Boolean(form.imageFile) || isBatchFolderMode}
-              placeholder={isBatchFolderMode ? "批量文件夹模式下忽略" : "feature artifact sample_id"}
+              placeholder={isBatchFolderMode ? "批量文件夹模式下忽略" : "当前数据集版本中的样本 ID"}
             />
             {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 sample_id。</span>}
           </div>
@@ -2461,16 +2489,7 @@ export function InferencePage({ showToast }) {
             <label>近邻数</label>
             <input type="number" min="0" max="10" value={form.evidenceK} onChange={(event) => updateField("evidenceK", event.target.value)} />
           </div>
-          <div className="field section-gap-small">
-            <label>图片路径</label>
-            <input
-              value={form.imagePath}
-              onChange={(event) => updateField("imagePath", event.target.value)}
-              disabled={Boolean(form.imageFile) || isBatchFolderMode}
-              placeholder={isBatchFolderMode ? "批量文件夹模式下忽略" : "/absolute/path/to/image.png"}
-            />
-            {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 image_path。</span>}
-          </div>
+          <span className="field-hint full-span">本地图片请使用上方上传入口；服务不读取任意服务器文件路径。</span>
           </div>
         </details>
         <div className="toolbar inference-run-bar">
@@ -2675,9 +2694,9 @@ export function ReviewPage() {
   const requestedStatus = searchParams.get("status") || "pending";
   const statusFilter = REVIEW_STATUS_TABS.some(([value]) => value === requestedStatus) ? requestedStatus : "pending";
   const datasetFilter = searchParams.get("dataset_id") || "";
-  const pageSize = 20;
-  const requestedPage = Number.parseInt(searchParams.get("page") || "1", 10);
-  const currentPage = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const pageSize = 6;
+  const requestedPage = Number(searchParams.get("page") || "1");
+  const currentPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage < 100000000 ? requestedPage : 1;
   const offset = (currentPage - 1) * pageSize;
   const { datasets: datasetItems } = useDatasets();
   const { reviewItems: apiReviewItems, pagination, loading, error, refresh } = useReviewItems({
@@ -2689,6 +2708,13 @@ export function ReviewPage() {
   const totalItems = pagination?.total ?? apiReviewItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
+  useEffect(() => {
+    if (!loading && !error && pagination?.offset === offset && currentPage > totalPages) {
+      const next = new URLSearchParams(searchParams);
+      if (totalPages > 1) next.set("page", String(totalPages)); else next.delete("page");
+      setSearchParams(next, { replace: true });
+    }
+  }, [loading, error, pagination?.offset, offset, currentPage, totalPages, searchParams, setSearchParams]);
   const oodCount = apiReviewItems.filter((item) => item.riskType === "ood_candidate").length;
   const lowConfidenceCount = apiReviewItems.filter((item) => item.riskType === "low_confidence").length;
   const lowMarginCount = apiReviewItems.filter((item) => item.riskType === "low_margin").length;
@@ -2696,9 +2722,9 @@ export function ReviewPage() {
   const datasetOptions = Array.from(
     new Map(
       [
-        ...datasetItems.map((dataset) => [dataset.id, dataset.name || dataset.id]),
         ...apiReviewItems.map((item) => [item.datasetId, item.datasetId]),
         datasetFilter ? [datasetFilter, datasetFilter] : null,
+        ...datasetItems.map((dataset) => [dataset.id, dataset.name || dataset.id]),
       ].filter((entry) => entry?.[0]),
     ),
   );
@@ -2727,7 +2753,7 @@ export function ReviewPage() {
   return (
     <>
       <PageHero title="让人工只处理模型真正不确定的样本。" description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。" actions={<button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button>} />
-      <div className="grid review">
+      <div className="grid review review-queue-layout">
         <Panel title={statusFilter === "feedbacked" ? "历史复核" : statusFilter === "all" ? "全部复核项" : "待复核队列"} caption={loading ? "正在读取复核队列。" : `第 ${safeCurrentPage}/${totalPages} 页，本页 ${apiReviewItems.length} 条，共 ${totalItems} 条。`}>
           <div className="review-filter-bar">
             <div className="tabs">
@@ -2761,23 +2787,24 @@ export function ReviewPage() {
               <StatusChip tone={loading ? "info" : "default"}>{compactStatusLabel(loading ? "loading" : "clear")}</StatusChip>
             </div>
           )}
-          <div className="grid">
+          <div className="review-queue-cards" aria-busy={loading}>
             {apiReviewItems.map((item) => (
-              <ApiReviewCard item={item} queryString={queryString} key={item.id} />
+              <ApiReviewCard item={item} datasetName={datasetOptions.find(([id]) => id === item.datasetId)?.[1]} queryString={queryString} key={item.id} />
             ))}
           </div>
-          {!error && totalItems > pageSize && (
-            <div className="pagination-bar">
-              <span>第 {safeCurrentPage} 页 / 共 {totalPages} 页</span>
-              <div>
-                <button className="ghost-button" onClick={() => updateReviewPage(safeCurrentPage - 1)} disabled={safeCurrentPage <= 1 || loading}>
+          {!error && (
+            <nav className="dataset-pagination" aria-label="复核队列分页">
+              <div className="dataset-pagination__summary" aria-live="polite"><span>{totalItems ? (safeCurrentPage - 1) * pageSize + 1 : 0}–{Math.min(safeCurrentPage * pageSize, totalItems)} / 共 {totalItems} 条</span><span className="dataset-pagination__size">6 条 / 页</span></div>
+              <div className="dataset-pagination__pages">
+                <button aria-label="上一页" onClick={() => updateReviewPage(safeCurrentPage - 1)} disabled={safeCurrentPage <= 1 || loading}>
                   <Icon name="ChevronLeft" size={16} />上一页
                 </button>
-                <button className="ghost-button" onClick={() => updateReviewPage(safeCurrentPage + 1)} disabled={safeCurrentPage >= totalPages || loading}>
+                {pageNumbers(safeCurrentPage, totalPages).map((page, index) => page === null ? <span key={`gap-${index}`} className="dataset-pagination__ellipsis">…</span> : <button key={page} aria-label={`第 ${page} 页`} aria-current={page === safeCurrentPage ? "page" : undefined} disabled={loading} onClick={() => updateReviewPage(page)}>{page}</button>)}
+                <button aria-label="下一页" onClick={() => updateReviewPage(safeCurrentPage + 1)} disabled={safeCurrentPage >= totalPages || loading}>
                   下一页<Icon name="ChevronRight" size={16} />
                 </button>
               </div>
-            </div>
+            </nav>
           )}
         </Panel>
         <div className="review-side-stack">
@@ -3594,8 +3621,8 @@ export function FeedbackPage({ showToast }) {
     <>
       <PageHero
         title="反馈池"
-        description="复核结论在这里作为下一轮数据集版本的候选输入；当前不会自动写回训练集，也不会自动触发训练。"
-        actions={<><Link className="ghost-button" to="/review?status=feedbacked"><Icon name="UserCheck" size={16} />复核历史</Link><button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button></>}
+        description="人工确认的候选可在待发布区补充到来源版本的训练集；生成新版本，不修改历史标签，不自动触发训练。"
+        actions={<><Link className="ghost-button" to="/annotation?tab=publish&source=feedback">回流待发布区</Link><Link className="ghost-button" to="/review?status=feedbacked"><Icon name="UserCheck" size={16} />复核历史</Link><button className="ghost-button" onClick={refresh}><Icon name="RefreshCw" size={16} />刷新</button></>}
       />
       <div className="grid detail">
         <Panel title="反馈池列表" caption={loading ? "正在读取反馈池。" : `${feedbackItems.length} 条反馈。`}>

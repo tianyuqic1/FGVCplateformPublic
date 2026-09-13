@@ -49,7 +49,53 @@ type Publication struct {
 	Archive, ManifestArtifact                                                            artifact.Descriptor
 	Manifest, Changes                                                                    map[string]any
 	Feedback                                                                             []Feedback
+	AllowHistoricalBase                                                                  bool
 }
+
+// BuiltPlan is only used by the governed annotation publisher, which has already
+// reconstructed and checked every immutable baseline sample.
+type BuiltPlan struct {
+	Archive        artifact.Descriptor
+	Changes        map[string]any
+	Historical     bool
+	FrozenFeedback []Feedback
+}
+
+func (s *Service) BuildFeedbackArchive(ctx context.Context, base Snapshot, feedback []Feedback) (string, map[string]any, error) {
+	return s.merge(ctx, base, "", feedback)
+}
+func (s *Service) PublishBuiltFeedback(ctx context.Context, datasetID, baseID, requestID, archivePath string, changes map[string]any, feedback []Feedback) (map[string]any, error) {
+	a, err := s.StoreArchive(ctx, archivePath, uuid.NewString())
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for _, f := range feedback {
+		ids = append(ids, f.ID)
+	}
+	return s.publishPlanned(ctx, datasetID, baseID, "", requestID, "", ids, &BuiltPlan{Archive: a, Changes: changes, Historical: true, FrozenFeedback: feedback})
+}
+
+func (s *Service) PublishBuilt(ctx context.Context, datasetID, baseID, name, requestID, archivePath string, changes map[string]any) (map[string]any, error) {
+	if datasetID == "" {
+		if err := validateImport(name, requestID); err != nil {
+			return nil, err
+		}
+	}
+	a, err := s.StoreArchive(ctx, archivePath, uuid.NewString())
+	if err != nil {
+		return nil, err
+	}
+	return s.publishPlanned(ctx, datasetID, baseID, name, requestID, "", nil, &BuiltPlan{Archive: a, Changes: changes, Historical: true})
+}
+
+func (s *Service) ExpandHistorical(ctx context.Context, datasetID, baseID, requestID string, feedbackIDs []string) (map[string]any, error) {
+	if datasetID == "" || baseID == "" {
+		return nil, ErrInvalid
+	}
+	return s.publishPlanned(ctx, datasetID, baseID, "", requestID, "", feedbackIDs, &BuiltPlan{Historical: true})
+}
+
 type Repository interface {
 	FindPublication(context.Context, string, string) (map[string]any, error)
 	Base(context.Context, string, string) (Snapshot, error)
@@ -102,6 +148,13 @@ func (s *Service) Expand(ctx context.Context, datasetID, baseID, requestID, arch
 	return s.publish(ctx, datasetID, baseID, "", requestID, archivePath, feedbackIDs)
 }
 func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestID, archivePath string, feedbackIDs []string, prepared ...artifact.Descriptor) (map[string]any, error) {
+	var plan *BuiltPlan
+	if len(prepared) > 0 {
+		plan = &BuiltPlan{Archive: prepared[0]}
+	}
+	return s.publishPlanned(ctx, datasetID, baseID, name, requestID, archivePath, feedbackIDs, plan)
+}
+func (s *Service) publishPlanned(ctx context.Context, datasetID, baseID, name, requestID, archivePath string, feedbackIDs []string, plan *BuiltPlan) (map[string]any, error) {
 	if _, err := uuid.Parse(requestID); err != nil {
 		return nil, fmt.Errorf("%w: request_id 必须是 UUID", ErrInvalid)
 	}
@@ -118,8 +171,11 @@ func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestI
 	p := Publication{DatasetID: uuid.NewString(), VersionID: uuid.NewString(), RequestID: requestID, Name: name, Number: 1, SourceType: "initial_import", Changes: map[string]any{}}
 	p.DatasetKey = p.DatasetID
 	var incoming artifact.Descriptor
-	if len(prepared) > 0 {
-		incoming = prepared[0]
+	if plan != nil {
+		p.AllowHistoricalBase = plan.Historical
+	}
+	if plan != nil && plan.Archive.URI != "" {
+		incoming = plan.Archive
 		p.VersionID = incoming.DatasetVersionID
 		p.DatasetID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("dataset-import:"+p.VersionID)).String()
 		p.DatasetKey = p.DatasetID
@@ -160,6 +216,18 @@ func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestI
 				if !ok {
 					return nil, fmt.Errorf("%w: 反馈不属于此数据集、尚未确认标签或已经纳入版本", ErrInvalid)
 				}
+				if plan != nil && plan.FrozenFeedback != nil {
+					matched := false
+					for _, frozen := range plan.FrozenFeedback {
+						if frozen.ID == f.ID && frozen.Label == f.Label && frozen.SourceVersionID == f.SourceVersionID && frozen.ModelVersionID == f.ModelVersionID && frozen.ReviewID == f.ReviewID {
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						return nil, fmt.Errorf("%w: 复核记录在检查后发生变化，请取消批次后重新检查", ErrConflict)
+					}
+				}
 				p.Feedback = append(p.Feedback, f)
 			}
 			p.SourceType = "review_feedback"
@@ -167,15 +235,22 @@ func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestI
 				p.SourceType = "mixed_expansion"
 			}
 		}
-		path, changes, err := s.merge(ctx, base, archivePath, p.Feedback)
-		if err != nil {
-			return nil, err
-		}
-		defer os.Remove(path)
-		p.Changes = changes
-		p.Archive, err = s.Store.PutFile(ctx, path, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-expansion", DatasetVersionID: p.VersionID})
-		if err != nil {
-			return nil, err
+		if plan != nil && plan.Changes != nil {
+			p.Changes = plan.Changes
+			if len(p.Feedback) == 0 {
+				p.SourceType = "annotation_append"
+			}
+		} else {
+			path, changes, err := s.merge(ctx, base, archivePath, p.Feedback)
+			if err != nil {
+				return nil, err
+			}
+			defer os.Remove(path)
+			p.Changes = changes
+			p.Archive, err = s.Store.PutFile(ctx, path, artifact.PutRequest{ArtifactID: uuid.NewString(), ArtifactType: "dataset_archive", ContentType: "application/zip", Producer: "go-dataset-expansion", DatasetVersionID: p.VersionID})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if p.Archive.URI == "" {
@@ -197,6 +272,10 @@ func (s *Service) publish(ctx context.Context, datasetID, baseID, name, requestI
 	}
 	if p.ParentID == "" {
 		p.Changes = map[string]any{"added_count": readiness["sample_count"], "duplicate_count": 0}
+		if plan != nil && plan.Changes != nil {
+			p.Changes = plan.Changes
+			p.SourceType = "annotation_publish"
+		}
 	}
 	manifest["parent_version_id"] = p.ParentID
 	manifest["change_summary"] = p.Changes

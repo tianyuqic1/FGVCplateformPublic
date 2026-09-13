@@ -1,0 +1,10 @@
+# Build from the project's compute image to keep torch/CUDA and preprocessing identical.
+ARG COMPUTE_BASE_IMAGE=finevision-python-compute:phase1
+FROM ${COMPUTE_BASE_IMAGE}
+USER root
+RUN pip install --no-cache-dir 'tensorrt-cu12==10.9.0.34'
+COPY backend /app/backend
+RUN mkdir -p /data/builds && chown -R 10001:10001 /data/builds
+ENV FINEVISION_INFERENCE_BACKEND=tensorrt
+USER finevision
+CMD ["python", "-m", "finevision.compute.inference_runtime"]

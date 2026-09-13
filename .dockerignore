@@ -14,3 +14,4 @@ dist
 data/downloads
 data/test
 weights/pretrained
+annotation/runtime

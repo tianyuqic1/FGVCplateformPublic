@@ -105,6 +105,8 @@ export function normalizeInferenceResult(raw) {
     datasetVersionId: raw?.datasetVersionId ?? raw?.dataset_version_id ?? result?.dataset_version_id ?? null,
     modelVersionId: raw?.modelVersionId ?? raw?.model_version_id ?? null,
     modelArtifactId: raw?.modelArtifactId ?? raw?.model_artifact_id ?? result?.model_artifact_id ?? null,
+    runtime: raw?.runtime ?? result?.runtime ?? null,
+    deploymentId: raw?.deployment_id ?? result?.deployment_id ?? null,
     featureArtifactId: raw?.featureArtifactId ?? raw?.feature_artifact_id ?? null,
     thresholdStrategyId:
       raw?.thresholdStrategyId ?? raw?.threshold_strategy_id ?? result?.threshold_strategy_id ?? null,
@@ -127,6 +129,7 @@ export async function runInferenceUpload(input) {
   formData.append("dataset_version_id", input.dataset_version_id);
   formData.append("model_version_id", input.model_version_id);
   formData.append("image", input.image);
+  if (input.deployment_id) formData.append("deployment_id", input.deployment_id);
   formData.append("top_k", String(input.top_k ?? 3));
   formData.append("evidence_k", String(input.evidence_k ?? 3));
   if (input.accept_threshold != null) formData.append("accept_threshold", String(input.accept_threshold));
@@ -148,6 +151,7 @@ export async function runInferenceUploadFolder(input) {
   input.images.forEach((image) => {
     formData.append("images", image, image.webkitRelativePath || image.name);
   });
+  if (input.deployment_id) formData.append("deployment_id", input.deployment_id);
   formData.append("top_k", String(input.top_k ?? 3));
   formData.append("evidence_k", String(input.evidence_k ?? 3));
   formData.append("route_all_to_review", String(input.route_all_to_review ?? true));

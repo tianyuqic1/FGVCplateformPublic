@@ -158,6 +158,14 @@ func (service *Service) Compare(ctx context.Context, ids []string) (Comparison, 
 		versions = append(versions, version)
 	}
 	comparison := Comparison{Versions: versions, Comparable: true, Warnings: []Warning{}}
+	if versions[0].DatasetID == "" || versions[0].DatasetVersionID == "" {
+		return Comparison{}, fmt.Errorf("%w: 模型缺少数据集或数据版本信息，无法比较", ErrInvalid)
+	}
+	for _, version := range versions[1:] {
+		if version.DatasetID != versions[0].DatasetID || version.DatasetVersionID != versions[0].DatasetVersionID {
+			return Comparison{}, fmt.Errorf("%w: 只能比较同一数据集、同一数据版本下的模型", ErrInvalid)
+		}
+	}
 	comparison.DatasetVersionID = versions[0].DatasetVersionID
 	comparison.ProtocolFingerprint = contextString(versions[0].EvaluationContext, "protocol_fingerprint")
 	if comparison.ProtocolFingerprint == "" {
@@ -165,10 +173,6 @@ func (service *Service) Compare(ctx context.Context, ids []string) (Comparison, 
 		appendWarning(&comparison, "EVALUATION_PROTOCOL_MISSING", "Evaluation protocol fingerprint is required for direct comparison.")
 	}
 	for _, version := range versions[1:] {
-		if version.DatasetVersionID != comparison.DatasetVersionID {
-			comparison.Comparable = false
-			appendWarning(&comparison, "DATASET_VERSION_MISMATCH", "Model Versions use different Dataset Versions and must not be ranked.")
-		}
 		fingerprint := contextString(version.EvaluationContext, "protocol_fingerprint")
 		if fingerprint == "" {
 			comparison.Comparable = false

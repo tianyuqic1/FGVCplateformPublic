@@ -2,8 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listDatasetImports } from "../../api/datasets.js";
 import { Panel, StatusChip } from "../../components/ui.jsx";
+import { Icon } from "../../components/icons.jsx";
+import "./dataset-import-jobs.css";
 
 const labels = { queued: "排队中", running: "校验与入库中", succeeded: "导入完成", failed: "导入失败" };
+const icons = { queued: "Clock", running: "LoaderCircle", succeeded: "CheckCircle2", failed: "AlertTriangle" };
+const dateFormat = new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+function submittedAt(value) {
+  const date = new Date(value);
+  return value && Number.isFinite(date.getTime()) ? dateFormat.format(date) : "";
+}
 
 export function DatasetImportJobs({ submittedJob, onCompleted }) {
   const [jobs, setJobs] = useState([]);
@@ -38,21 +46,31 @@ export function DatasetImportJobs({ submittedJob, onCompleted }) {
 
   if (!jobs.length && !error) return null;
   return (
-    <Panel title="后台导入任务" caption="上传完成后可离开页面；后台继续校验并创建数据集版本，刷新页面可恢复查看。">
+    <Panel className="dataset-import-panel" title="后台导入任务" caption="上传后自动校验并创建版本，离开页面也会继续处理。" action={<span className="import-job-count">{jobs.length} 个任务</span>}>
       {error && <div role="status" className="row-meta error-text">任务状态暂时无法更新，正在重试。{error.message}</div>}
-      <div className="grid" aria-live="polite">
-        {jobs.map((job) => (
-          <div className="timeline-item" key={job.id}>
-            <div>
-              <strong>{job.name}</strong>
-              <div className="row-meta">{job.result?.version?.version_number ? `v${job.result.version.version_number}` : "完成后自动创建 v1"}</div>
-              {job.status === "queued" && <div className="row-meta">等待后台处理，当前同时处理 1 个数据集。</div>}
-              {job.status === "failed" && <div className="row-meta error-text">{job.error} 可在上方重新选择文件夹上传。</div>}
+      <div className="import-job-list" aria-label="后台导入任务列表" aria-live="polite">
+        {jobs.map((job) => {
+          const time = submittedAt(job.created_at);
+          const imageCount = job.result?.upload?.image_count;
+          const datasetId = job.result?.dataset?.dataset_id;
+          return (
+          <div className={`import-job-row import-job-row--${job.status}`} key={job.id}>
+            <div className="import-job-icon" aria-hidden="true"><Icon name={icons[job.status] ?? "Database"} size={20} /></div>
+            <div className="import-job-content">
+              <strong className="import-job-name" title={job.name}>{job.name}</strong>
+              <div className="import-job-meta">
+                <span>{job.result?.version?.version_number ? `数据版本 v${job.result.version.version_number}` : "自动创建 v1"}</span>
+                {Number.isFinite(imageCount) && <span>{imageCount.toLocaleString()} 张图片</span>}
+                {time && <time dateTime={job.created_at}>{time} 提交</time>}
+              </div>
+              {job.status === "queued" && <div className="import-job-note">等待校验，后台按顺序处理。</div>}
+              {job.status === "running" && <div className="import-job-note">正在校验图片并创建数据集版本。</div>}
+              {job.status === "failed" && <div className="import-job-note error-text">{job.error} 可重新选择文件夹上传。</div>}
             </div>
-            <StatusChip tone={job.status === "failed" ? "risk" : job.status === "succeeded" ? "default" : "info"}>{labels[job.status] ?? job.status}</StatusChip>
-            {job.status === "succeeded" && <Link className="ghost-button" to={`/datasets/${encodeURIComponent(job.result?.dataset?.dataset_id ?? "")}`}>打开数据集</Link>}
+            <div className="import-job-status"><StatusChip tone={job.status === "failed" ? "risk" : job.status === "succeeded" ? "default" : "info"}>{labels[job.status] ?? job.status}</StatusChip></div>
+            <div className="import-job-action">{job.status === "succeeded" && datasetId && <Link className="ghost-button" to={`/datasets/${encodeURIComponent(datasetId)}`}>打开数据集<Icon name="ExternalLink" size={15} /></Link>}</div>
           </div>
-        ))}
+        );})}
       </div>
     </Panel>
   );

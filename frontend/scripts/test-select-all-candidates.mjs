@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import { selectAllCandidates } from "../src/features/annotation/selectAllCandidates.js";
+const samples = Array.from({ length: 25 }, (_, i) => ({ id: `sample-${i}` }));
+const visited = [];
+assert.deepEqual(await selectAllCandidates(async page => { visited.push(page); return { items: samples.slice((page - 1) * 12, page * 12), total: 25, page_size: 12 }; }), samples);
+assert.deepEqual(visited, [1, 2, 3]);
+assert.deepEqual(await selectAllCandidates(async () => ({ items: [], total: 0 })), []);
+await assert.rejects(selectAllCandidates(async () => ({ items: [], total: 1001 })), /1000/);
+await assert.rejects(selectAllCandidates(async page => { if (page === 2) throw new Error("network"); return { items: samples.slice(0, 12), total: 25 }; }), /network/);
+await assert.rejects(selectAllCandidates(async page => ({ items: samples.slice(0, 12), total: page === 1 ? 25 : 24 })), /列表已变化/);
+await assert.rejects(selectAllCandidates(async () => ({ items: samples.slice(0, 12), total: 24 })), /列表已变化/);
+console.log("Select all: cross-page, empty, limit, network failure, changed totals and duplicate IDs passed.");

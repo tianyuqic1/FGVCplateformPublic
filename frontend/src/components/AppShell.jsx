@@ -5,6 +5,7 @@ import { Icon } from "./icons.jsx";
 const navItems = [
   { id: "dashboard", label: "工作台", icon: "LayoutDashboard", to: "/" },
   { id: "datasets", label: "数据集", icon: "Database", to: "/datasets" },
+  { id: "annotation", label: "AI 标注", icon: "ScanSearch", to: "/annotation" },
   { id: "training", label: "训练", icon: "FlaskConical", to: "/training" },
   { id: "inference", label: "推理实验室", icon: "ImageUp", to: "/inference" },
   { id: "weights", label: "权重", icon: "HardDrive", to: "/weights" },
@@ -16,6 +17,7 @@ const navItems = [
 ];
 
 const searchItems = [
+  { label: "AI 标注", hint: "Top-10 候选、人工确认、图文检索记忆", to: "/annotation" },
   { label: "硬件监控", hint: "计算节点、GPU、显存、CPU、内存与存储", to: "/hardware" },
   { label: "工作台", hint: "运营概览、优先任务、低置信样本", to: "/" },
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
@@ -31,6 +33,7 @@ const searchItems = [
 ];
 
 function navKey(pathname) {
+  if (pathname.startsWith("/annotation")) return "annotation";
   if (pathname === "/hardware") return "hardware";
   if (pathname.startsWith("/datasets")) return "datasets";
   if (pathname.startsWith("/training")) return "training";

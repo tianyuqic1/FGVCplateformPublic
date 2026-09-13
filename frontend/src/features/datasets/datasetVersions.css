@@ -14,6 +14,45 @@
 .dataset-versions-table td:first-child { width: 28%; }
 .version-model-links { display: grid; gap: 4px; margin-top: 8px; max-width: 240px; overflow-wrap: anywhere; }
 .dataset-expansion-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.expansion-panel .panel-title { gap: 16px; }
+.expansion-version { display: flex; align-items: center; gap: 10px; flex-shrink: 0; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-panel-soft); color: var(--text-secondary); font-size: 12px; }
+.expansion-version strong { color: var(--action-primary); }
+.expansion-notice { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
+.expansion-notice svg { flex-shrink: 0; color: var(--status-success); }
+.expansion-sources { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.expansion-source { min-width: 0; padding: 18px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-panel); }
+.expansion-source-heading, .expansion-source-heading > div { display: flex; align-items: center; gap: 9px; }
+.expansion-source-heading { justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; }
+.expansion-source-heading strong { font-size: 13px; color: var(--text-primary); }
+.expansion-step { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.expansion-optional { color: var(--text-secondary); font-size: 11px; background: var(--surface-panel-soft); padding: 3px 8px; border-radius: 5px; }
+.expansion-file-input { display: none; }
+.expansion-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 164px; width: 100%; padding: 20px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-panel-soft); color: var(--text-secondary); cursor: pointer; font: inherit; }
+.expansion-upload:hover:not(:disabled), .expansion-upload:focus-visible { border-color: var(--action-primary); background: var(--surface-selected); }
+.expansion-upload:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 3px; }
+.expansion-upload-icon { color: var(--action-primary); }
+.expansion-upload.has-files .expansion-upload-icon { color: var(--status-success); }
+.expansion-upload strong { color: var(--text-primary); font-size: 13px; }
+.expansion-upload > span:last-child { font-size: 12px; }
+.expansion-hint { margin: 12px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.8; }
+.expansion-empty { min-height: 164px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 20px 12px; text-align: center; color: var(--text-muted); }
+.expansion-empty strong { font-size: 13px; color: var(--text-secondary); }
+.expansion-empty span { font-size: 12px; line-height: 1.7; }
+.expansion-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 18px; padding: 18px; border-radius: 8px; background: var(--surface-panel-soft); border: 1px solid var(--border-subtle); }
+.expansion-footer strong { font-size: 13px; color: var(--text-primary); }
+.expansion-footer strong span { color: var(--action-primary); }
+.expansion-footer p { margin: 6px 0; font-size: 12px; color: var(--text-secondary); }
+.expansion-footer small { font-size: 11px; color: var(--text-muted); }
+.expansion-footer .primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex-shrink: 0; min-height: 38px; white-space: nowrap; }
+.expansion-source .training-candidate-list > label { min-width: 0; align-items: flex-start; }
+.expansion-source .training-candidate-list > label > span { min-width: 0; overflow-wrap: anywhere; }
+.expansion-source .training-candidate-list input { flex-shrink: 0; }
+@media (max-width: 800px) {
+  .expansion-sources { grid-template-columns: minmax(0, 1fr); }
+  .expansion-source { padding: 14px; }
+  .expansion-footer { flex-direction: column; align-items: stretch; padding: 14px; }
+  .expansion-footer .primary-button { width: 100%; }
+}
 .dataset-expansion-fields .field { max-width: 600px; }
 .training-candidate-list { margin-top: 10px; display: grid; gap: 8px; }
 .training-candidate-list > label { display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #e2e8f0; padding: 10px 0; }
