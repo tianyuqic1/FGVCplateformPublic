@@ -67,7 +67,7 @@ docker compose run --rm migrate
 docker compose up -d --no-deps go-control-plane python-inference-runtime deployment-relay
 ```
 
-`Dockerfile.inference`、`Dockerfile.tensorrt` 基于 `finevision-python-compute:phase1`；部署流水线必须先构建该基础镜像。生产环境应以不可变 digest 固定基础镜像。
+`Dockerfile.inference`、`Dockerfile.tensorrt` 基于 `finevision-python-compute:local`；部署流水线必须先构建该基础镜像。生产环境应以不可变 digest 固定基础镜像。
 
 ### NVIDIA（可选；先等测评结束或使用另一张卡）
 

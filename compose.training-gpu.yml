@@ -1,0 +1,8 @@
+# Opt-in NVIDIA CDI access; does not change inference or annotation workers.
+services:
+  python-training-worker:
+    devices:
+      - nvidia.com/gpu=all
+    environment:
+      FINEVISION_COMPUTE_DEVICE: cuda
+      FINEVISION_TORCH_THREADS: '2'

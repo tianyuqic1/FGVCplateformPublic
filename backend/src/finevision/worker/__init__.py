@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from finevision.api.store import JobRecord
+from finevision.persistence.store import JobRecord
 
 
 def run_next_job(metadata_dir: str | Path | None = None) -> JobRecord | None:

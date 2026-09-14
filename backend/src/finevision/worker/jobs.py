@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Any, Protocol
 
-from finevision.api.store import JobRecord, MetadataStore, create_stores
-from finevision.api.training_store import DatabaseTrainingStore
+from finevision.persistence.store import JobRecord, MetadataStore, create_stores
+from finevision.persistence.training_store import DatabaseTrainingStore
 from finevision.ml_toolkit.artifacts import load_feature_artifact
 from finevision.ml_toolkit.calibration import fit_temperature_scaling
 from finevision.ml_toolkit.datasets import scan_imagefolder
@@ -22,8 +22,8 @@ from finevision.ml_toolkit.thresholds import estimate_margin_threshold, select_t
 from finevision.ml_toolkit.training import train_linear_head
 
 
-DEFAULT_METADATA_DIR = ".finevision-api/metadata"
-DEFAULT_ARTIFACT_DIR = ".finevision-api/artifacts"
+DEFAULT_METADATA_DIR = ".finevision/metadata"
+DEFAULT_ARTIFACT_DIR = ".finevision/artifacts"
 
 
 class JobStoreLike(Protocol):

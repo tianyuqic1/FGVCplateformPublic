@@ -1,0 +1,31 @@
+<h2>子系统分层：工作流图由谁执行</h2><pre><code>React AnnotationPage
+    │ 项目 / 图片 / 排队 / 人工确认
+    ▼
+Go annotation HTTP + Repository ── PostgreSQL / MinIO
+    │ internal claim / result / memory / indexed
+    ▼
+Python annotation Worker ── 本地 SQLite ledger + ACK 文件
+    ├── Workflow / Engine：阶段顺序、工具和记忆协调
+    ├── LocalTools：Qwen / SAM2 / 增强 / CLIP
+    ├── OnlineMemory：Qdrant + 文本原型
+    └── Provider ── 私有 stdio RPC ── Go annotation-agent / Eino
+                                         │
+                                    远程视觉模型</code></pre><p>Eino 位于 Go 模型适配侧，整个工具编排与持久阶段状态当前由 Python Engine 执行。不能将它描述为“全部节点均由 Eino Graph 编排”，也不能把本地 llama.cpp VLM 服务写成 vLLM 引擎。拆分使远程密钥不需要进入图像恢复、分割或向量计算容器。</p>
+<h2>任务状态与人工标签状态分开理解</h2><pre><code>pending → queued → running → suggested
+                      ├──→ failed
+                      └──→ unknown
+
+可人工处理的图片 → confirmed → memory outbox → indexed
+                                      │
+                                      └─失败保留，后续补偿
+
+confirmed + 未发布占用 → preview → queued → building
+                                      → registering → published</code></pre><p><code>suggested</code> 只表示 AI 建议已写回；<code>confirmed</code> 才是人工标签。indexed 是投递状态，不是再次生成标签。模型建议成功、标签确认成功、检索入库成功、数据发布成功是四个不同事件，界面分别显示，避免把它们压成一个“完成”。</p>
+<h2>批量快照与范围控制</h2><pre><code>GET queue-summary → {pending, queued, running, through_seq}
+用户确认数量 + 允许远程传输
+POST queue-all {allow_remote: true, through_seq: snapshot_boundary}
+
+只更新：project_id 匹配 AND status = pending AND seq ≤ through_seq</code></pre><p>请求固定上界防止用户确认后新上传的图片被追加进付费范围。pending 条件防止重放已排队、已确认或失败隔离任务。后台仍按单执行槽领取，批量操作改变的是队列成员，不是硬件并发数。</p>
+<h2>固定目录为何存 JSONB 而不让每个接口各读一份文件</h2><p>JSON 是导入与导出契约，数据库中的 classes 是权威内容。创建时要求 schema_version=1，2–1000 类，id/name 非空且分别唯一，并拒绝未知字段。将规范目录序列化摘要纳入记忆 scope 后，旧目录与新目录不会误用同一向量空间中的类别含义。</p><p>只使用文件名或一份可覆盖的 JSON 文件作目录来源会导致并行请求看到不同类别顺序；先校验并持久化到项目记录，后续模型调用、确认和发布都以项目目录为准。展示名称可以读懂，稳定 ID 用于模型返回与校验。</p>
+<h2>人工确认的事务边界</h2><p>同一个任务确认时检查目录内类别以及当前状态；同标签重复确认幂等，修改已确认标签冲突。标签与 <code>annotation_memory_outbox</code> 同事务提交。最终类别可不在 AI 候选里，但必须属于当前完整目录。未部署多人身份认证时 actor 只作操作备注，不能作为已验证身份声明。</p>
+<p class="source">实现依据：<code>go/internal/annotation/annotation.go</code>、<code>http.go</code>、<code>catalog.go</code>；<code>annotation/worker.py</code>、<code>annotation/workflow.py</code>；<code>backend/src/finevision/db/annotation_schema.py</code>。</p>

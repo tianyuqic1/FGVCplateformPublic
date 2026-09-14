@@ -23,7 +23,7 @@ from google.protobuf.struct_pb2 import Struct
 from google.protobuf.timestamp_pb2 import Timestamp
 import pika
 
-from finevision.api.store import MetadataStore
+from finevision.persistence.store import MetadataStore
 from finevision.artifact_store import ArtifactDescriptor, ArtifactStore, S3ArtifactStore
 from finevision.compute.v1 import artifact_pb2, training_lifecycle_pb2, training_lifecycle_pb2_grpc
 from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, WEIGHT_ALIASES, prepare_managed_weight
@@ -441,7 +441,7 @@ class QueueTrainingWorker:
             attempt_id=claim.attempt_id,
             execution_epoch=claim.execution_epoch,
         )
-        metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision-api/metadata"))
+        metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision/metadata"))
         dataset_files = ExitStack()
         try:
             dataset_files.enter_context(HeartbeatLoop(remote_store))

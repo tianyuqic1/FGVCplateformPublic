@@ -1,0 +1,50 @@
+<h2>LoRA 注入：attention 的合并 qkv 线性层</h2><p>当前实现遍历骨干模块，只包装名称以 <code>attn.qkv</code> 结尾的 <code>nn.Linear</code>。不是对所有线性层统一插入适配器，也不是只训练 Q / V 两个独立投影。设原权重 W₀ ∈ ℝ<sup>d_out×d_in</sup>，rank 为 r：</p>
+<pre><code>A ∈ R[r, d_in]，B ∈ R[d_out, r]
+y = x W₀ᵀ + b + (α/r) x Aᵀ Bᵀ
+α = 2r，所以 scale = α/r = 2
+
+A：Kaiming uniform 初始化
+B：零初始化
+W₀：requires_grad = False
+初始 BA = 0，因此初始函数与预训练线性层一致
+
+每个适配层新增可训练参数：r × (d_in + d_out)
+原始线性层参数量：d_out × d_in（不含偏置）</code></pre>
+<p>这里先冻结骨干，再注入 A/B。分类头为 <code>Linear(backbone.num_features, class_count)</code>，类别顺序来自 manifest。训练模式、rank、alpha、注入目标及可训练参数量写入训练配置，便于验证“冻结骨干”是否真的执行。</p>
+<h2>eval、no_grad 与参数冻结是三个不同开关</h2><div class="table-wrap"><table><thead><tr><th>模式</th><th>骨干状态</th><th>骨干计算图</th><th>原因</th></tr></thead><tbody><tr><td>DINO frozen</td><td>eval，W₀ 冻结</td><td>no_grad</td><td>只需将特征输入可训练分类头。</td></tr><tr><td>DINO LoRA</td><td>eval，W₀ 冻结，A/B 可训练</td><td>需要 autograd</td><td>梯度必须经过骨干运算传播到 A/B。</td></tr><tr><td>ImageNet full</td><td>随模型 train / eval 切换</td><td>训练时构建</td><td>骨干与分类头都更新，验证时使用 inference_mode。</td></tr></tbody></table></div>
+<p>模型覆写 <code>train()</code>，DINO 模式下重新将原骨干置为 eval，固定其 dropout / buffer 行为。直接把整个 LoRA forward 包进 no_grad 会使 A/B 失去梯度，当前实现明确区分这两条路径。</p>
+<h2>优化器分组与训练循环</h2><pre><code>AdamW([
+  {name: head, params: classifier_head, lr: head_learning_rate},
+  # 只出现下面一个分支，frozen 模式都不出现
+  {name: lora, params: all_trainable_A_B, lr: lora_learning_rate}
+  # 或 {name: backbone, params: backbone, lr: backbone_learning_rate}
+], weight_decay)
+
+assert parameter_groups contain no duplicate parameter identity
+assert union(parameter_groups) == all parameters with requires_grad=True
+
+for epoch:
+    for images, labels in train_loader:
+        check_control()
+        optimizer.zero_grad(set_to_none=True)
+        loss = cross_entropy(model(images), labels)
+        require finite(loss)
+        loss.backward()
+        optimizer.step()
+    evaluate validation split
+    persist epoch loss and validation metric</code></pre>
+<p>参数覆盖检查能捕获“新增可训练层却没加进 optimizer”和“一个参数被两个组更新”的错误。学习率必须是有限数、0 &lt; lr ≤ 1；不适用于当前训练模式的独立学习率直接拒绝，而不是悄悄忽略。</p><p>当前核心循环使用 AdamW、固定随机种子、每轮验证、训练结束保存最终模型；没有实现 best-validation checkpoint 选择、学习率调度器或完整 optimizer-state 断点续训。不能因界面存在 resume 就声称具备这些算法能力。</p>
+<h2>分辨率与增强沿用同一预处理契约</h2><p><code>timm.resolve_model_data_config</code> 提供 input_size、mean、std、interpolation、crop_pct。输入尺寸在 128–512 范围校验，ViT-S 要求 16 的整数倍；ImageNet ViT 在加载预训练参数后、构造优化器前调用 <code>set_input_size</code> 调整位置嵌入。DINO 使用动态 RoPE，ResNet 沿空间卷积路径处理。</p><div class="table-wrap"><table><thead><tr><th>增强</th><th>实现参数</th><th>插入位置</th></tr></thead><tbody><tr><td>RandomResizedCrop</td><td>scale 0.7–1.0，ratio 0.75–4/3</td><td>替换基础 resize / crop。</td></tr><tr><td>水平 / 垂直翻转</td><td>各 p=0.5，独立启用</td><td>PIL 空间，ToTensor 之前。</td></tr><tr><td>ColorJitter</td><td>亮度 / 对比度 / 饱和度 0.2，hue 0.05</td><td>ToTensor 之前。</td></tr><tr><td>旋转</td><td>±15°</td><td>ToTensor 之前。</td></tr><tr><td>RandomErasing</td><td>p=0.25，scale 0.02–0.15</td><td>张量化与归一化之后。</td></tr></tbody></table></div>
+<p>增强选项只接受已知布尔字段。验证和测试使用确定性 transform。细粒度任务依赖颜色与姿态线索，是否启用垂直翻转和颜色抖动需要按数据语义判断，平台不默认将所有增强视为有益。</p>
+<h2>检查点是重建契约，不是裸 state_dict</h2><pre><code>{
+  format: "image_classifier_v2",
+  backbone_key: approved_backbone,
+  classes: ordered_class_names,
+  training_config: {training_mode, lora_rank, lora_alpha, ...},
+  preprocessing: {input_size, mean, std, interpolation, crop_pct},
+  merged: false,
+  state_dict: CPU_parameter_tensors
+}</code></pre><p>加载时使用 <code>torch.load(..., weights_only=True)</code>，验证格式与类别唯一性，按配置重建模型，严格加载 state_dict 并检查参数有限性。托管预训练模型来自允许的架构清单，不将任意外部 checkpoint 当作可信可执行程序。</p>
+<h2>合并、导出和数值验证的顺序</h2><ol><li>深拷贝模型到 CPU / eval，不修改仍供审计的原训练对象。</li><li>对每个适配器执行 W_merge = W₀ + 2BA，将 LoRALinear 替换成普通 Linear。</li><li>检查数据库类别顺序与检查点完全一致，保存 merged 的完整 PT。</li><li>导出 opset 17 ONNX：输入 <code>images</code>、输出 <code>logits</code>；只将 batch 设为动态，H/W 按预处理契约固定。</li><li>按精度转换计算图，保留 FP32 图片输入，写入 classes / preprocessing / model_version_id 等 metadata，运行 ONNX checker。</li><li>固定随机输入分别测 batch=1、2，比较原适配模型、合并模型、ORT 输出；通过后返回可发布产物。</li></ol>
+<div class="callout">数值对齐验证“合并和导出没有改变计算契约”。随机探针不能替代真实数据集验证；FP16 不保证每个节点都以半精度执行。ONNX 输出为未经 softmax 的 logits，温度与决策阈值由推理策略层处理。</div>
+<p class="source">代码依据：<code>backend/src/finevision/ml_toolkit/image_training.py</code>：LoRALinear、inject_lora、ImageClassifier、optimizer_groups、train_images、merged_classifier；<code>backend/src/finevision/compute/image_export.py</code>：export_image_classifier；<code>go/internal/modelregistry/releases.go</code>：ModelSignature / NextRelease。</p>

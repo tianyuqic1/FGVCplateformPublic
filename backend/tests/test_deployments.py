@@ -47,6 +47,32 @@ def test_numeric_gate_and_rejection(precision):
     with pytest.raises(ValueError):validate_engine(ref,engine,[3,4,4],precision,1)
 
 
+def test_fp16_hardware_gate_accepts_bounded_tactic_drift():
+    ref = SimpleNamespace(
+        get_inputs=lambda: [SimpleNamespace(name="images")],
+        run=lambda _, data: [np.tile(np.array([[7.0, 3.0, -2.0]], np.float32), (len(data["images"]), 1))],
+    )
+    engine = SimpleNamespace(
+        run=lambda images: np.tile(np.array([[6.8, 3.1, -1.9]], np.float32), (len(images), 1))
+    )
+    report = validate_engine(ref, engine, [3, 4, 4], "FP16", 2)
+    assert report["parity_passed"]
+    assert report["top1_agreement"] == 1
+    assert report["max_abs_error"] == pytest.approx(0.2)
+
+
+def test_fp16_hardware_gate_rejects_material_drift_even_when_top1_matches():
+    ref = SimpleNamespace(
+        get_inputs=lambda: [SimpleNamespace(name="images")],
+        run=lambda _, data: [np.tile(np.array([[7.0, 3.0, -2.0]], np.float32), (len(data["images"]), 1))],
+    )
+    engine = SimpleNamespace(
+        run=lambda images: np.tile(np.array([[6.0, 3.0, -2.0]], np.float32), (len(images), 1))
+    )
+    with pytest.raises(AssertionError, match="relative logit drift"):
+        validate_engine(ref, engine, [3, 4, 4], "FP16", 1)
+
+
 def test_compiled_fail_closed_before_loading(monkeypatch):
     from finevision.compute import deployment_backends as backends
     monkeypatch.setattr(backends,"fingerprint",lambda runtime:{"device":"test"})

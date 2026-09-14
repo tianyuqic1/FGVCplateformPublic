@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import sqlalchemy as sa
 
-from finevision.api.inference_store import _inference_context_select, _threshold_strategy_from_row
+from finevision.persistence.inference_store import _inference_context_select, _threshold_strategy_from_row
 from finevision.db.schema import dataset_versions, model_versions
 from finevision.ml_toolkit.artifacts import load_feature_artifact, load_model_artifact
 from finevision.ml_toolkit.features import build_extractor_from_config

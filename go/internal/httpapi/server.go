@@ -427,7 +427,7 @@ func resolveTrainingBackbone(request *openapi.CreateTrainingRun) (modelcatalog.B
 	}
 	backbone, exists := modelcatalog.Resolve(key)
 	if !exists {
-		return modelcatalog.Backbone{}, false, errors.New("backbone_key is not approved for Phase 2")
+		return modelcatalog.Backbone{}, false, errors.New("backbone_key is not approved")
 	}
 	return backbone, false, nil
 }

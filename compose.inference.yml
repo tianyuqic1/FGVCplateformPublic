@@ -17,7 +17,7 @@ x-deployment-env: &deployment-env
 services:
   tensorrt-inference:
     profiles: [tensorrt]
-    image: fgvc-tensorrt:10.9
+    image: finevision-tensorrt:10.9
     build: { context: ., dockerfile: Dockerfile.tensorrt }
     restart: unless-stopped
     gpus: all
@@ -25,10 +25,10 @@ services:
       <<: *deployment-env
       FINEVISION_INFERENCE_BACKEND: tensorrt
       FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
-    volumes: [fgvc-trt-cache:/data/cache]
+    volumes: [finevision-trt-cache:/data/cache]
   tensorrt-builder:
     profiles: [tensorrt]
-    image: fgvc-tensorrt:10.9
+    image: finevision-tensorrt:10.9
     command: [python, -m, finevision.compute.deployment_worker]
     restart: unless-stopped
     gpus: all
@@ -36,10 +36,10 @@ services:
       <<: *deployment-env
       FINEVISION_INFERENCE_BACKEND: tensorrt
       FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
-    volumes: [fgvc-trt-builds:/data/builds, fgvc-trt-cache:/data/cache]
+    volumes: [finevision-trt-builds:/data/builds, finevision-trt-cache:/data/cache]
   ascend-inference:
     profiles: [ascend]
-    image: fgvc-ascend:local
+    image: finevision-ascend:local
     build:
       context: .
       dockerfile: Dockerfile.ascend
@@ -50,10 +50,10 @@ services:
       <<: *deployment-env
       FINEVISION_INFERENCE_BACKEND: ascend_acl
       FINEVISION_TARGET_PROFILE: ${FINEVISION_ASCEND_TARGET:-}
-    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, fgvc-ascend-cache:/data/cache]
+    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, finevision-ascend-cache:/data/cache]
   ascend-builder:
     profiles: [ascend]
-    image: fgvc-ascend:local
+    image: finevision-ascend:local
     command: [python, -m, finevision.compute.deployment_worker]
     restart: unless-stopped
     devices: [/dev/davinci0:/dev/davinci0, /dev/davinci_manager:/dev/davinci_manager, /dev/devmm_svm:/dev/devmm_svm, /dev/hisi_hdc:/dev/hisi_hdc]
@@ -61,9 +61,9 @@ services:
       <<: *deployment-env
       FINEVISION_INFERENCE_BACKEND: ascend_acl
       FINEVISION_TARGET_PROFILE: ${FINEVISION_ASCEND_TARGET:-}
-    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, fgvc-ascend-builds:/data/builds, fgvc-ascend-cache:/data/cache]
+    volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, finevision-ascend-builds:/data/builds, finevision-ascend-cache:/data/cache]
 volumes:
-  fgvc-trt-cache:
-  fgvc-trt-builds:
-  fgvc-ascend-cache:
-  fgvc-ascend-builds:
+  finevision-trt-cache:
+  finevision-trt-builds:
+  finevision-ascend-cache:
+  finevision-ascend-builds:

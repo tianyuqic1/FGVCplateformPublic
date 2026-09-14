@@ -1,0 +1,41 @@
+<h2>训练状态机：业务任务与执行尝试分离</h2><pre><code>Job / TrainingRun
+queued ── claim ──→ running ── complete ──→ succeeded
+  │                   ├──── fail ───────→ failed / queued（重试策略）
+  └── pause ──→ paused ←── pause
+                  │
+                resume ──→ queued（新 dispatch_generation）
+queued / running / paused ── cancel ──→ cancelled
+
+Attempt：running → succeeded / failed / fenced / cancelled / expired</code></pre>
+<p><code>training_run</code> 表达用户发起的实验，<code>attempt</code> 表达某个 Worker 实际获得的一次执行权。同一个实验可有多个 attempt，但只能有一个当前有效的执行 epoch。暂停与取消首先改变控制面所有权，再通过 Worker 的控制检查退出计算；不依赖杀掉某个进程来证明旧结果失效。</p>
+<h2>为什么需要两个代际编号</h2><div class="table-wrap"><table><thead><tr><th>字段</th><th>检查位置</th><th>防止的问题</th></tr></thead><tbody><tr><td>dispatch_generation</td><td>领取任务时，与消息携带 generation 比较</td><td>暂停 / 恢复后的旧消息再次投递，不应启动新计算。</td></tr><tr><td>execution_epoch</td><td>心跳、进度、完成回调</td><td>租约失效或用户撤销后，旧 Worker 恢复网络仍可能回调。</td></tr><tr><td>active_attempt_id</td><td>当前 attempt 校验</td><td>同一任务不同执行尝试不能混写进度或产物。</td></tr><tr><td>completion_key + result_digest</td><td>完成接口重复提交</td><td>同 key 同结果返回既有结果；同 key 不同内容拒绝。</td></tr></tbody></table></div>
+<pre><code># 对应 lifecycle.go 的逻辑摘要，不是可直接执行的代码
+claim(job, dispatch_generation):
+    if message.generation != job.generation: return obsolete
+    if job is running or paused: return obsolete
+    if job is terminal: return terminal
+    validate available_at and max_attempts
+    job.execution_epoch += 1
+    create attempt(owner, epoch, lease_expires_at)
+
+complete(attempt_id, epoch, completion_key, result_digest, artifacts):
+    verify every artifact checksum and size
+    transaction:
+        if same completed key and same digest: return previous_result
+        if same key and different digest: reject idempotency_conflict
+        require current attempt and epoch
+        validate artifact dataset / run / attempt lineage
+        register model and commit succeeded</code></pre>
+<p>幂等和 fencing 解决不同问题。幂等避免同一结果注册两次，fencing 阻止已经失去所有权的结果第一次写入。仅做 HTTP 重试或消息去重不能替代这两种约束。</p>
+<h2>Outbox 消除双写窗口，但不是端到端 exactly-once</h2><pre><code>Go                       PostgreSQL             RabbitMQ           Worker
+│ create job + outbox ───→│ transaction             │                 │
+│                        │ commit                  │                 │
+│ relay claim rows ──────→│ lock owner / TTL         │                 │
+│ publish ────────────────────────────────────────→ │                 │
+│ publisher confirm ←──────────────────────────── │                 │
+│ mark published ────────→│                         │ deliver ───────→ │
+│                        │ ←────────── claim current generation ──── │</code></pre>
+<p>如果 RabbitMQ 已确认但 relay 在 <code>MarkPublished</code> 前崩溃，事件仍会被重新投递。因此系统按至少一次投递设计，最终业务效果依赖领取和完成接口幂等。relay 通过锁所有者与 TTL 领取记录；失败保留错误并延后投递，而不是删除任务。</p>
+<h2>指标也必须带执行身份</h2><p>训练指标包含 <code>training_run_id / attempt_id / execution_epoch / name / step / value</code>。先验证当前执行权，再写入进度与指标点；浮点值必须有限，重复点不能无限累积。前端曲线只是这些持久记录的展示，不以页面驻留时间模拟 epoch，也不能让上一轮失败 attempt 的延迟指标混入当前曲线。</p>
+<h2>事务与对象存储之间的提交边界</h2><p>MinIO 与 PostgreSQL 不共享数据库事务。平台先生成和校验不可变对象，再在数据库事务中注册其 descriptor；对象已上传但数据库提交失败时可能留下未引用文件，不能反过来宣称“所有文件与元数据原子提交”。目前发布预览对象保留审计，未实现通用未引用对象 GC。</p>
+<p class="source">代码依据：<code>go/internal/training/lifecycle.go</code>：Claim、transitionControl、Resume、Complete、currentAttempt；<code>go/internal/outbox/relay.go</code>：RunBatch；<code>go/internal/adapters/postgres/training_repository.go</code>；<code>go/internal/artifact/store.go</code>。</p>

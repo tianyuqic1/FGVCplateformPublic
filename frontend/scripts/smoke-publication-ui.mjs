@@ -22,10 +22,10 @@ try {
   await page.getByRole("spinbutton", { name: "训练集 %", exact: true }).fill("90");
   assert.ok(await page.getByRole("button", { name: "检查发布清单", exact: true }).isDisabled());
   await page.getByRole("spinbutton", { name: "训练集 %", exact: true }).fill("80");
-  await page.screenshot({ path: "/tmp/fgvc-publication-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-publication-desktop.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.setViewportSize({ width: 390, height: 1000 });
-  await page.screenshot({ path: "/tmp/fgvc-publication-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-publication-mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole("button", { name: "追加已有数据集", exact: true }).click();
   assert.equal(await page.locator(".pub-mapping").count(), 0);

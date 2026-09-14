@@ -23,7 +23,7 @@ try {
  await page.getByRole("checkbox",{name:"选择 DINO 模型 A"}).check();
  await page.getByRole("checkbox",{name:"选择 ImageNet 模型 B"}).check();
  assert.ok(await page.getByRole("button",{name:"比较 2",exact:true}).isEnabled());
- await page.locator(".model-dataset-groups").screenshot({path:"/tmp/fgvc-model-groups-desktop.png"});
+ await page.locator(".model-dataset-groups").screenshot({path:"/tmp/finevision-model-groups-desktop.png"});
  await page.getByRole("button",{name:/数据版本 v2/}).click();
  assert.ok(await page.getByRole("button",{name:"比较",exact:true}).isDisabled());
  await page.getByRole("checkbox",{name:"选择 模型 C"}).check();

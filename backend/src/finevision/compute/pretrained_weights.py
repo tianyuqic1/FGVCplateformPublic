@@ -62,7 +62,7 @@ WEIGHT_ALIASES = {
 def managed_weight_descriptor(backbone_key: str, bucket: str = "finevision-artifacts") -> ArtifactDescriptor:
     key = WEIGHT_ALIASES.get(backbone_key, backbone_key)
     if key not in MANAGED_WEIGHTS:
-        raise ValueError(f"Unsupported Phase 2 backbone: {backbone_key}")
+        raise ValueError(f"Unsupported managed backbone: {backbone_key}")
     weight = MANAGED_WEIGHTS[key]
     return ArtifactDescriptor(
         artifact_id=weight.artifact_id,

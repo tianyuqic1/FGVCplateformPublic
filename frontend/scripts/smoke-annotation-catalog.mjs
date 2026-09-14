@@ -32,10 +32,10 @@ try {
   await page.getByRole("textbox", { name: "查找导入类别" }).fill("Bird 13");
   assert.equal(await page.locator(".ann-catalog-table tbody tr").count(), 1);
   assert.ok(await page.getByRole("button", { name: "创建项目", exact: true }).isEnabled());
-  await page.screenshot({ path: "/tmp/fgvc-catalog-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-catalog-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 1000 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await page.screenshot({ path: "/tmp/fgvc-catalog-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-catalog-mobile.png", fullPage: true });
   assert.deepEqual(errors, []); assert.deepEqual(writes, []);
   console.log("Catalog + batch UI: JSON-only, invalid input, server validation, pagination/search, consent/confirmation, responsive layout; no project/queue writes.");
 } finally { await browser.close(); }

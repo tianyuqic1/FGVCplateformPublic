@@ -1,0 +1,92 @@
+<h2>2. 操作手册</h2>
+
+<h3>2.1 启动与访问</h3>
+<p>本地开发使用 Docker Compose。基础 CPU 服务可直接启动；训练、GPU 推理和硬件采集通过 GPU overlay 加入。首次启动会先执行数据库迁移和对象存储 bucket 初始化。</p>
+<pre><code># 基础服务
+docker compose up -d --build
+
+# 具备 NVIDIA Container Toolkit 时加入 GPU 服务定义
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+
+# 状态与日志
+docker compose ps
+docker compose logs -f go-control-plane outbox-relay
+docker compose logs -f python-training-worker python-inference-runtime</code></pre>
+<div class="table-wrap"><table><thead><tr><th>入口</th><th>默认地址</th><th>用途</th></tr></thead><tbody>
+<tr><td>Web</td><td><a href="http://localhost:5173/" target="_blank" rel="noopener noreferrer">http://localhost:5173 ↗</a></td><td>完整产品界面</td></tr>
+<tr><td>Go API</td><td><code>http://localhost:8001</code></td><td>控制平面与公开业务 API</td></tr>
+<tr><td>LLM Gateway</td><td><code>http://localhost:8080</code></td><td>内部 Eino / OpenAI-compatible 适配器，不直接给浏览器密钥</td></tr>
+<tr><td>RabbitMQ</td><td><code>localhost:5672</code> / <code>:15672</code></td><td>任务消息与本地管理界面</td></tr>
+<tr><td>MinIO</td><td><code>localhost:9000</code> / <code>:9001</code></td><td>对象 API 与管理界面</td></tr>
+</tbody></table></div>
+<div class="callout">若页面空白，先确认 <code>VITE_API_BASE_URL</code> 指向可达控制面，再检查浏览器控制台和 <code>go-control-plane</code> 日志。GPU 指标缺失与页面故障是两回事：没有采集到 GPU 时界面应显示“未采集”。</div>
+
+<h3>2.2 工作台 <code>/</code></h3>
+<p>工作台汇总数据集、训练、推理、复核和反馈状态，并把下一步动作露出。它用于发现问题，不承担编辑：点击卡片或队列项进入相应详情后再操作。</p>
+<ol class="steps"><li><strong>检查服务与待办</strong>确认导入、训练和部署是否有失败或积压。</li><li><strong>进入业务范围</strong>通过数据集或模型版本进入完整血缘，不从一串 UUID 猜上下文。</li><li><strong>沿闭环继续</strong>数据可训练后建任务；模型发布后推理；弃权样本进入人工复核。</li></ol>
+
+<h3>2.3 数据集列表 <code>/datasets</code></h3>
+<figure class="product-shot"><img src="./assets/screenshots/datasets.png" alt="数据集列表页面，显示异步导入任务、数据集聚合列表和状态筛选"><figcaption><b>数据资产总览。</b>后台导入任务与业务数据集列表分区展示；列表按数据集聚合，每页六项，并显示最新版本和可用权重。</figcaption></figure>
+<p>点击“导入数据集”，选择符合 ImageFolder 语义的目录或归档。上传后可离开页面，控制面会创建异步任务；完成后生成 dataset、dataset version、manifest 与样本摘要。重复显示名被允许，因此后续选择应同时核对版本信息。</p>
+<pre><code>dataset_root/
+├── train/class_a/*.jpg
+├── val/class_a/*.jpg
+└── test/class_a/*.jpg</code></pre>
+<p>如果源数据没有显式 split，发布或导入阶段按每类样本的稳定顺序与确定性分配规则生成 split。训练前必须保证 train、val、test 都非空。</p>
+
+<h3>2.4 数据集详情 <code>/datasets/:datasetId</code></h3>
+<p>详情页按业务数据集展示版本历史。选择版本后查看类别目录、split 统计、数据说明和真实样本预览。样本图片由受控 API 根据 <code>dataset_version_id + sample_id</code> 读取，浏览器不能把服务器绝对路径当作图片 URL。</p>
+<ul><li>先检查类别数量、名称与目录顺序；它们决定训练和推理输出索引。</li><li>再抽查三个 split 的图片内容，确认不是损坏文件、路径错配或空集合。</li><li>数据说明可以由 AI 辅助生成，但生成结果直接进入可编辑表单，人工修改后再保存。</li></ul>
+
+<h3>2.5 AI 标注 <code>/annotation</code></h3>
+<figure class="product-shot"><img src="./assets/screenshots/annotation.png" alt="AI 标注工作区，包含项目、批量分析、图片队列、原图和候选区"><figcaption><b>标注工作区属于同一平台。</b>项目固定类别目录；批量分析跨当前分页排队；中间看原图，右侧看 Top-10 与人工最终类别。</figcaption></figure>
+<ol class="steps">
+<li><strong>创建项目与类别目录</strong>只接受 <code>schema_version=1</code> 的 JSON 目录；稳定 id 用于接口，name 用于人读与检索。</li>
+<li><strong>上传待标注图片</strong>图片进入 pending 队列。点击批量分析前，选择是否允许把必要图片发送给配置的大模型服务。</li>
+<li><strong>审阅 Top-10</strong>候选是排序提示，不是置信概率。人可选择候选，也可从完整目录选择不在 Top-10 中的类别。</li>
+<li><strong>确认并沉淀</strong>人工确认后才写真实标签；达到每类成熟度门槛的已确认图像可作为以后检索参考。</li>
+<li><strong>进入待发布区</strong>全选或挑选已确认样本，选择新建数据集或追加已有数据集，设置 train/val/test 比例，先生成冻结预览再提交。</li>
+</ol>
+<div class="callout"><strong>不可越权：</strong>工作流失败、返回缺类或远程完成状态未知时，任务保留人工完成路径。增强图只为识别提供辅助；标签仍绑定原图，向量记忆保存原图和经像素来源校验的主体图，不保存增强图。</div>
+
+<h3>2.6 权重管理 <code>/weights</code></h3>
+<figure class="product-shot"><img src="./assets/screenshots/weights.png" alt="权重管理页面，显示 DINOv3 和 ImageNet 预训练权重登记状态"><figcaption><b>权重有两种状态。</b>受管权重说明平台认可其发布记录；节点缓存说明某一计算节点已经具备文件，二者不能混为一谈。</figcaption></figure>
+<p>DINOv3 ViT-S、ImageNet ViT-S 与 ResNet-50 等预训练权重通过 Git LFS 发布并登记 SHA/大小。训练 Worker 使用前再次校验；权重页不提供删除动作，避免 UI 误删共享缓存。</p>
+
+<h3>2.7 训练队列 <code>/training</code></h3>
+<p>创建训练时必须填写任务名、数据集版本、预训练骨干、输入分辨率、epoch、batch 和增强策略。页面根据权重来源展示不同参数：</p>
+<div class="table-wrap"><table><thead><tr><th>训练分支</th><th>可训练参数</th><th>学习率</th><th>禁止组合</th></tr></thead><tbody>
+<tr><td>DINOv3 frozen</td><td>分类头</td><td>分类头 LR</td><td>不能设置骨干 LR</td></tr>
+<tr><td>DINOv3 LoRA R8/R16</td><td>QKV 的 A/B + 分类头</td><td>LoRA LR + 分类头 LR</td><td>原始骨干 W₀ 仍冻结</td></tr>
+<tr><td>ImageNet full</td><td>骨干 + 分类头</td><td>骨干 LR + 分类头 LR</td><td>不支持 LoRA 选项</td></tr>
+</tbody></table></div>
+<p>实验队列分页并支持名称、数据集、状态和预训练来源筛选。排队不动时不要重复建任务：先进入详情核对 attempt 与消息代际，再看流水线事件。</p>
+
+<h3>2.8 训练详情 <code>/training/:runId</code></h3>
+<p>训练详情应回答四件事：用了什么、谁在执行、做到哪一步、产生了什么。页面展示完整训练配置（含各参数组 LR、增强与图片分辨率）、当前 attempt、心跳、逐 epoch loss/accuracy 曲线、校准报告、检查点和错误信息。</p>
+<p>取消是终止业务任务，不保证 GPU 内核瞬时停止；后续来自旧 attempt 的进度和完成回调会被代际校验拒绝。训练成功只产生 candidate model，仍需到模型页面显式发布。</p>
+
+<h3>2.9 模型版本与详情 <code>/models</code></h3>
+<p>模型版本首先按数据集聚合，再进入某一数据集版本下的二级列表。同一次比较只允许选择相同 <code>dataset_version_id</code> 的模型，防止把数据变化误当成模型改进。</p>
+<ol class="steps"><li><strong>查看血缘</strong>核对数据集版本、训练 run、骨干、策略、输入尺寸和指标。</li><li><strong>选择“发布”</strong>选择 FP32 或 FP16。平台从完整检查点导出整图分类 ONNX，而不是只导出分类头。</li><li><strong>等待门禁</strong>检查 SHA/大小、ONNX checker 和数值探针；成功后才创建 production release 和 ready deployment。</li><li><strong>按需构建硬件格式</strong>TensorRT plan 与 Ascend 目标产物属于 deployment，不改变模型语义版本。</li></ol>
+<p>语义版本从每个数据集的 <code>v1.0.0</code> 开始：模型签名变化升 major；训练数据版本变化升 minor；同模型/同数据的新训练结果升 patch。新增精度或部署格式不升级模型版本。</p>
+
+<h3>2.10 推理实验室 <code>/inference</code></h3>
+<p>先选择数据集，再选择与它绑定且已经发布的模型版本。下拉项同时显示语义版本、骨干、训练策略、输入尺寸、精度和部署状态，不让用户只凭 UUID 选择。上传图片后返回 Top-k、confidence、margin、决策原因与实际后端元数据。</p>
+<pre><code>production model + ready deployment + verified artifact
+                          ↓
+image → preprocess → full model logits → temperature → decision policy
+                          ↓
+             accept / abstain → inference event</code></pre>
+<p>当前完整图片模型使用 confidence 与 margin 做弃权；不要把旧分类头路径的特征距离 OOD 描述成所有部署都具备的能力。</p>
+
+<h3>2.11 人工复核与反馈 <code>/review</code> · <code>/feedback</code></h3>
+<p>复核队列按状态、数据集和分页浏览。详情页以原图为权威证据，同时给出模型 Top-k、策略快照和只读 LLM 建议。提交后生成 feedback item，去向可为训练候选、OOD 压力集、坏图、类别争议或忽略。</p>
+<p>反馈池可以在同一模型/数据版本范围内提议风险约束阈值。新策略先以 shadow 状态回放历史事件，达到最小样本条件且经验风险不超过目标后，仍需人工填写理由并激活。</p>
+
+<h3>2.12 流水线与硬件监控 <code>/pipelines</code> · <code>/hardware</code></h3>
+<figure class="product-shot"><img src="./assets/screenshots/hardware.png" alt="硬件监控页面，显示计算节点状态与资源历史"><figcaption><b>硬件视图尊重缺失值。</b>页面区分 CPU/内存实测值与未采集 GPU；节点选择、窗口和刷新只改变观测范围。</figcaption></figure>
+<p>流水线页聚合 job、attempt、事件和错误；硬件页按计算节点显示资源历史。标准排错路径是：业务详情 → 当前 attempt → job event → 对应 Worker 日志 → 数据/权重/设备/对象 SHA，而不是只看前端最终状态。</p>
+
+<h3>2.13 安全操作清单</h3>
+<ul class="checklist"><li>不要在浏览器、文档、日志或 Git 中保存模型 API Key。</li><li>发布前核对模型与数据版本作用域，不能绕过 production / ready 门禁。</li><li>重试长任务前先确认原 attempt 是否仍持有有效租约。</li><li>人工确认类别必须来自当前项目完整 JSON 目录。</li><li>从标注/反馈生成数据版本前先审阅冻结预览、split 比例和去重结果。</li><li>对外网开放前必须另行补齐身份认证、租户隔离、限流与密钥管理。</li></ul>

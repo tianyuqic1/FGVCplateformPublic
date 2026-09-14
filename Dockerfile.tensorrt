@@ -1,5 +1,5 @@
 # Build from the project's compute image to keep torch/CUDA and preprocessing identical.
-ARG COMPUTE_BASE_IMAGE=finevision-python-compute:phase1
+ARG COMPUTE_BASE_IMAGE=finevision-python-compute:local
 FROM ${COMPUTE_BASE_IMAGE}
 USER root
 RUN pip install --no-cache-dir 'tensorrt-cu12==10.9.0.34'

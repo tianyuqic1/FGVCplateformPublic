@@ -102,7 +102,7 @@ export function AppShell({ title, crumb, children, onToast }) {
           <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
             <i />
           </div>
-          <div className="row-meta">Phase 2 · Registry active</div>
+          <div className="row-meta">Model Registry · Active</div>
         </div>
       </aside>
       <main className="main">

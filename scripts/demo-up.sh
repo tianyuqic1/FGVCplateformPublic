@@ -12,7 +12,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/demo-up.sh [--gpu] [--no-build] [--skip-smoke]
 
-Starts the Phase 1 FineVision stack. The `migrate` service applies Alembic
+Starts the FineVision development stack. The `migrate` service applies Alembic
 migrations before the Go Control Plane, relay, and Python compute runtimes start.
 USAGE
 }

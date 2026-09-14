@@ -1,0 +1,174 @@
+<h2>5. 附录：工程参考手册</h2>
+
+<h3>5.1 API 总览</h3>
+<p>公开业务 API 统一由 Go 控制面提供。OpenAPI 主契约位于 <code>go/api/openapi/finevision.yaml</code>，硬件接口位于 <code>go/api/openapi/hardware.yaml</code>；annotation、deployment、review、inference 等扩展路由由对应 Go 模块注册并以测试约束。</p>
+<div class="table-wrap"><table><thead><tr><th>领域</th><th>代表接口</th><th>说明</th></tr></thead><tbody>
+<tr><td>Health</td><td><code>GET /api/health</code></td><td>控制面存活检查</td></tr>
+<tr><td>Dataset</td><td><code>GET /api/datasets</code><br><code>POST /api/datasets/upload-imagefolder</code><br><code>GET /api/datasets/{id}/versions</code></td><td>列表、异步导入和数据集内版本</td></tr>
+<tr><td>Dataset samples</td><td><code>GET /api/dataset-versions/{id}/sample-previews</code><br><code>GET /api/dataset-versions/{id}/samples/{sample}/image</code></td><td>受控样本分页与图片读取</td></tr>
+<tr><td>Training</td><td><code>POST /api/training-runs</code><br><code>GET /api/training-runs/{id}</code><br><code>GET /api/training-runs/{id}/metrics</code></td><td>创建、详情、指标曲线、暂停/恢复/取消</td></tr>
+<tr><td>Model registry</td><td><code>GET /api/model-versions</code><br><code>POST /api/model-version-comparisons</code><br><code>POST /api/model-versions/{id}/promote</code></td><td>范围过滤、合法比较与状态迁移</td></tr>
+<tr><td>Deployment</td><td><code>POST /api/model-versions/{id}/deployments</code><br><code>POST /api/deployments/{id}/retry</code></td><td>创建精度/后端产物和显式重试</td></tr>
+<tr><td>Inference</td><td><code>POST /api/inference</code><br><code>POST /api/inference/upload</code><br><code>POST /api/inference/upload-folder</code></td><td>样本、单图和批量文件推理</td></tr>
+<tr><td>Review / Feedback</td><td><code>GET /api/review-items</code><br><code>POST /api/review-items/{id}/submit</code><br><code>GET /api/feedback-items</code></td><td>人工真值与反馈池</td></tr>
+<tr><td>Abstention</td><td><code>POST /api/abstention-policies/propose</code><br><code>POST /api/abstention-policies/{id}/activate</code></td><td>经验风险策略、shadow 与激活</td></tr>
+<tr><td>Annotation</td><td><code>/api/annotation/projects/*</code><br><code>/api/annotation/tasks/*</code><br><code>/api/annotation/publications/*</code></td><td>类别目录、批量队列、确认、记忆与数据发布</td></tr>
+<tr><td>Hardware</td><td><code>GET /api/hardware/nodes</code><br><code>GET /api/hardware/nodes/{id}</code></td><td>节点清单和时间窗口详情</td></tr>
+<tr><td>LLM</td><td><code>POST /api/llm/assist</code></td><td>通用 advisory；密钥只在内部 Gateway</td></tr>
+</tbody></table></div>
+
+<h3>5.2 核心数据表</h3>
+<div class="table-wrap"><table><thead><tr><th>领域</th><th>表 / 实体</th><th>不可破坏的不变量</th></tr></thead><tbody>
+<tr><td>数据</td><td><code>datasets</code><br><code>dataset_versions</code><br><code>artifacts</code></td><td>版本不可变；artifact 以 SHA/size 验证；manifest 类别顺序稳定</td></tr>
+<tr><td>任务</td><td><code>jobs</code><br><code>job_attempts</code><br><code>job_events</code><br><code>outbox</code></td><td>当前 attempt 独占写权；事件 append-only；消息可重复但结果不可串写</td></tr>
+<tr><td>训练</td><td><code>training_runs</code><br><code>training_metrics</code></td><td>指标带 attempt/epoch；配置快照可重建模型</td></tr>
+<tr><td>模型</td><td><code>model_versions</code><br><code>model_deployments</code><br><code>model_aliases</code></td><td>语义版本与部署格式分离；推理只选 production/ready</td></tr>
+<tr><td>推理</td><td><code>inference_runs</code><br><code>inference_events</code></td><td>单事件记录实际模型、部署、策略、输入和后端</td></tr>
+<tr><td>人工闭环</td><td><code>review_items</code><br><code>feedback_items</code><br><code>abstention_policy_versions</code><br><code>abstention_shadow_decisions</code></td><td>反馈来自人工提交；策略按模型/数据范围生效</td></tr>
+<tr><td>标注</td><td><code>annotation_projects</code><br><code>annotation_tasks</code><br><code>annotation_memory_outbox</code><br><code>annotation_publications</code><br><code>annotation_publication_members</code></td><td>目录固定；确认与 outbox 同事务；同 source member 不能重复发布</td></tr>
+<tr><td>硬件</td><td>node / sample records</td><td>采样带节点和时间；缺失值不转换为零</td></tr>
+</tbody></table></div>
+
+<h3>5.3 关键字段与范围键</h3>
+<div class="table-wrap"><table><thead><tr><th>对象</th><th>范围键</th><th>版本/幂等键</th><th>大字段位置</th></tr></thead><tbody>
+<tr><td>Dataset Version</td><td><code>dataset_id</code></td><td><code>dataset_version_id</code> + version sequence</td><td>manifest / ZIP 在 MinIO</td></tr>
+<tr><td>Training Attempt</td><td><code>training_run_id</code></td><td><code>attempt_id + execution_epoch</code></td><td>checkpoint/report 在 MinIO</td></tr>
+<tr><td>Model Release</td><td><code>dataset_id + dataset_version_id</code></td><td><code>semantic_version</code></td><td>PT/ONNX/plan 在 MinIO</td></tr>
+<tr><td>Inference Event</td><td><code>model_version_id + dataset_version_id</code></td><td><code>event_id</code></td><td>输入图像可作为 artifact</td></tr>
+<tr><td>Policy</td><td><code>model_version_id + dataset_version_id</code></td><td><code>policy_version_id</code></td><td>阈值与回放摘要在 PostgreSQL</td></tr>
+<tr><td>Annotation Memory</td><td><code>project + catalog_digest + encoder_revision</code></td><td>source SHA 派生 UUIDv5 point</td><td>向量在 Qdrant，真值在 PostgreSQL</td></tr>
+<tr><td>Publication</td><td><code>target dataset + source project</code></td><td>稳定 request id + source member unique</td><td>冻结 ZIP / plan 在 MinIO</td></tr>
+</tbody></table></div>
+
+<h3>5.4 类别目录 JSON 契约</h3>
+<pre><code>{
+  "schema_version": 1,
+  "name": "CUB-200 catalog",
+  "classes": [
+    {"id": "001", "name": "Black-footed Albatross"},
+    {"id": "002", "name": "Laysan Albatross"}
+  ]
+}</code></pre>
+<p>当前仅支持 JSON 导入。classes 数量必须为 2–1000，id 与 name 非空且分别唯一，未知字段被拒绝。数据库 JSONB 保存经校验的权威目录；下游模型调用、人工确认、CLIP 文本原型和数据发布都读取同一目录，不在不同接口里各自解析可变文件。</p>
+
+<h3>5.5 前端路由参考</h3>
+<div class="table-wrap"><table><thead><tr><th>Route</th><th>页面职责</th><th>典型下一步</th></tr></thead><tbody>
+<tr><td><code>/</code></td><td>工作台总览</td><td>进入失败任务或待复核项</td></tr>
+<tr><td><code>/datasets</code></td><td>数据集聚合与导入任务</td><td><code>/datasets/:datasetId</code></td></tr>
+<tr><td><code>/annotation</code></td><td>AI 标注、待发布区与发布记录</td><td>新数据版本 → 训练</td></tr>
+<tr><td><code>/training</code></td><td>建任务、分页、搜索和过滤</td><td><code>/training/:runId</code></td></tr>
+<tr><td><code>/inference</code></td><td>发布模型的单图/批量推理</td><td>人工复核</td></tr>
+<tr><td><code>/weights</code></td><td>预训练权重登记与节点缓存</td><td>创建训练</td></tr>
+<tr><td><code>/review</code></td><td>不确定样本队列</td><td><code>/review/:reviewItemId</code></td></tr>
+<tr><td><code>/feedback</code></td><td>反馈池和策略候选</td><td>shadow / activate</td></tr>
+<tr><td><code>/models</code></td><td>数据集聚合、比较、发布</td><td><code>/models/:modelId</code> / 推理</td></tr>
+<tr><td><code>/pipelines</code></td><td>异步事件与排错</td><td>回到业务详情</td></tr>
+<tr><td><code>/hardware</code></td><td>计算节点与资源趋势</td><td>定位资源约束</td></tr>
+</tbody></table></div>
+
+<h3>5.6 关键环境变量</h3>
+<div class="table-wrap"><table><thead><tr><th>变量</th><th>使用者</th><th>说明</th><th>本地是否必需</th></tr></thead><tbody>
+<tr><td><code>FINEVISION_DATABASE_URL</code></td><td>Go / relay</td><td>PostgreSQL DSN</td><td>是</td></tr>
+<tr><td><code>FINEVISION_RABBITMQ_URL</code></td><td>relay / Worker</td><td>任务队列连接</td><td>训练/部署任务必需</td></tr>
+<tr><td><code>FINEVISION_S3_ENDPOINT</code></td><td>Go / Python</td><td>MinIO S3 endpoint</td><td>是</td></tr>
+<tr><td><code>FINEVISION_S3_ACCESS_KEY</code><br><code>FINEVISION_S3_SECRET_KEY</code></td><td>Go / Python</td><td>对象存储凭据</td><td>是；开发默认值可用</td></tr>
+<tr><td><code>FINEVISION_ARTIFACT_BUCKET</code></td><td>Go / Python</td><td>artifact bucket</td><td>是</td></tr>
+<tr><td><code>FINEVISION_LLM_API_KEY</code></td><td>LLM Gateway</td><td>远程供应商 Key</td><td>仅启用远程 AI 时</td></tr>
+<tr><td><code>FINEVISION_LLM_BASE_URL</code><br><code>FINEVISION_LLM_MODEL</code></td><td>LLM Gateway</td><td>OpenAI-compatible 地址和模型名</td><td>仅启用远程 AI 时</td></tr>
+<tr><td><code>FINEVISION_TRAINING_DEVICE</code><br><code>FINEVISION_INFERENCE_DEVICE</code></td><td>Python runtimes</td><td>cpu/cuda 等运行设备</td><td>可选，默认 CPU</td></tr>
+<tr><td><code>FINEVISION_HARDWARE_TOKEN</code></td><td>collector / Go</td><td>内部采样写入 token</td><td>启用监控时</td></tr>
+<tr><td><code>VITE_API_BASE_URL</code></td><td>浏览器构建</td><td>空值时经 Vite proxy</td><td>Compose 默认已配置</td></tr>
+</tbody></table></div>
+<div class="callout">示例值只用于本地。任何真实 API Key、生产数据库密码和对象存储密钥都不应提交 Git；公开部署应改用 Secret Manager 或编排平台 secret。</div>
+
+<h3>5.7 MinIO 对象布局</h3>
+<pre><code>datasets/{dataset_id}/{dataset_version_id}/
+  source.zip
+  manifest.json
+  publication-plan.json
+
+models/{dataset_id}/{model_version_id}/
+  checkpoints/model.pt
+  releases/v1.0.0/model-fp32.onnx
+  releases/v1.0.0/model-fp16.onnx
+  deployments/{deployment_id}/engine.plan
+
+reports/{training_run_id}/
+  training.json
+  calibration.json
+  export-parity.json</code></pre>
+<p>逻辑上先按数据集、再按模型版本两层区分；对象 key 方便运维定位，但访问权仍由数据库 descriptor 决定。每个可执行对象记录 SHA-256 和 size，Worker 下载后先校验再加载。</p>
+
+<h3>5.8 模型推理后端能力</h3>
+<div class="table-wrap"><table><thead><tr><th>后端</th><th>输入产物</th><th>当前门禁</th><th>验证状态表达</th></tr></thead><tbody>
+<tr><td>ONNX Runtime CPU</td><td>完整 ONNX FP32/FP16</td><td>checker、metadata、SHA、shape、数值探针</td><td>本地可直接验收</td></tr>
+<tr><td>TensorRT</td><td>已发布完整 FP32 ONNX</td><td>GPU profile、CUDA/TRT 指纹、构建与对照报告</td><td>环境绑定；更换架构重建</td></tr>
+<tr><td>Ascend</td><td>源 ONNX + 目标 SoC/CANN 配置</td><td>目标指纹、构建结果、实际 runtime metadata</td><td>代码路径存在；必须在目标硬件实机验收</td></tr>
+</tbody></table></div>
+
+<h3>5.9 端到端数据流参考</h3>
+<pre><code># 数据集导入
+Frontend → multipart → Go validation → Job + Outbox
+         → RabbitMQ → import worker → MinIO object + manifest
+         → descriptor transaction → Dataset Version ready
+
+# 训练与发布
+Training form → Go Job/Attempt → RabbitMQ → Training Worker
+              → PT checkpoint + metrics + calibration
+Publish → merge LoRA (if any) → full ONNX → parity/SHA/size
+        → production release → ready deployment → inference selectable
+
+# 推理与人工反馈
+Image + released deployment → Inference Runtime → logits
+→ temperature + policy → inference event
+→ accept OR review item → human feedback → shadow policy → manual activation
+
+# AI 标注到数据版本
+JSON catalog + images → batch snapshot → tool/VLM workflow
+→ Top-10 → human confirm + memory outbox
+→ Qdrant idempotent upsert → publication preview
+→ new dataset / new version → deterministic split → training</code></pre>
+
+<h3>5.10 代码实现索引</h3>
+<div class="table-wrap"><table><thead><tr><th>能力</th><th>主要位置</th></tr></thead><tbody>
+<tr><td>Go HTTP 与路由</td><td><code>go/internal/httpapi/</code>、<code>go/internal/annotation/http.go</code></td></tr>
+<tr><td>训练生命周期</td><td><code>go/internal/training/lifecycle.go</code>、<code>go/internal/adapters/postgres/training_repository.go</code></td></tr>
+<tr><td>Outbox</td><td><code>go/internal/outbox/relay.go</code></td></tr>
+<tr><td>模型注册与发布</td><td><code>go/internal/modelregistry/</code>、<code>go/internal/httpapi/deployments.go</code></td></tr>
+<tr><td>训练与导出</td><td><code>backend/src/finevision/ml_toolkit/image_training.py</code>、<code>backend/src/finevision/compute/image_export.py</code></td></tr>
+<tr><td>推理 Runtime</td><td><code>backend/src/finevision/compute/inference_runtime.py</code></td></tr>
+<tr><td>在线弃权</td><td><code>go/internal/adapters/postgres/policy_repository.go</code></td></tr>
+<tr><td>标注控制面</td><td><code>go/internal/annotation/</code>、<code>backend/src/finevision/db/annotation_schema.py</code></td></tr>
+<tr><td>标注工作流</td><td><code>annotation/workflow.py</code>、<code>annotation/lab_v4/</code>、<code>go/cmd/annotation-agent/</code></td></tr>
+<tr><td>前端</td><td><code>frontend/src/</code></td></tr>
+</tbody></table></div>
+
+<h3>5.11 验证命令</h3>
+<pre><code># Go 单元与集成测试
+cd go && go test ./...
+
+# Python 核心测试（按已安装依赖选择测试集合）
+pytest backend/tests
+
+# 前端静态检查与测试
+cd frontend && npm test
+npm run build
+
+# Compose 服务检查
+docker compose config
+docker compose ps</code></pre>
+<p>GPU、TensorRT、Ascend 和远程多模态模型属于环境相关验证：单元测试通过不能替代目标硬件、真实对象和实际 provider 的验收。验收记录应包含代码版本、容器镜像摘要、模型/数据 SHA、硬件指纹和逐样本结果。</p>
+
+<h3>5.12 术语表</h3>
+<div class="table-wrap"><table><thead><tr><th>术语</th><th>定义</th></tr></thead><tbody>
+<tr><td>Dataset</td><td>业务数据资产，可拥有多个不可变 Dataset Version。</td></tr>
+<tr><td>Training Run</td><td>一次用户训练意图；恢复时可以产生新的 Attempt。</td></tr>
+<tr><td>Attempt</td><td>某个 Worker 在一个 execution epoch 中的具体执行权。</td></tr>
+<tr><td>Model Version</td><td>训练产出的候选模型及其语义版本身份。</td></tr>
+<tr><td>Release</td><td>通过发布门禁并冻结的模型语义版本。</td></tr>
+<tr><td>Deployment</td><td>Release 在特定后端、精度和硬件 profile 下的可执行产物。</td></tr>
+<tr><td>Abstain</td><td>证据不足时不自动给最终结论，转入人工复核。</td></tr>
+<tr><td>Shadow Policy</td><td>只回放并记录差异、不影响实际在线决策的候选阈值。</td></tr>
+<tr><td>Annotation Memory</td><td>由人工确认样本构成、按目录与编码器 revision 隔离的检索记忆。</td></tr>
+<tr><td>Publication Preview</td><td>提交数据版本前冻结的样本、去重与 split 计划。</td></tr>
+</tbody></table></div>

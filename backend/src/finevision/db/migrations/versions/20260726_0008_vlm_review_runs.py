@@ -1,4 +1,4 @@
-"""add Fine-R1 VLM review runs and results
+"""add retired VLM review runs and results
 
 Revision ID: 20260726_0008
 Revises: 20260623_0007

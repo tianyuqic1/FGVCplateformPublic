@@ -84,7 +84,7 @@ annotation/runtime/venv/bin/python -m pip install -r annotation/requirements.txt
 python3 annotation/start_local.py
 ```
 
-启动器默认复用同级 `fgvc-annotation-lab/artifacts/v4-models`、视觉投影，以及本机 Qwen/SAM 快照。可通过 `ANNOTATION_LAB_ROOT`、`ANNOTATION_QWEN_MODEL`、`ANNOTATION_SAM_MODEL` 指定路径。已有容器不会被强制替换，变更资源参数需要先确认无任务运行，再重建这两个专用容器。
+启动器默认从仓库内被 Git 忽略的 `annotation/models/` 读取工作流网络和视觉投影，并复用本机 Qwen/SAM 快照。可通过 `ANNOTATION_ASSET_ROOT`、`ANNOTATION_QWEN_MODEL`、`ANNOTATION_SAM_MODEL` 指定路径。模型文件不随源码发布，目录约定见 `annotation/models/README.md`。已有容器不会被强制替换，变更资源参数需要先确认无任务运行，再重建两个专用容器。
 
 凭据从现有 `finevision-go-llm-gateway-1` 的运行时配置读入，只传给私有 Go/Eino 适配器进程，不输出密钥。独立部署 Worker 时配置 `ANNOTATION_WORKER_TOKEN` 与控制面的 internal token 一致，以及 `VLM_BASE_URL`、`VLM_MODEL`、`VLM_API_KEY`。Worker CLI 可设置 API、定位和 Qdrant 地址。不要把 token 填进前端。
 
@@ -93,7 +93,7 @@ python3 annotation/start_local.py
 - 标签/队列：PostgreSQL `annotation_projects`、`annotation_tasks`、`annotation_memory_outbox`。
 - 原图：MinIO `finevision-artifacts/annotation_image/<SHA前缀>/<SHA>`，读取时再次验证 SHA 和大小。
 - 阶段 ledger、参考原图/主体缓存、文本原型：`annotation/runtime/state/<项目UUID>/`。图片原始下载缓存位于 `annotation/runtime/state/images/`。
-- 向量：独立 Docker volume `fgvc-annotation-qdrant`。备份应同时覆盖 PostgreSQL、MinIO、Worker state 和 Qdrant，不能单独删除阶段 ledger 或缓存目录。
+- 向量：独立 Docker volume `finevision-annotation-qdrant`。备份应同时覆盖 PostgreSQL、MinIO、Worker state 和 Qdrant，不能单独删除阶段 ledger 或缓存目录。
 - 日志/PID：`annotation/runtime/worker.log`、`annotation/runtime/worker.pid`。停止前先查 `/api/annotation/status` 确认无活动任务；验证 PID 对应 `annotation/worker.py` 再发送 SIGTERM。重启使用启动器。
 - 启动器保持容器 `unless-stopped`；宿主 Worker 为后台进程，不自动注册开机启动。机器重启后再执行启动器即可。
 - 模型工具计算失败可在 UI「工作流记录与降级信息」查看。`unknown` 不代表模型答错，也不代表未计费。
@@ -112,7 +112,7 @@ cd ../frontend && npm run build
 node scripts/smoke-annotation-ui.mjs
 ```
 
-`annotation/smoke_live.mjs` 创建独立验收项目，导入官方训练集的 10 张已知标签参考图和 3 张匿名待标图片，验证真实 MinIO/队列分页/导出。**只有显式加 `--queue` 才提交 1 张付费分类**，重复执行不会重试已运行图片。此脚本不是自动为业务图片标真值的功能；Worker 没有评测 truth reader。
+`annotation/smoke_live.mjs` 创建独立验收项目，导入官方训练集的 10 张已知标签参考图和 3 张匿名待标图片，验证真实 MinIO/队列分页/导出。执行前必须通过 `ANNOTATION_BENCHMARK_ROOT` 显式指向私有测评夹具目录。**只有显式加 `--queue` 才提交 1 张付费分类**，重复执行不会重试已运行图片。此脚本不是自动为业务图片标真值的功能；Worker 没有评测 truth reader。
 
 测评结论仍是：CUB D 的 Top-10 为 95.83%，鲁棒性 D 为 92.33%；平台接入与单张验收不等于达到 97% 或 100%。
 

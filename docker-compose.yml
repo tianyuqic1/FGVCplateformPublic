@@ -32,7 +32,7 @@ services:
       - ./frontend/index.html:/app/index.html:ro
 
   go-control-plane:
-    image: finevision-go:phase1
+    image: finevision-go:local
     volumes:
       - finevision-uploads:/data/uploads:ro
     build:
@@ -70,7 +70,7 @@ services:
         condition: service_healthy
 
   outbox-relay:
-    image: finevision-go:phase1
+    image: finevision-go:local
     entrypoint: ["/usr/local/bin/outbox-relay"]
     environment:
       FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
@@ -87,7 +87,7 @@ services:
         condition: service_healthy
 
   deployment-relay:
-    image: finevision-go:phase1
+    image: finevision-go:local
     entrypoint: ["/usr/local/bin/deployment-relay"]
     restart: unless-stopped
     environment:
@@ -100,7 +100,7 @@ services:
         condition: service_healthy
 
   go-llm-gateway:
-    image: finevision-go:phase1
+    image: finevision-go:local
     entrypoint: ["/usr/local/bin/llm-gateway"]
     environment:
       FINEVISION_LLM_GATEWAY_ADDRESS: :8080
@@ -136,7 +136,7 @@ services:
       - finevision-object-store:/data/objects:ro
 
   python-training-worker:
-    image: finevision-python-compute:phase1
+    image: finevision-python-compute:local
     build:
       context: .
       dockerfile: Dockerfile.compute
@@ -169,7 +169,7 @@ services:
       - ${HOME}/.cache/torch:/home/finevision/.cache/torch
 
   python-inference-runtime:
-    image: fgvc-python-inference:multi-runtime
+    image: finevision-python-inference:multi-runtime
     build:
       context: .
       dockerfile: Dockerfile.inference
@@ -195,7 +195,7 @@ services:
       - ${HOME}/.cache/torch:/home/finevision/.cache/torch
 
   python-artifact-runtime:
-    image: finevision-python-compute:phase1
+    image: finevision-python-compute:local
     command: ["python", "-m", "finevision.compute.artifact_runtime"]
     environment:
       <<: *object-store-environment

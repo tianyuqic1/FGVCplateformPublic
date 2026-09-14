@@ -1,0 +1,29 @@
+<h2>0. 展示导航与页面路由</h2>
+<p>本文严格按“产品是什么、如何使用、为什么这样实现、如何验证、怎样查工程契约”的顺序组织。正文是一份连续长文档，左侧目录可直接定位章节；产品入口仍指向实际 React 页面，文档本身不复制业务状态，也不触发任何有副作用的接口。</p>
+
+<h3>0.1 文档模块</h3>
+<div class="grid chapter-map">
+  <article class="card"><span class="number">01 / PRODUCT</span><h4>项目介绍</h4><p>问题背景、产品目标、端到端闭环和当前实现边界。</p></article>
+  <article class="card"><span class="number">02 / MANUAL</span><h4>操作手册</h4><p>按产品路由解释输入、操作、状态变化、产物和排错入口。</p></article>
+  <article class="card"><span class="number">03 / ENGINEERING</span><h4>项目实现细节</h4><p>控制面/计算面、状态机、训练、发布、推理、标注与可靠性设计。</p></article>
+  <article class="card"><span class="number">04 / EVALUATION</span><h4>评估测试报告</h4><p>固定测评矩阵、指标、工具调用统计、数据泄漏防护和复现规则。</p></article>
+  <article class="card"><span class="number">05 / REFERENCE</span><h4>附录</h4><p>API、核心表、容器、环境变量、模型与数据版本规则的快速索引。</p></article>
+</div>
+
+<h3>0.2 产品页面路由</h3>
+<div class="table-wrap"><table><thead><tr><th>模块</th><th>路由</th><th>主要任务</th><th>关键边界</th></tr></thead><tbody>
+<tr><td>工作台</td><td><a href="http://localhost:5173/" target="_blank" rel="noopener noreferrer"><code>/</code> ↗</a></td><td>查看全局状态和优先事项</td><td>汇总视图，不替代各详情页审计记录</td></tr>
+<tr><td>数据集</td><td><a href="http://localhost:5173/datasets" target="_blank" rel="noopener noreferrer"><code>/datasets</code> ↗</a></td><td>异步导入、检索、查看不可变版本</td><td>名称不是身份；版本与 manifest 共同定位样本</td></tr>
+<tr><td>数据集详情</td><td><code>/datasets/:datasetId</code></td><td>版本、类别、split、样本预览与数据说明</td><td>注册版本的原标签与 split 不原地修改</td></tr>
+<tr><td>AI 标注</td><td><a href="http://localhost:5173/annotation" target="_blank" rel="noopener noreferrer"><code>/annotation</code> ↗</a></td><td>批量分析、人工确认、记忆入库和数据发布</td><td>AI 只给候选；只有人工确认可形成标签</td></tr>
+<tr><td>训练</td><td><a href="http://localhost:5173/training" target="_blank" rel="noopener noreferrer"><code>/training</code> ↗</a></td><td>创建任务、筛选队列、查看指标曲线</td><td>业务任务与每次 Worker 执行尝试分离</td></tr>
+<tr><td>训练详情</td><td><code>/training/:runId</code></td><td>审计配置、attempt、指标、产物和失败原因</td><td>迟到 attempt 不得覆盖当前执行结果</td></tr>
+<tr><td>推理实验室</td><td><a href="http://localhost:5173/inference" target="_blank" rel="noopener noreferrer"><code>/inference</code> ↗</a></td><td>选择数据集和已发布部署，执行单图/批量推理</td><td>未发布模型、SHA 不匹配或部署未就绪均不可用</td></tr>
+<tr><td>权重</td><td><a href="http://localhost:5173/weights" target="_blank" rel="noopener noreferrer"><code>/weights</code> ↗</a></td><td>核对预训练权重登记与节点缓存</td><td>Git LFS 发布记录不等于计算节点已经缓存</td></tr>
+<tr><td>人工复核</td><td><a href="http://localhost:5173/review" target="_blank" rel="noopener noreferrer"><code>/review</code> ↗</a></td><td>处理弃权和人工指定复核样本</td><td>LLM 建议不能自动提交最终结论</td></tr>
+<tr><td>反馈池</td><td><a href="http://localhost:5173/feedback" target="_blank" rel="noopener noreferrer"><code>/feedback</code> ↗</a></td><td>查看复核反馈、生成/回放阈值候选</td><td>反馈不直接改写已注册数据版本</td></tr>
+<tr><td>模型版本</td><td><a href="http://localhost:5173/models" target="_blank" rel="noopener noreferrer"><code>/models</code> ↗</a></td><td>按数据集聚合、同范围比较、发布部署</td><td>只比较同一数据集版本下的模型</td></tr>
+<tr><td>流水线</td><td><a href="http://localhost:5173/pipelines" target="_blank" rel="noopener noreferrer"><code>/pipelines</code> ↗</a></td><td>观察异步任务、事件和重试</td><td>状态来自持久事件，不由页面模拟</td></tr>
+<tr><td>硬件监控</td><td><a href="http://localhost:5173/hardware" target="_blank" rel="noopener noreferrer"><code>/hardware</code> ↗</a></td><td>查看计算节点、GPU/CPU/内存与历史趋势</td><td>缺失指标显示未采集，不伪装成零</td></tr>
+</tbody></table></div>
+<div class="callout"><strong>阅读约定。</strong>文档中的状态、事务边界和限制均按当前仓库实现书写；“计划支持”不会混入“已经完成”。对外部署时应把上表的 <code>localhost</code> 替换为真实产品地址。</div>

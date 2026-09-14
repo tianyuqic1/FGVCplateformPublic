@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
-const output = process.env.UI_SCREENSHOTS || "/tmp/fgvc-style-audit";
+const output = process.env.UI_SCREENSHOTS || "/tmp/finevision-style-audit";
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const routes = ["/", "/datasets", "/training", "/inference", "/models", "/review", "/feedback", "/weights", "/pipelines", "/hardware", "/annotation", "/annotation?tab=publish"];

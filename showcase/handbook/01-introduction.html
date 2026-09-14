@@ -1,0 +1,44 @@
+<h2>1. 项目介绍</h2>
+
+<h3>1.1 一句话介绍</h3>
+<p class="lead">FineVision 是一个面向细粒度图像分类的可审计工程平台。它以数据集版本为坐标，把差异化训练、模型语义版本、完整推理部署、选择性弃权、人工复核、反馈闭环和 AI 辅助标注串成一条可追溯链路。</p>
+
+<h3>1.2 为什么要做这个项目</h3>
+<p>普通分类 Demo 只回答“这张图是什么”。真正可使用的平台还必须回答：训练输入是否可复现、权重是否完整、线上究竟运行了哪个后端、模型何时应该拒答、人工修正怎样进入下一版数据、长任务重试会不会重复写产物，以及模型生成的标注建议能否被审计。</p>
+<div class="grid">
+  <article class="card"><span class="number">DATA</span><h4>数据可追溯</h4><p>业务数据集、不可变版本、manifest、样本 SHA、split 与对象存储位置彼此分离，避免用路径或名称冒充身份。</p></article>
+  <article class="card"><span class="number">TRAIN</span><h4>训练可恢复</h4><p>Go 负责任务、租约、代际和事件；Python Worker 负责 GPU 计算。暂停、恢复、取消和重复消息均有明确语义。</p></article>
+  <article class="card"><span class="number">SERVE</span><h4>发布可验证</h4><p>训练完成不等于可以推理。发布需要生成完整 PT/ONNX，校验 SHA、大小和数值一致性，再注册部署产物。</p></article>
+  <article class="card"><span class="number">HITL</span><h4>决策可复核</h4><p>置信度和 margin 触发弃权；人工结论进入反馈池，策略先 shadow 回放再人工激活。</p></article>
+  <article class="card"><span class="number">ANNOTATE</span><h4>标注有证据</h4><p>VLM、主体定位、SAM、质量工具、CLIP/Qdrant 只负责提供候选与参考，最终标签属于人。</p></article>
+  <article class="card"><span class="number">OPS</span><h4>失败可解释</h4><p>API、消息、执行 attempt、对象产物、远程调用和向量写入均保留故障位置与恢复动作。</p></article>
+</div>
+
+<h3>1.3 产品目标</h3>
+<ul>
+  <li><strong>以版本而不是文件夹管理数据：</strong>同一数据集的新增样本形成下一版本；已经注册的标签和 split 默认正确且不可变。</li>
+  <li><strong>以训练策略区分参数更新：</strong>DINOv3 冻结原始骨干，可选 QKV LoRA R8/R16；ImageNet 预训练分支执行骨干和分类头的全量更新。</li>
+  <li><strong>以发布门禁隔离训练和推理：</strong>候选模型必须显式发布，推理 Worker 只加载 production 且部署 ready 的完整模型。</li>
+  <li><strong>以风险而不是单一准确率组织线上决策：</strong>自动接受覆盖率与经验风险共同衡量，模型可以 abstain。</li>
+  <li><strong>以人工确认驱动持续数据闭环：</strong>复核、标注、向量记忆和数据版本发布都保留来源与幂等身份。</li>
+</ul>
+
+<h3>1.4 核心闭环</h3>
+<div class="architecture-flow" role="img" aria-label="FineVision 核心闭环">
+  <div><b>数据资产</b><span>导入 / 标注发布</span><small>Dataset + immutable Version</small></div><i>→</i>
+  <div><b>训练</b><span>DINO LoRA / ImageNet Full</span><small>Job + Attempt + Metrics</small></div><i>→</i>
+  <div><b>模型发布</b><span>PT → ONNX / 部署格式</span><small>SHA + size + parity</small></div><i>→</i>
+  <div><b>选择性推理</b><span>accept / abstain</span><small>Event + policy snapshot</small></div><i>→</i>
+  <div><b>人工闭环</b><span>复核 / 反馈 / 新版本</span><small>Human truth + outbox</small></div>
+</div>
+<p>AI 标注是同一闭环的数据入口而不是独立产品：上传图片先绑定固定 JSON 类别目录，工作流生成 Top-10 候选，人完成确认；确认样本可进入检索记忆，也可按用户设置的 train/val/test 比例发布成新数据集或追加为已有数据集的新版本。</p>
+
+<h3>1.5 当前完成度与边界</h3>
+<div class="table-wrap"><table><thead><tr><th>能力</th><th>状态</th><th>当前实现</th><th>明确边界</th></tr></thead><tbody>
+<tr><td>数据资产</td><td><span class="status done">可用</span></td><td>异步 ImageFolder 导入、版本聚合、样本预览、追加发布</td><td>不原地编辑已注册版本标签</td></tr>
+<tr><td>训练</td><td><span class="status done">可用</span></td><td>DINOv3 冻结/LoRA 与 ImageNet full fine-tune，指标持久化</td><td>当前保存最终检查点；未实现 best checkpoint 与优化器断点恢复</td></tr>
+<tr><td>发布与推理</td><td><span class="status done">可用</span></td><td>完整 PT/ONNX、FP32/FP16、ORT；TensorRT 构建/运行链路</td><td>Ascend 需目标硬件与 CANN 环境实机验收</td></tr>
+<tr><td>在线弃权</td><td><span class="status done">可用</span></td><td>confidence/margin 经验风险搜索、shadow、人工激活</td><td>不是 conformal 或分布无关统计保证</td></tr>
+<tr><td>AI 标注</td><td><span class="status done">可用</span></td><td>批量工作流、受限工具、图文检索、人工确认和发布等待区</td><td>远程模型为 advisory；本地 VLM 是 llama.cpp GGUF，不是 vLLM</td></tr>
+<tr><td>多用户生产安全</td><td><span class="status boundary">未纳入</span></td><td>面向可信本地开发环境</td><td>尚无完整租户、RBAC、审计身份和公网安全加固</td></tr>
+</tbody></table></div>

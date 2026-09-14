@@ -15,7 +15,7 @@ try {
   await page.getByText("推理部署", { exact: true }).waitFor();
   await page.locator(".fv-deployment-card").first().waitFor();
   assert.ok(await page.getByRole("button", { name: "创建加速部署" }).isDisabled());
-  await page.screenshot({ path: "/tmp/fgvc-deployments-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-deployments-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 900 });
   assert.ok(await page.locator(".fv-deployments").evaluate(el => el.scrollWidth <= el.clientWidth));
   await page.setViewportSize({ width: 1440, height: 1050 });
@@ -23,7 +23,7 @@ try {
   await page.getByText("推理部署 / 运行精度", { exact: true }).waitFor();
   await page.getByRole("button", { name: "推理部署", exact: true }).waitFor();
   assert.ok(await page.getByRole("button", { name: "推理部署", exact: true }).isEnabled());
-  await page.screenshot({ path: "/tmp/fgvc-inference-deployment.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-inference-deployment.png", fullPage: true });
   assert.deepEqual(errors, []);
   console.log("Deployment panel, CPU selection, unconfigured acceleration guard, mobile layout: passed");
 } finally { await browser.close(); }

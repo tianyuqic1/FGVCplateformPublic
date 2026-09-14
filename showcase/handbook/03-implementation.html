@@ -1,0 +1,105 @@
+<h2>3. 项目实现细节</h2>
+
+<h3>3.1 架构总览</h3>
+<figure class="architecture-figure architecture-overview">
+  <a href="./assets/diagrams/finevision-architecture.svg" target="_blank" rel="noopener">
+    <img src="./assets/diagrams/finevision-architecture.svg" alt="FineVision 系统架构：React 前端通过 Go 控制面连接 PostgreSQL、RabbitMQ、MinIO、LLM Gateway 与 Python 计算服务">
+  </a>
+  <figcaption><b>当前系统架构。</b>Go 控制面维护业务状态、事务与发布门禁，RabbitMQ 解耦长任务，Python 计算服务按训练、产物构建、推理和标注职责运行。</figcaption>
+</figure>
+<p>系统采用“Go 控制面 + Python 计算面”。CRUD、状态迁移、权限边界、幂等、发布协调和 LLM 接口由 Go 承担；训练、模型导出、特征编码、推理以及图像工具仍使用 Python 生态。训练 Worker 与推理 Runtime 分开部署，避免长时间训练占满在线推理进程。</p>
+
+<h3>3.2 为什么采用控制面 / 计算面拆分</h3>
+<div class="table-wrap"><table><thead><tr><th>问题</th><th>控制面负责</th><th>计算面负责</th><th>收益</th></tr></thead><tbody>
+<tr><td>长任务超时</td><td>创建 job、写 outbox、立即返回</td><td>异步 claim 并上报心跳</td><td>HTTP 生命周期不绑定 GPU 生命周期</td></tr>
+<tr><td>重复消息</td><td>检查 generation / epoch / attempt</td><td>携带执行身份回调</td><td>至少一次投递下仍能拒绝过期结果</td></tr>
+<tr><td>大文件</td><td>登记 descriptor、SHA、size、关系</td><td>流式读写对象</td><td>数据库不承载模型与数据二进制</td></tr>
+<tr><td>运行时隔离</td><td>选择可用 deployment</td><td>按后端加载执行</td><td>训练依赖与线上推理依赖可以独立演化</td></tr>
+</tbody></table></div>
+<p>RabbitMQ 提供投递，不承担业务真相；PostgreSQL 中的 job/attempt 状态才是权威。MinIO 与数据库没有跨系统事务，因此对象先写入并校验，再在数据库事务中注册。数据库提交失败可能留下未引用对象，当前通过“从不把未登记对象视为有效资产”保持正确性，通用 GC 属于后续运维能力。</p>
+
+<h3>3.3 Docker 服务边界</h3>
+<div class="table-wrap"><table><thead><tr><th>服务</th><th>职责</th><th>外部入口</th><th>资源特点</th></tr></thead><tbody>
+<tr><td>frontend</td><td>React/Vite 页面与 API 代理</td><td>5173</td><td>CPU</td></tr>
+<tr><td>go-control-plane</td><td>公开 API、事务和领域状态机</td><td>8001</td><td>低资源、常驻</td></tr>
+<tr><td>outbox-relay / deployment-relay</td><td>把数据库待投递记录送至消息队列</td><td>无</td><td>可水平扩展，需幂等</td></tr>
+<tr><td>go-llm-gateway</td><td>隔离供应商 Key，统一结构化 LLM 调用</td><td>8080（内部）</td><td>网络 I/O</td></tr>
+<tr><td>python-training-worker</td><td>训练、校准、检查点与发布源产物</td><td>无</td><td>GPU / 长任务</td></tr>
+<tr><td>python-inference-runtime</td><td>已发布模型在线推理</td><td>内部 gRPC/HTTP</td><td>低延迟 GPU/CPU</td></tr>
+<tr><td>python-artifact-runtime</td><td>模型格式构建与 artifact 处理</td><td>内部</td><td>构建型工作负载</td></tr>
+<tr><td>postgres / rabbitmq / object-store</td><td>状态、消息和对象</td><td>开发端口可选暴露</td><td>持久服务</td></tr>
+</tbody></table></div>
+
+<h3>3.4 异步任务状态机与 Outbox</h3>
+<!-- include:technical/architecture.html -->
+
+<h3>3.5 数据集版本、导入与样本读取</h3>
+<!-- include:technical/datasets.html -->
+
+<h3>3.6 训练策略：DINOv3 与 ImageNet 分流</h3>
+<p>训练入口先把 backbone 解析成策略，不用同一套开关拼出含义不明的组合：</p>
+<div class="table-wrap"><table><thead><tr><th>来源</th><th>骨干</th><th>分类头</th><th>梯度路径</th><th>发布内容</th></tr></thead><tbody>
+<tr><td>DINOv3 frozen</td><td>原始参数冻结</td><td>训练</td><td>只经过分类头</td><td>完整骨干 + 分类头</td></tr>
+<tr><td>DINOv3 LoRA</td><td>W₀ 冻结，QKV A/B 训练</td><td>训练</td><td>保留穿过骨干到 A/B 的计算图</td><td>合并后的完整骨干 + 分类头</td></tr>
+<tr><td>ImageNet supervised</td><td>全量训练</td><td>训练</td><td>端到端</td><td>完整微调模型</td></tr>
+</tbody></table></div>
+<!-- include:technical/training.html -->
+
+<h3>3.7 模型版本与发布门禁</h3>
+<p>训练 run、模型版本、发布版本和部署产物是四个不同实体。训练完成登记 candidate；发布计算语义版本并冻结源检查点；deployment 则描述同一 release 在某种后端、精度和硬件 profile 下的可执行物。</p>
+<pre><code>TrainingRun
+  └─ Candidate Model
+       └─ Release v1.0.0 (semantic identity)
+            ├─ ONNX FP32 deployment
+            ├─ ONNX FP16 deployment
+            ├─ TensorRT plan (GPU profile bound)
+            └─ Ascend artifact (SoC/CANN profile bound)</code></pre>
+<p>发布先深拷贝模型到 CPU/eval；DINO LoRA 将 <code>W₀ + 2BA</code> 合并为普通 Linear；再保存完整 PT 并导出 opset 17 ONNX。输出为 logits，batch 动态，H/W 固定。元数据保存类别顺序、归一化、输入尺寸、源模型版本、精度、SHA-256 和 size。随机 batch 1/2 数值探针用于发现转换错误，但不替代真实测试集验收。</p>
+<div class="callout"><strong>版本规则不是“看起来指标更高就升 patch”。</strong>模型签名（架构、预训练来源、训练策略、输入契约等）变化升 major；数据集版本变化升 minor；同签名同数据的新训练产物升 patch。部署格式和精度只增加 deployment，不改变语义版本。</div>
+
+<h3>3.8 推理事件、校准与在线弃权</h3>
+<!-- include:technical/inference.html -->
+
+<h3>3.9 AI 标注编排与人工边界</h3>
+<p>标注不把 Eino 描述成万能 Agent。当前职责分工是：Python 编排器决定工具和阶段；Go LLM Gateway 用 Eino 封装 OpenAI-compatible 模型调用与结构化响应；本地多模态模型通过 llama.cpp GGUF 运行。模型只产生候选，Go 控制面校验目录和任务状态，人工确认才提交标签。</p>
+<figure class="architecture-figure annotation-workflow-figure">
+  <a href="./assets/diagrams/annotation-workflow.png" target="_blank" rel="noopener">
+    <img src="./assets/diagrams/annotation-workflow.png" alt="AI 标注完整工作流：任务持久化、主体定位与分割、按需增强、CLIP 图文检索、视觉大模型候选、人工确认、记忆入库和数据发布回流">
+  </a>
+  <figcaption><b>AI 标注端到端工作流。</b>图片与 JSON 类别目录进入持久化队列后，依次经过主体定位、SAM2 分割、受限图像增强、CLIP 图文检索与视觉大模型候选生成；人工确认既驱动待发布数据，也通过 Outbox 安全写入检索记忆。</figcaption>
+</figure>
+<!-- include:technical/annotation.html -->
+
+<h3>3.10 图像工具层与受限工作流</h3>
+<p>工作流采用“先观测、再选择、至多一个增强工具”。原图永远进入最终判断；主体视图只有通过边界与像素来源校验才可加入；低照度增强、去噪/清晰化或超分不会串联成不可解释的处理链。工具的目标是补证据，不是生成新的真值图像。</p>
+<!-- include:technical/annotation/workflow.html -->
+
+<h3>3.11 CLIP、Qdrant 与图文检索记忆</h3>
+<p>记忆仅接收人工确认且投递成功的样本。CLIP 图像分支把原图和可用主体图编码为 512 维单位向量；文本分支为类别名称构造三种领域模板原型。Qdrant 使用 cosine 距离，查询先在每个视图内按类别去重，再融合图像视图，最后与文本排名做 RRF，避免不同分数尺度直接相加。</p>
+<!-- include:technical/annotation/memory.html -->
+
+<h3>3.12 标注发布与推理回流</h3>
+<p>已确认标注进入待发布区，可以创建新数据集，也可以追加到已有数据集。两种操作都生成新版本，绝不改写旧版本。用户设置 train/val/test 比例，系统按类别做确定性划分，先生成不可变 ZIP 和发布计划预览；提交时以稳定 request ID、advisory lock 和 publication member 唯一约束防止跨批次重复占用。</p>
+<p>推理回流遵循相同规则，但只允许进入目标数据集下一版本的训练集：原数据版本保持不变，回流样本保留 inference event、人工确认和来源 member。这样既满足“回到原数据集”的产品语义，也不会破坏历史训练复现。</p>
+
+<h3>3.13 LLM 契约、结构化输出与密钥隔离</h3>
+<pre><code>Browser
+  → Go Control Plane (业务上下文、目录、授权范围)
+  → Go LLM Gateway / Eino (provider、超时、schema)
+  → OpenAI-compatible multimodal endpoint
+  ← typed response {kind, candidates[], notes, usage}
+  ← domain validation + persistence</code></pre>
+<ul>
+<li>API Key 只进入 Gateway 容器环境变量，不返回浏览器、不写 artifact。</li>
+<li>请求明确图像索引、原图/辅助图/参考图角色、完整类别目录与输出 JSON schema；参考 metadata 按不可信数据处理。</li>
+<li>Go 适配器允许 1–8 张图片，Python 根据 query 视图数限制参考图，避免 prompt 索引与实际上传顺序错位。</li>
+<li>解析后再次按目录过滤、去重、补足候选；模型自由文本不能成为数据库指令。</li>
+<li>远程“是否完成未知”与明确失败分开处理，未知请求不盲目重发，避免重复计费与重复副作用。</li>
+</ul>
+
+<h3>3.14 故障恢复、硬件部署与可观测性</h3>
+<!-- include:technical/engineering.html -->
+
+<h3>3.15 前端架构与安全边界</h3>
+<p>前端使用 React、Vite 和 React Router，按用户工作流组织页面，而不是按数据库表生成后台。列表统一使用分页、搜索和领域状态筛选；数据集下拉等大数据选择器采用搜索 + 分页；训练参数根据预训练策略条件展示；模型注册表使用“数据集 → 数据集版本 → 模型”的二级范围，比较按钮只对合法组合启用。</p>
+<p>当前系统面向可信本地开发，不声称已经完成公网生产安全。对外部署仍需要 OIDC/RBAC、租户级对象前缀、审计身份、速率限制、CSRF/CORS 策略、上传病毒/内容扫描、集中密钥管理和备份恢复演练。文档把这一点作为边界，不用“内部 token”替代真实身份系统。</p>

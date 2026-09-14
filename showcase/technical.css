@@ -1,0 +1,10 @@
+.anchor{font-size:15px;color:#a5b3c7;margin-left:10px;font-weight:450;opacity:0}
+h2:hover .anchor,h3:hover .anchor,.anchor:focus{opacity:1}
+.source{font-size:12px;background:#eef2f8;padding:17px 19px;border-radius:10px;margin:25px 0 34px;border-left:3px solid #91a4c7;color:#687a91}
+.source code{font-size:11px}
+h4{padding-top:9px}
+main>h2:first-of-type{margin-top:34px}
+pre{tab-size:2}
+td code{font-size:11px;white-space:normal}
+sup{font-size:.7em}
+@media(max-width:800px){.anchor{opacity:1}.table-wrap{max-width:100%}}

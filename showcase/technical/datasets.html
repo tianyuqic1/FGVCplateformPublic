@@ -1,0 +1,19 @@
+<h2>数据身份、内容身份与存储位置</h2><div class="table-wrap"><table><thead><tr><th>概念</th><th>标识</th><th>不能替代的东西</th></tr></thead><tbody><tr><td>业务数据集</td><td>dataset_id</td><td>名称可重复，不能用显示名作全局主键。</td></tr><tr><td>不可变快照</td><td>dataset_version_id、parent</td><td>v1 是数据集内序号，不能跨数据集定位唯一版本。</td></tr><tr><td>文件内容</td><td>SHA-256 与 size_bytes</td><td>路径存在不证明文件正确，文件名不证明图片相同。</td></tr><tr><td>清单内样本</td><td>sample_id、label、split</td><td>模型类别索引依赖有序目录，不可随机重排。</td></tr><tr><td>物理对象</td><td>artifact URI / object key</td><td>对象位置不承担业务授权；读取需先经过版本与样本检查。</td></tr></tbody></table></div>
+<h2>异步导入的提交与恢复</h2><pre><code>浏览器 multipart
+  → Go 流式生成 ZIP（Store，避免重复压缩 JPEG）
+  → MinIO 持久化
+  → PostgreSQL queued
+  → HTTP 202 {job: ...}
+  → 后台领取 / 周期续租
+  → Python scanner 校验图片与 manifest
+  → Go 幂等注册版本
+  → succeeded / failed</code></pre><p>当前每实例最多两路上传，未完成导入队列有容量上限；全局扫描单任务执行。后台租约 2 分钟、30 秒续租，领取递增 attempt。任务 ID 作为稳定注册请求身份，注册已提交但结果 ACK 丢失时复用原结果，不创建重复版本。浏览器在收到 202 前中断与任务入队后关闭页面是不同状态。</p>
+<h2>新增样本划分的确定性</h2><pre><code>for each class:
+    sort new samples by SHA256(seed + ":" + source_sha)
+    quotas = class_count × [train_ratio, val_ratio, test_ratio]
+    allocate floors, then distribute remainder by fractional parts
+    ensure at least one training sample
+
+existing_samples: preserve bytes + label + split
+new_samples: use only the newly allocated split</code></pre><p>按类别分配使少样本类别的实际数量可解释；固定种子和内容排序使同一批样本不受上传顺序影响。比例总和正确并不意味着每类都能同时覆盖三个集合，少样本警告需要在发布前展示。对推理反馈不走可配置划分，直接强制训练集。</p>
+<h2>样本读取的安全边界</h2><p>请求先定位数据版本与样本 ID，再由 manifest 找归档条目。归档读取拒绝路径穿越、符号链接和超限内容；不接受客户端传服务器绝对路径。每个 Go 进程最多缓存一份归档，用互斥保护缓存替换与读取；首次下载大归档有等待成本，不属于全量样本数据库分页。</p><p class="source">代码 / 契约依据：<code>docs/dataset-import.md</code>、<code>docs/dataset-preview-api.md</code>；<code>go/internal/dataset/annotation_build.go</code>；<code>go/internal/annotation/publication.go</code>。</p>

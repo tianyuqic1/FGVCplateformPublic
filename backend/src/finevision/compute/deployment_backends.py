@@ -105,8 +105,24 @@ def build_tensorrt(source, output, shape, precision, max_batch):
             if not builder.platform_has_fast_fp16:
                 raise ValueError("GPU has no fast FP16 support")
             config.set_flag(trt.BuilderFlag.FP16)
+            # ViT attention and LayerNorm are particularly sensitive to a full
+            # half-precision tactic selection. Keep only these numerically
+            # sensitive reductions in FP32 while TensorRT still lowers the
+            # convolution/GEMM-heavy body to FP16.
+            config.set_flag(trt.BuilderFlag.OBEY_PRECISION_CONSTRAINTS)
+            sensitive = {trt.LayerType.NORMALIZATION, trt.LayerType.SOFTMAX, trt.LayerType.REDUCE}
+            for index in range(network.num_layers):
+                layer = network.get_layer(index)
+                if layer.type not in sensitive:
+                    continue
+                layer.precision = trt.float32
+                for output_index in range(layer.num_outputs):
+                    layer.set_output_type(output_index, trt.float32)
         profile = builder.create_optimization_profile()
-        if not profile.set_shape(network.get_input(0).name, (1, *shape), (1, *shape), (max_batch, *shape)):
+        # TensorRT 10 Python wheels differ here: some return True on success,
+        # while 10.9 can return None (the C++ mutation still succeeds).
+        # Only an explicit False is a rejected optimization profile.
+        if profile.set_shape(network.get_input(0).name, (1, *shape), (1, *shape), (max_batch, *shape)) is False:
             raise ValueError("invalid TensorRT shape profile")
         config.add_optimization_profile(profile)
         serialized = builder.build_serialized_network(network, config)

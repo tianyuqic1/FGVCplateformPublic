@@ -8,8 +8,6 @@ API_URL="${API_URL:-http://localhost:8001}"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
 WAIT_SECONDS="${WAIT_SECONDS:-90}"
 RUN_FRONTEND_ROUTE_SMOKE="${RUN_FRONTEND_ROUTE_SMOKE:-0}"
-RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE="${RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE:-1}"
-RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE="${RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE:-0}"
 contracts_only=0
 release_acceptance=0
 
@@ -23,10 +21,9 @@ not a complete browser E2E suite.
 Use --contracts-only to run frontend API-client contract smokes without probing
 API/frontend HTTP services.
 
-Use --release-acceptance against a running demo stack to include the stricter
-MVP release gate: API/frontend probes, frontend API-client contracts, online
-abstention plus activation contracts, frontend production build, and route
-availability smoke.
+Use --release-acceptance against a running demo stack to include API/frontend
+probes, frontend API-client contracts, a production build, and route smoke.
+The Go package test suite owns control-plane policy and state-machine coverage.
 USAGE
 }
 
@@ -59,8 +56,6 @@ fi
 
 if [[ "$release_acceptance" -eq 1 ]]; then
   RUN_FRONTEND_ROUTE_SMOKE=1
-  RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE=1
-  RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE=1
 fi
 
 wait_for_url() {
@@ -94,7 +89,7 @@ else
 fi
 
 if [[ "$release_acceptance" -eq 1 ]]; then
-  echo "Running MVP release acceptance smoke gate."
+  echo "Running release acceptance smoke gate."
 else
   echo "Running lightweight demo smoke gate; this is not a complete browser E2E suite."
 fi
@@ -103,21 +98,11 @@ echo "Running frontend client contract smoke checks..."
 npm --prefix frontend run smoke:api-client
 npm --prefix frontend run smoke:jobs-client
 npm --prefix frontend run smoke:training-client
+npm --prefix frontend run smoke:registry-client
 npm --prefix frontend run smoke:inference-client
 npm --prefix frontend run smoke:abstention-client
 npm --prefix frontend run smoke:review-client
 npm --prefix frontend run smoke:llm-client
-
-if [[ "$RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE" == "1" ]]; then
-  echo "Running online abstention contract smoke..."
-  activation_args=()
-  if [[ "$RUN_ABSTENTION_ACTIVATION_CONTRACT_SMOKE" == "1" ]]; then
-    activation_args+=(--with-activation-contracts)
-  fi
-  scripts/smoke-online-abstention-contract.sh --skip-if-unavailable "${activation_args[@]}"
-else
-  echo "Skipping online abstention contract smoke; set RUN_ONLINE_ABSTENTION_CONTRACT_SMOKE=1 to include it."
-fi
 
 if [[ "$contracts_only" -eq 0 && "$RUN_FRONTEND_ROUTE_SMOKE" == "1" ]]; then
   echo "Running frontend build and route availability smoke..."

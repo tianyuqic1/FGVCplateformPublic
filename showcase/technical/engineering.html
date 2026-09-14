@@ -1,0 +1,24 @@
+<h2>远程调用不是一个笼统 timeout</h2><p>Provider 的配置区分总调用时限、连接时限、首响应等待和流式空闲间隔。Python 通过私有多路复用 stdio 连接常驻 Go 适配器，用 request_id 将返回结果交给对应 Future；进程重启时不能让旧进程迟到输出完成新请求。</p><pre><code>Python Provider
+  bounded slots → request_id → writer queue → Go adapter
+  reader thread ← {request_id, output} ← JSON line
+  output: kind / dispatched / failure_phase / latency_ms /
+          http_status / retry_after / provider_request_id
+
+adapter generation terminates:
+  pending Futures belonging to this process → unknown
+  do not automatically resend remote request</code></pre><p>结果字段先过允许清单，标准输出只承担 RPC；密钥仅通过私有进程环境传递，不打印到结果或日志。连接、响应体和 SSE 中断分别记录失败阶段。<code>dispatched</code> 帮助区分未发送与可能产生远程副作用，但它不是供应商账单的证明。</p>
+<h2>三类恢复动作必须不同</h2><div class="table-wrap"><table><thead><tr><th>失败位置</th><th>可用恢复</th><th>禁止做法</th></tr></thead><tbody><tr><td>纯本地图像处理</td><td>相同输入摘要与配置下重新计算</td><td>读取被替换缓存却继续沿用旧 SHA。</td></tr><tr><td>远程明确可重试响应</td><td>冷却、预算与阶段次数内尝试</td><td>忽略 Retry-After，无上限并发重试。</td></tr><tr><td>远程是否完成未知</td><td>隔离，保留人工完成路径</td><td>假设未计费而自动重发。</td></tr><tr><td>远程结果已落盘、业务 ACK 丢失</td><td>重发相同 ACK</td><td>重新运行整套工作流。</td></tr><tr><td>Qdrant 写入成功但投递回执丢失</td><td>同 point ID 幂等 upsert，再补回执</td><td>每次生成新 ID 并累加成熟度。</td></tr><tr><td>数据注册已提交但批次未收到结果</td><td>用稳定 import request ID 恢复</td><td>直接新建数据集版本绕过原批次。</td></tr></tbody></table></div>
+<h2>硬件部署的三重门禁</h2><ol><li><strong>构建输入门禁：</strong>源为已发布完整 FP32 ONNX，关联源模型、精度和目标 profile；旧分类头模型不能冒充完整图片模型。</li><li><strong>数值门禁：</strong>编译后同 ONNX CPU 对照，检查形状、有限值、误差。混合精度需要保留敏感算子精度，不将“能生成 plan”作为发布充分条件。</li><li><strong>运行门禁：</strong>部署 ready、源模型 production、后端 / 环境指纹 / batch / SHA 匹配。没有静默回退到其他后端掩盖配置错误。</li></ol><p>构建失败与推理失败分别记录，编译 Worker 和推理 Worker 不共享一个长请求。更换 GPU 架构、TensorRT / CUDA 或 Ascend SoC / CANN 配置需重新构建。当前没有自动多集群调度或全后端容错切换。</p>
+<h2>可复核的测试入口</h2><pre><code># 常规单测（在项目根目录；安装好对应依赖）
+(cd go &amp;&amp; go test ./...)
+
+# 独立 Python 环境中执行，不运行训练测评
+python -m pytest backend/tests/test_model_export.py -q
+python -m pytest backend/tests/test_deployments.py -q
+
+# 文档自身，无业务写入
+python3 showcase/build.py
+python3 showcase/check.py
+node showcase/smoke.cjs  # 需 Playwright</code></pre><p>上面是工程入口，不表示本次改文档重新执行了全部后端测试。数据库集成必须使用隔离测试库，真实硬件测试需要显式设备条件；标注真实模型测试可能计费，不属于文档冒烟。本文本轮只执行文档构建、链接和浏览器验收。</p>
+<h2>可观测性应回答什么问题</h2><p>训练侧需要 job / attempt / epoch / 最后心跳 / 最后指标；标注侧需要样本 SHA、工具路线、阶段耗时、实际远程尝试、失败阶段与降级原因；部署侧需要源产物 SHA、目标指纹、数值报告和实际后端。缓存命中、逻辑阶段出现、真实工具调用次数是不同口径，不能仅统计结果里出现某工具名就声称调用次数。</p>
+<p>恢复备份至少包括 PostgreSQL、MinIO、Qdrant 和 Worker ledger / 参考文件。仅还原业务标签而丢失 pending 请求记录，可能使系统不知道哪些调用已发生；这是当前本地阶段存储在扩容前必须解决的工程边界。</p>

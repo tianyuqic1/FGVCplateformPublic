@@ -5,7 +5,6 @@ import hashlib
 import os
 import json
 from pathlib import Path
-import shutil
 from typing import Any, Callable, Protocol
 
 import numpy as np
@@ -60,106 +59,9 @@ BACKBONE_SPECS: dict[str, dict[str, Any]] = {
 BACKBONE_ALIASES = {
     str(spec["legacy_extractor"]): key for key, spec in BACKBONE_SPECS.items()
 }
-# Compatibility export for existing compute callers. Its contents are now the
-# Phase 2 allow-list, not the historical ViT-S/B/L family.
+# Compatibility export for existing compute callers. Its contents are the
+# platform-managed backbone allow-list.
 DINOV3_MODEL_PRESETS = BACKBONE_SPECS
-
-
-def _weight_info(preset: str, config: dict[str, Any], hub_root: Path) -> dict[str, Any]:
-    model_name = str(config["model_name"])
-    repo_id = str(config["repo_id"])
-    repo_dir = hub_root / f"models--{repo_id.replace('/', '--')}"
-    complete_files = [
-        path
-        for path in (repo_dir / "blobs").glob("*")
-        if path.is_file() and not path.name.endswith(".incomplete")
-    ]
-    incomplete_files = [
-        path
-        for path in (repo_dir / "blobs").glob("*.incomplete")
-        if path.is_file()
-    ]
-    complete_size = sum(path.stat().st_size for path in complete_files)
-    incomplete_size = sum(path.stat().st_size for path in incomplete_files)
-    if complete_files:
-        cache_status = "cached"
-    elif incomplete_files:
-        cache_status = "partial"
-    else:
-        cache_status = "missing"
-
-    return {
-        "preset": preset,
-        "extractor": config["legacy_extractor"],
-        "backbone_id": config["backbone_id"],
-        "model_name": model_name,
-        "repo_id": repo_id,
-        "cache_status": cache_status,
-        "state": cache_status,
-        "cached": cache_status == "cached",
-        "cache_dir": str(repo_dir),
-        "complete_file_count": len(complete_files),
-        "complete_size_bytes": complete_size,
-        "cache_bytes": complete_size,
-        "incomplete_file_count": len(incomplete_files),
-        "incomplete_size_bytes": incomplete_size,
-        "partial_bytes": incomplete_size,
-        "description": _weight_description(preset),
-        "download_hint": "cached locally" if complete_files else "download with timm/Hugging Face Hub",
-    }
-
-
-def _weight_description(preset: str) -> str:
-    descriptions = {
-        "dinov3_vits16_lvd1689m": "ViT-S/16 self-supervised with DINOv3 on LVD-1689M; CLS pooled frozen features.",
-        "imagenet_vits16_augreg_in21k_ft_in1k": "ViT-S/16 supervised on ImageNet-21K then fine-tuned on ImageNet-1K.",
-        "imagenet_resnet50_a1_in1k": "ResNet-50 supervised on ImageNet-1K; global pooled frozen features.",
-    }
-    return descriptions[preset]
-
-
-def inspect_dinov3_weight_cache(cache_root: str | Path | None = None) -> dict[str, Any]:
-    hub_root = _resolve_huggingface_hub_cache(cache_root)
-    weights = [_weight_info(preset, config, hub_root) for preset, config in BACKBONE_SPECS.items()]
-
-    return {
-        "cache_root": str(hub_root),
-        "hf_token_configured": bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")),
-        "weights": weights,
-    }
-
-
-def delete_dinov3_weight_cache(preset: str, cache_root: str | Path | None = None) -> dict[str, Any]:
-    preset = BACKBONE_ALIASES.get(preset, preset)
-    if preset not in BACKBONE_SPECS:
-        raise ValueError(f"Unsupported pretrained weight preset: {preset}")
-
-    hub_root = _resolve_huggingface_hub_cache(cache_root)
-    config = BACKBONE_SPECS[preset]
-    before = _weight_info(preset, config, hub_root)
-    repo_dir = Path(before["cache_dir"])
-    deleted = repo_dir.exists()
-    if deleted:
-        shutil.rmtree(repo_dir)
-
-    after = _weight_info(preset, config, hub_root)
-    return {
-        "deleted": deleted,
-        "preset": preset,
-        "cache_dir": str(repo_dir),
-        "before": before,
-        "after": after,
-    }
-
-
-def _resolve_huggingface_hub_cache(cache_root: str | Path | None = None) -> Path:
-    if cache_root is not None:
-        return Path(cache_root).expanduser()
-    if os.environ.get("HF_HUB_CACHE"):
-        return Path(os.environ["HF_HUB_CACHE"]).expanduser()
-    if os.environ.get("HF_HOME"):
-        return Path(os.environ["HF_HOME"]).expanduser() / "hub"
-    return Path.home() / ".cache" / "huggingface" / "hub"
 
 
 def dinov3_extractor_config(
@@ -221,7 +123,7 @@ class ColorStatsExtractor:
 
 @dataclass
 class TimmFeatureExtractor:
-    """Frozen timm backbone for the three Phase 2 managed weight identities.
+    """Frozen timm backbone for the platform-managed weight identities.
 
     Heavy dependencies are imported lazily so CRUD and ordinary toolkit tests
     do not require torch/timm or a network connection.
@@ -344,7 +246,7 @@ def build_extractor_from_config(config: dict[str, Any], overrides: dict[str, Any
     preset_name = BACKBONE_ALIASES.get(requested, requested)
     if extractor_type in {"timm", "timm_dinov3", *BACKBONE_SPECS.keys(), *BACKBONE_ALIASES.keys()}:
         if preset_name not in BACKBONE_SPECS:
-            raise ValueError(f"Unsupported Phase 2 backbone: {preset_name}")
+            raise ValueError(f"Unsupported managed backbone: {preset_name}")
         preset = BACKBONE_SPECS[preset_name]
         model_name = str(merged.get("model_name", preset["model_name"]))
         if model_name != preset["model_name"]:

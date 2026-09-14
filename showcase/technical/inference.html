@@ -1,0 +1,30 @@
+<h2>从 logits 到决策：校准层不改变类别空间</h2><p>完整 ONNX 输出 z ∈ ℝ<sup>C</sup>，推理使用温度 T 得到概率，再计算 top-1 置信度与 top-1 / top-2 间隔。温度是单个正标量，不改变 logits 排序，但会改变分布尖锐程度及阈值决策。</p><pre><code>p_c(x; T) = exp(z_c / T) / Σ_j exp(z_j / T)
+confidence(x) = max_c p_c(x; T)
+margin(x) = p_(1)(x; T) - p_(2)(x; T)
+
+accept(x; τ) = [confidence ≥ τ_conf] AND [margin ≥ τ_margin]
+otherwise: abstain → human review</code></pre>
+<p>温度拟合在验证集最小化负对数似然：<code>T* = argmin_T mean(-log p_y(x; T))</code>。当前代码对 0.05–10 的 96 个几何间隔候选做搜索，并输出 NLL、Brier 和分桶校准误差作为报告字段。这是温度候选搜索，不是对模型再反向传播一轮。</p><p>通用校准函数有缺少 val 时的兼容 fallback，但新的图片训练路径先要求 train / val / test 都非空，因此其正常调用使用 val。文档不将复用函数的 fallback 当作推荐的测试集校准方案。</p>
+<h2>风险约束目标与计算口径</h2><p>对同一模型、同一数据版本的可评估人工反馈 D，定义 A(τ) 为候选阈值下自动接受的样本集合，E(τ) 为其中错误的样本数：</p><pre><code>coverage(τ) = |A(τ)| / |D|
+empirical_risk(τ) = E(τ) / |A(τ)|
+estimated_review_cost(τ) = (|D| - |A(τ)|) × cost_per_item
+
+maximize   coverage(τ)
+subject to empirical_risk(τ) ≤ target_risk
+
+实现约定：|A| = 0 时 risk 记为 0，并同时报告 accepted_count = 0</code></pre>
+<p>零接受样本的风险为零是计算约定，不能解释成“策略有效”。当前 Go 在线实现的 coverage 是接受数除以反馈样本数，不把拒绝 OOD 加进自动接受覆盖率。误接受 OOD / 坏图也算错误；仍不确定的反馈不进入可评估集合。</p>
+<h2>当前 Go 阈值搜索，而非旧 Python 离线策略</h2><ol><li>在 Repeatable Read 事务中验证 model / dataset version 对应关系，读取这一范围内人工确认、改正、OOD、坏图反馈及原始 confidence / margin。</li><li>对观察值排序，取至多 11 个插值分位位置、保留端点、六位小数去重；confidence / margin 额外包含 0 与 1。</li><li>遍历候选笛卡尔积。完整模型通常只搜索 confidence / margin；旧兼容事件有距离时才存在 OOD 维度。</li><li>对每组阈值重新计算接受数和错误数，满足目标风险时选择接受数最多的组。同接受数不会替换已有候选。</li><li>无反馈或无可行候选返回冲突，不伪造“最佳策略”。成功则写入 shadow 策略与历史事件差异。</li></ol><p>复杂度约为 O(N × K_conf × K_margin × K_ood)，候选压缩避免逐一枚举每个观察值。当前未对反馈做倾向得分修正，也未实现统计风险上界，因此它是经验风险约束，不是 conformal prediction 或分布无关保证。</p>
+<h2>Shadow 的持久证据与激活事务</h2><pre><code>abstention_policy_versions
+  model_version_id + dataset_version_id
+  tau_conf / tau_margin / tau_ood
+  source_feedback_count / target_selective_risk
+  metrics / selection_config / status
+                  │
+                  ▼
+abstention_shadow_decisions
+  policy_version_id + inference_event_id
+  current_decision / shadow_decision / decision_diff
+  score_snapshot</code></pre><p>生成候选时回放同作用域历史推理事件，差异包括新增接受、原接受变弃权、新增 OOD 拒绝等；新推理也记录 shadow 对照。模型并没有在 shadow 阶段重新训练。</p><p>启用接口锁定策略，检查合法状态、至少 5 条反馈以及风险不超过目标，并要求人工原因；切换作用域内的 active 策略。shadow 阶段不影响真实预测，启用后才参与后续决策。停用保留历史记录，不能通过修改旧事件伪造策略表现。</p>
+<h2>选择性反馈偏差与能力边界</h2><p>复核队列往往富集低置信度难例；如果只用这些样本评估阈值，所得风险和覆盖率并不代表所有在线流量。平台当前保留反馈范围、样本数和差异供人工判断，但没有自动构造随机审计样本或完成持续漂移检测。扩展这些能力需要独立采样方案与验证，不应在展示文档中当作既有功能。</p>
+<p class="source">代码依据：<code>backend/src/finevision/ml_toolkit/calibration.py</code>：fit_temperature_scaling；<code>backend/src/finevision/worker/jobs.py</code> 的图片训练后校准；<code>go/internal/adapters/postgres/policy_repository.go</code>：candidates、propose、激活事务；<code>backend/src/finevision/compute/inference_runtime.py</code>：完整 ONNX 推理。</p>

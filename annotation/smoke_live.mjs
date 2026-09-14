@@ -6,8 +6,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.dirname(fileURLToPath(import.meta.url));
-const lab = process.env.ANNOTATION_LAB_ROOT || path.resolve(root, "../../fgvc-annotation-lab");
-const data = path.join(lab, "data/benchmark-v1/cub");
+const benchmarkRoot = process.env.ANNOTATION_BENCHMARK_ROOT;
+if (!benchmarkRoot) throw new Error("ANNOTATION_BENCHMARK_ROOT must point to the private benchmark fixture directory");
+const data = path.join(benchmarkRoot, "cub");
 const base = process.env.ANNOTATION_API || "http://127.0.0.1:8001/api/annotation";
 const fixtureFile = path.join(root, "runtime/live-acceptance.json");
 async function api(url, body) {

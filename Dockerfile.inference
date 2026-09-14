@@ -1,6 +1,6 @@
 # Build Dockerfile.compute first when bootstrapping a fresh environment.
 # Runtime code is isolated; dependency versions come from the locked compute base.
-ARG COMPUTE_BASE_IMAGE=finevision-python-compute:phase1
+ARG COMPUTE_BASE_IMAGE=finevision-python-compute:local
 FROM ${COMPUTE_BASE_IMAGE}
 COPY backend /app/backend
 ENV FINEVISION_INFERENCE_BACKEND=onnx_cpu

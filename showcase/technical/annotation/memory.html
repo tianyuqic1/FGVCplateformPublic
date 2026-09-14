@@ -1,0 +1,40 @@
+<h2>向量表示与文本原型</h2><p>当前 CLIP 记忆向量维度为 512，入库前检查维度、数值有限性和范数下界，再 L2 归一化。Qdrant 集合为 <code>confirmed_samples</code>，距离配置是 COSINE；已有集合维度或距离不匹配会拒绝复用。</p><pre><code>image embedding: v = f_image(x) / ||f_image(x)||₂
+text template j: t_j = f_text(prompt_j(class)) / ||f_text(...)||₂
+class prototype: t_c = normalize(mean(t_1, t_2, t_3))
+cosine score: s(x,c) = vᵀ t_c</code></pre><p>每类使用三个领域模板，分别编码、平均后再次归一化。原型缓存身份包含 classes、模板策略和工具修订。仅模型名字相同不足以证明两个缓存可互换，预处理、权重或模板变化都应改变修订。</p>
+<h2>实际是两级 RRF，而不是图文分数直接相加</h2><ol><li><strong>图像内融合。</strong>原图与合格主体分别检索。在每个 query 视图里先按类别去重，使一个类的多个近邻只贡献一次；按不同视图的类别排名做 RRF。</li><li><strong>图文融合。</strong>D 路径取图像分支和文本分支各前 10 个互异类别，再做等权 RRF，平滑常数 k=60。</li><li><strong>参考图落实。</strong>文本提升了某个成熟类别但图像候选中没有它时，再对该类别定向取参考；能拿到有效参考的类别才形成最终参考图列表，最多六类。</li></ol><pre><code>RRF(c) = Σ_branch 1 / (60 + rank_branch(c))
+
+原图 query ── 类别去重 ─┐
+                       ├─ 图像 RRF ─┐
+主体 query ── 类别去重 ─┘            ├─ 图文 RRF → 有效参考图
+文本原型相似度 → 类别排名 ────────────┘</code></pre>
+<p>RRF 只融合名次，不把 cosine 当类别概率。高相似度参考仍可能在细粒度结构上不匹配，最终模型被要求独立检查原图并保留非检索类别。</p>
+<h2>在线适配器的成熟度边界</h2><p>需要特别区分原型构造与检索参与：可以为完整目录构建文本原型，但当前 <code>OnlineMemory</code> 在融合前会把文本排名过滤到 <code>eligible_labels</code>。因此没有达到每类 10 张成功入库门槛的类别不会通过文本分支直接进入参考列表。完整目录仍会传给最终分类模型；没有成熟类时走无检索流程。</p><p>这一设计保持参考图都有人工证据，但也限制了冷启动时文本分支的独立帮助。本文描述的是现有实现，不将“未成熟类也使用文本召回”写成已经上线的能力。</p>
+<h2>Qdrant payload 与幂等点身份</h2><pre><code>scope = {project, catalog_digest, encoder_revision}
+payload = {
+  ...scope,
+  sha: original_source_sha,
+  sample, seq, label,
+  image, image_sha,
+  view: original | subject,
+  view_image, view_sha
+}
+
+point_id = UUIDv5(namespace_url, canonical(scope) + "/" + source_sha)
+subject_point_id = UUIDv5(..., same_identity + "/subject")</code></pre><p>同来源不同视图有稳定点 ID，重复投递覆盖同一点而不是堆重复向量。原图与主体必须共享源 SHA、sample、seq、label 等字段；不允许将另一个样本的裁剪挂在当前标签下。检索过滤 scope、成熟类别并排除自身 SHA，参考文件读取前核对摘要。</p>
+<h2>两层持久状态如何与人工确认衔接</h2><p>平台 PostgreSQL 保存真实人工标签与待投递记录；本地 ledger 保存模型阶段与投递过程，Qdrant 保存向量。Worker 将人工确认同步到本地记忆，再幂等 upsert，最后向控制面提交 indexed。若 Qdrant 已写成功但控制面 ACK 丢失，重复写同一点并补 ACK，不增加“不同来源图片数”。</p><p>在线适配器允许乱序人工确认，查询使用预测时已经确认并投递成功的记忆，不再用上传序号模拟“过去”。实验脚本的真值回调不会被带入平台人工标签路径；本地 ledger 中冻结的预测也不会被人工答案覆盖。</p>
+<h2>发布占用：跨批次竞争由数据库约束解决</h2><pre><code>annotation_publication_members
+  PRIMARY KEY (source, source_id)
+  publication_id → annotation_publications.id
+
+preview: 校验标签 / 去重 / 冻结 ZIP / 保存 fingerprint
+publish transaction:
+  claim every (source, source_id)
+  conflict with another active batch → reject
+  update batch → queued
+
+coordinator:
+  PostgreSQL advisory lock
+  building → registering → published
+  stable import request ID across retries</code></pre><p>幂等键解决同批重试，联合主键解决不同批次争抢同一来源。运行中与已发布不能取消；失败保留占用，重试原快照；取消 preview / failed 才释放占用。发布成功后的新版本只追加新样本，原标签和划分不变。</p>
+<p class="source">代码依据：<code>annotation/lab_v4/memory.py</code>：vector、upsert、search_views；<code>text_candidates.py</code>：text_ranking、fuse_labels；<code>policy.py</code>：fuse_references；<code>annotation/workflow.py</code>：OnlineMemory / OnlineLedger；<code>go/internal/annotation/publication.go</code>；<code>backend/src/finevision/db/annotation_schema.py</code>。</p>

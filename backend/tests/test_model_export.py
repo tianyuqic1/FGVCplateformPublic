@@ -13,6 +13,18 @@ from finevision.compute.v1.artifact_pb2 import ArtifactDescriptor
 from google.protobuf.json_format import MessageToDict
 
 
+def test_fp16_parity_allows_accumulated_transformer_rounding_but_rejects_drift():
+    from finevision.compute.export_precision import check_parity
+    expected = np.array([[0.0, 2.0]], dtype=np.float32)
+    # ViT-S FP16 conversion can accumulate slightly more than 1e-2 absolute
+    # error around a near-zero logit without changing the prediction.
+    check_parity(np.array([[0.011, 2.0]], dtype=np.float32), expected, "FP16")
+    with pytest.raises(AssertionError):
+        check_parity(np.array([[0.03, 2.0]], dtype=np.float32), expected, "FP16")
+    with pytest.raises(AssertionError):
+        check_parity(np.array([[0.011, 2.0]], dtype=np.float32), expected, "FP32")
+
+
 def write_head(path):
     rng = np.random.default_rng(7)
     np.savez(path, weights=rng.normal(size=(384, 3)).astype(np.float32), bias=np.zeros(3,np.float32),

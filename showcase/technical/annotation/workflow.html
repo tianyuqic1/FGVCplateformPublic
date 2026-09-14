@@ -1,0 +1,47 @@
+<h2>主体视图不仅检查几何，还校验像素来源</h2><p><code>subject_eligible</code> 要求可信路线、subject SHA、合法整数 bounds；若记录了 bounds，则对原图裁剪并逐字节比较，确认主体确实来自原始像素。最短边至少 64，主体面积占原图 0.08–0.9，避免过小裁剪或近乎重复原图。</p><pre><code>subject = original.crop(bounds)
+require subject.size == cached_subject.size
+require subject.tobytes() == cached_subject.tobytes()
+require sha(subject_file) == recorded_subject_sha
+require 0.08 ≤ subject_area / original_area ≤ 0.9</code></pre><p>这只证明视图可追溯、几何有效，不能证明定位到的一定是正确对象。SAM 掩膜与保守并框帮助保留主体，原图仍必须送给最终分类模型。不能将裁剪检查称为“保证主体识别正确”。</p>
+<h2>质量快路：先规则，必要时才问模型</h2><p>工具选择并非每张图片都调用一次远程模型。代码读取宽高、平均亮度、暗 / 亮像素比例、Laplacian 方差和噪声比例：</p><div class="table-wrap"><table><thead><tr><th>分支</th><th>当前判据摘要</th><th>行为</th></tr></thead><tbody><tr><td>明显欠曝</td><td>mean_luminance &lt; 0.12，dark_fraction &gt; 0.65</td><td>lowlight 可用时直接选择；记录 severe_underexposure。</td></tr><tr><td>质量快路</td><td>短边 ≥224，亮度 0.18–0.85，暗比例 &lt;0.4，亮比例 &lt;0.2，Laplacian 方差 ≥0.003，noise_fraction &lt;0.05</td><td>直接 none，省去工具选择请求。</td></tr><tr><td>不满足明确判据</td><td>缺字段、边界情况、可见退化</td><td>让模型在受限工具中选至多一种，或 none。</td></tr></tbody></table></div><p>这些是实现中的启发式阈值，不是学习得到的置信度。噪声也会提高 Laplacian 方差，所以不能单凭“高频多”判定图片清晰。缺少历史噪声字段时补算，而不是将旧缓存直接判为高质量。</p>
+<h2>提示词契约：原图、辅助图、参考图不能混淆</h2><p>每个请求给出明确图像索引：图 0 是原始 query；其余非参考图片是同一 query 的不同视图；参考图是另一个已确认样本。参考 metadata 不作为指令，相似度不是概率，参考数量也不能解释成置信度。</p><pre><code>select_tool:
+  输入：原图 / 主体、quality、available tools、完整目录
+  输出：{"tool":"none", "target":"subject", "reason":"可见原因"}
+  限制：最多一个工具；仅主体退化才处理；仅背景模糊不处理
+
+classify:
+  先独立对原图与完整目录作判断，再用参考图核对可见结构
+  参考结构不相容时作为反证；保留未检索到的合理类别
+  输出：{"class_ids":["001", "002", ...]}
+
+supplement:
+  输入：排除已保留 ID 后的剩余目录 + retained
+  输出：所缺数量的互异合法 ID</code></pre><p>当前 classify 实际请求最多 20 个候选，即 min(20, 类别数)，之后本地清洗并截取 Top-10。扩大初始候选数给去重和非法 ID 过滤留余量；不是一开始只要 10 个字符串，再用占位符补齐。</p>
+<h2>结构化输出如何变成可信 Top-10</h2><pre><code>response.kind must be ok
+parse JSON（允许剥离外层代码围栏）
+read class_ids as a list
+keep only string IDs that occur in allowed catalog
+deduplicate while preserving order
+take first min(10, class_count)
+
+if fewer than required:
+    one supplement stage using remaining catalog
+    validate + deduplicate against retained IDs
+freeze prediction(status = ok only when complete)</code></pre><p>不把非法 ID 按拼写模糊匹配到某一类，也不通过读取真实标签补齐。候选不足时状态为 failed，保留部分结果与错误，仍允许人工完成。固定预测后再确认，避免后续真实标签反向污染原建议记录。</p>
+<h2>工具预算与证据预算</h2><p>每张图至多选一种增强，不串联所有恢复网络。原图优先、合格主体与增强图受选择策略控制。参考图数为 <code>min(6, 8 - 当前 query 视图数)</code>，与 Go 模型适配器 1–8 张图的输入检查一致；每个参考携带准确的零基图像索引，避免 prompt 与实际上传顺序错位。</p><p>低资源配置进一步限制增强输入尺寸和调用时间。超分只服务原生尺寸较小的视图，不把大图先缩小再放大来绕过上限。工具输出与引用图片的摘要在分类前再核验，缓存文件被替换应报错，而不是沿用旧 metadata。</p>
+<h2>阶段 ledger：付费副作用前先留下记录</h2><pre><code>stages(sample, name) 的联合主键
+  request_hash / status / attempts / response / next_at
+
+begin(stage, canonical_request):
+    same hash + done → replay saved response
+    pending / unknown → block automatic resume
+    changed hash → reject inconsistent execution
+    enforce stage attempts ≤ 3 and image attempts ≤ 6
+    persist pending BEFORE dispatch
+
+finish:
+    ok → done
+    explicit retryable → retry with cooldown
+    transport ambiguity → unknown
+    fatal / exhausted → failed</code></pre><p>单图累计远程时间预算 240 秒；每次传给 Provider 的超时不超过剩余预算。事件表累计各次尝试耗时，而不是只看阶段最后一次响应。本地纯计算阶段可安全重算；远程阶段 pending 可能已经计费，重启后不能直接重发。系统因此接受“需要人工处理 unknown”的成本，避免无限自动重试。</p>
+<p class="source">代码依据：<code>annotation/lab_v4/policy.py</code>：subject_eligible、quality_decision；<code>engine.py</code>：candidates、call、predict；<code>state.py</code>：begin、finish、remote_seconds；<code>go/cmd/annotation-agent/main.go</code>：prompt。</p>

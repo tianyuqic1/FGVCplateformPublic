@@ -23,10 +23,10 @@ try {
   // Merely choosing a candidate must not send a label or start remote calls.
   if (await page.locator(".ann-candidates button").count()) await page.locator(".ann-candidates button").first().click();
   await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector(".main").scrollTop = 0; document.querySelector(".ann-thumbnails").scrollTop = 0; });
-  await page.screenshot({ path: "/tmp/fgvc-annotation-desktop.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-annotation-desktop.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.setViewportSize({ width: 390, height: 1000 });
-  await page.screenshot({ path: "/tmp/fgvc-annotation-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/finevision-annotation-mobile.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.deepEqual(errors, []);
   console.log("Annotation live UI: pagination, class search, consent guard, manual selection, desktop/mobile overflow passed.");
