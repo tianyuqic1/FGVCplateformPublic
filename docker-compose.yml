@@ -13,8 +13,24 @@ x-object-store-environment: &object-store-environment
   FINEVISION_S3_SECRET_KEY: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
   FINEVISION_ARTIFACT_BUCKET: finevision-artifacts
 
+x-runtime-environment: &runtime-environment
+  FINEVISION_ENVIRONMENT: ${FINEVISION_ENVIRONMENT:-local}
+  FINEVISION_LOG_LEVEL: ${FINEVISION_LOG_LEVEL:-INFO}
+  FINEVISION_LOG_FORMAT: json
+  FINEVISION_SERVICE_VERSION: ${FINEVISION_SERVICE_VERSION:-dev}
+  FINEVISION_OBSERVABILITY_ENABLED: ${FINEVISION_OBSERVABILITY_ENABLED:-false}
+  FINEVISION_METRICS_ENABLED: ${FINEVISION_METRICS_ENABLED:-true}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4317}
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   frontend:
+    logging: *default-logging
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -32,6 +48,7 @@ services:
       - ./frontend/index.html:/app/index.html:ro
 
   go-control-plane:
+    logging: *default-logging
     image: finevision-go:local
     volumes:
       - finevision-uploads:/data/uploads:ro
@@ -39,7 +56,7 @@ services:
       context: .
       dockerfile: Dockerfile.go
     environment:
-      <<: *control-plane-environment
+      <<: [*control-plane-environment, *runtime-environment]
       FINEVISION_S3_ENDPOINT: http://object-store:9000
       FINEVISION_S3_REGION: us-east-1
       FINEVISION_S3_ACCESS_KEY: ${FINEVISION_S3_ACCESS_KEY:-finevision}
@@ -70,9 +87,11 @@ services:
         condition: service_healthy
 
   outbox-relay:
+    logging: *default-logging
     image: finevision-go:local
     entrypoint: ["/usr/local/bin/outbox-relay"]
     environment:
+      <<: *runtime-environment
       FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
       FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/
       FINEVISION_TRAINING_EXCHANGE: finevision.training.v1
@@ -85,12 +104,15 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+    expose: ["8089"]
 
   deployment-relay:
+    logging: *default-logging
     image: finevision-go:local
     entrypoint: ["/usr/local/bin/deployment-relay"]
     restart: unless-stopped
     environment:
+      <<: *runtime-environment
       FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
       FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/
     depends_on:
@@ -98,19 +120,24 @@ services:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+    expose: ["8090"]
 
   go-llm-gateway:
+    logging: *default-logging
     image: finevision-go:local
     entrypoint: ["/usr/local/bin/llm-gateway"]
     environment:
+      <<: *runtime-environment
       FINEVISION_LLM_GATEWAY_ADDRESS: :8080
       FINEVISION_LLM_INTERNAL_TOKEN: ${FINEVISION_LLM_INTERNAL_TOKEN:-finevision-dev-internal-only}
       FINEVISION_LLM_PROVIDER: ${FINEVISION_LLM_PROVIDER:-OpenAI-compatible}
       FINEVISION_LLM_BASE_URL: ${FINEVISION_LLM_BASE_URL:-https://api.openai.com/v1}
       FINEVISION_LLM_MODEL: ${FINEVISION_LLM_MODEL:-gpt-5.5}
       FINEVISION_LLM_API_KEY: ${FINEVISION_LLM_API_KEY:-}
+    expose: ["8080"]
 
   hardware-collector:
+    logging: *default-logging
     build:
       context: .
       dockerfile: Dockerfile.hardware
@@ -119,6 +146,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     environment:
+      <<: *runtime-environment
       FINEVISION_HARDWARE_ENDPOINT: http://go-control-plane:8000/api/internal/hardware/samples
       FINEVISION_HARDWARE_TOKEN: ${FINEVISION_HARDWARE_TOKEN:-finevision-dev-hardware-only}
       FINEVISION_NODE_ID: ${FINEVISION_NODE_ID:-local-compute}
@@ -134,15 +162,17 @@ services:
       - finevision-compute-work:/data/work:ro
       - finevision-artifact-cache:/data/cache:ro
       - finevision-object-store:/data/objects:ro
+    expose: ["9304"]
 
   python-training-worker:
+    logging: *default-logging
     image: finevision-python-compute:local
     build:
       context: .
       dockerfile: Dockerfile.compute
     command: ["python", "-m", "finevision.compute.queue_worker"]
     environment:
-      <<: *object-store-environment
+      <<: [*object-store-environment, *runtime-environment]
       FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/
       FINEVISION_TRAINING_QUEUE: finevision.training.v1
       FINEVISION_NODE_ID: ${FINEVISION_NODE_ID:-local-compute}
@@ -167,8 +197,10 @@ services:
       - finevision-artifact-cache:/data/cache
       - ${HOME}/.cache/huggingface:/home/finevision/.cache/huggingface
       - ${HOME}/.cache/torch:/home/finevision/.cache/torch
+    expose: ["9301"]
 
   python-inference-runtime:
+    logging: *default-logging
     image: finevision-python-inference:multi-runtime
     build:
       context: .
@@ -181,7 +213,7 @@ services:
       retries: 6
       start_period: 30s
     environment:
-      <<: *object-store-environment
+      <<: [*object-store-environment, *runtime-environment]
       FINEVISION_INFERENCE_GRPC_ADDRESS: "[::]:9100"
       FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
       FINEVISION_COMPUTE_DEVICE: ${FINEVISION_INFERENCE_DEVICE:-${FINEVISION_COMPUTE_DEVICE:-cpu}}
@@ -193,12 +225,14 @@ services:
       - finevision-artifact-cache:/data/cache
       - ${HOME}/.cache/huggingface:/home/finevision/.cache/huggingface
       - ${HOME}/.cache/torch:/home/finevision/.cache/torch
+    expose: ["9302"]
 
   python-artifact-runtime:
+    logging: *default-logging
     image: finevision-python-compute:local
     command: ["python", "-m", "finevision.compute.artifact_runtime"]
     environment:
-      <<: *object-store-environment
+      <<: [*object-store-environment, *runtime-environment]
       FINEVISION_ARTIFACT_GRPC_ADDRESS: "[::]:9200"
       FINEVISION_ARTIFACT_CACHE_DIR: /data/cache
     healthcheck:
@@ -212,8 +246,10 @@ services:
         condition: service_completed_successfully
     volumes:
       - finevision-export-cache:/data/cache
+    expose: ["9303"]
 
   migrate:
+    logging: *default-logging
     build:
       context: .
       dockerfile: Dockerfile.migrate
@@ -225,6 +261,7 @@ services:
     command: ["alembic", "upgrade", "head"]
 
   postgres:
+    logging: *default-logging
     image: postgres:16.10-alpine
     environment:
       POSTGRES_DB: finevision
@@ -241,7 +278,9 @@ services:
       - finevision-postgres:/var/lib/postgresql/data
 
   rabbitmq:
+    logging: *default-logging
     image: rabbitmq:4.1.4-management-alpine
+    command: ["sh", "-ec", "rabbitmq-plugins enable --offline rabbitmq_prometheus && exec rabbitmq-server"]
     environment:
       RABBITMQ_DEFAULT_USER: finevision
       RABBITMQ_DEFAULT_PASS: finevision
@@ -257,11 +296,13 @@ services:
       - finevision-rabbitmq:/var/lib/rabbitmq
 
   object-store:
+    logging: *default-logging
     image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${FINEVISION_S3_ACCESS_KEY:-finevision}
       MINIO_ROOT_PASSWORD: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -274,6 +315,7 @@ services:
       - finevision-object-store:/data
 
   object-store-init:
+    logging: *default-logging
     image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       object-store:
@@ -293,6 +335,7 @@ services:
       MINIO_ROOT_PASSWORD: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
 
   pretrained-weight-init:
+    logging: *default-logging
     image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       object-store-init:
@@ -324,6 +367,7 @@ services:
       - ./weights:/weights:ro
 
   adminer:
+    logging: *default-logging
     image: adminer:4.8.1
     profiles: ["debug"]
     ports:

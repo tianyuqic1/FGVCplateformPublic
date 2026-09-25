@@ -66,7 +66,9 @@ jobs:
       - name: 依赖安全检查
         run: npm --prefix frontend audit --audit-level=high
       - name: 生产构建
-        run: npm --prefix frontend run build
+        run: |
+          npm --prefix frontend run build
+          node --check go/internal/observabilityconsole/ui/console.js
       - name: API 客户端契约
         run: scripts/smoke-demo.sh --contracts-only
 
@@ -83,7 +85,14 @@ jobs:
           python3 showcase/build.py
           python3 showcase/check.py
       - name: 检查 Compose 配置
-        run: docker compose -f docker-compose.yml config --quiet
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f compose.inference.yml config --quiet
+          docker compose -f docker-compose.yml -f compose.observability.yml --profile observability config --quiet
+          python3 -m json.tool ops/observability/grafana/dashboards/finevision-overview.json >/dev/null
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/ops/observability/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.14.0 check config /etc/prometheus/prometheus.yml
       - name: 检查仓库未提交密钥
         run: |
           if git grep -n -E 'sk-[A-Za-z0-9_-]{16,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY'; then

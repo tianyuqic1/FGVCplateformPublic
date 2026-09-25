@@ -18,7 +18,8 @@
     "smoke:abstention-client": "node scripts/smoke-abstention-client.mjs",
     "smoke:review-client": "node scripts/smoke-review-client.mjs",
     "smoke:llm-client": "node scripts/smoke-llm-client.mjs",
-    "smoke:hardware": "node scripts/smoke-hardware.mjs"
+    "smoke:hardware": "node scripts/smoke-hardware.mjs",
+    "smoke:diagnostics-client": "node scripts/smoke-diagnostics-client.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

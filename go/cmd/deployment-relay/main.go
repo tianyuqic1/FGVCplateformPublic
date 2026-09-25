@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	amqp "github.com/rabbitmq/amqp091-go"
 	rabbit "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/rabbitmq"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/outbox"
 	"log/slog"
 	"os"
@@ -17,8 +18,20 @@ import (
 )
 
 func main() {
+	observability.Bootstrap("deployment-relay")
+	observability.StartMetricsServer(":8090")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, traceErr := observability.SetupTracing(ctx, "deployment-relay")
+	if traceErr != nil {
+		slog.Warn("tracing exporter unavailable; continuing without export", "error", traceErr)
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = shutdownTracing(shutdownCtx)
+		}()
+	}
 	pool, err := pgxpool.New(ctx, os.Getenv("FINEVISION_DATABASE_URL"))
 	if err != nil {
 		slog.Error("database configuration failed")
@@ -66,11 +79,18 @@ func serve(ctx context.Context, pool *pgxpool.Pool) error {
 			for i := 0; i < 20; i++ {
 				more, e := dispatch(ctx, pool, conn)
 				if e != nil {
+					observability.RecordOutboxBatch("deployment", 0, e)
 					return e
 				}
 				if !more {
 					break
 				}
+				observability.RecordOutboxBatch("deployment", 1, nil)
+			}
+			var pending int64
+			var oldest float64
+			if e := pool.QueryRow(ctx, `SELECT count(*),COALESCE(EXTRACT(EPOCH FROM now()-min(created_at)),0) FROM deployment_outbox WHERE published_at IS NULL`).Scan(&pending, &oldest); e == nil {
+				observability.SetOutboxBacklog("deployment", pending, oldest)
 			}
 		}
 	}
@@ -82,7 +102,8 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, conn *amqp.Connection) (b
 	}
 	defer tx.Rollback(ctx)
 	var id, dep, token, runtime string
-	err = tx.QueryRow(ctx, `SELECT o.id::text,o.deployment_id::text,o.build_token::text,o.runtime FROM deployment_outbox o WHERE o.published_at IS NULL ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &dep, &token, &runtime)
+	var traceContext []byte
+	err = tx.QueryRow(ctx, `SELECT o.id::text,o.deployment_id::text,o.build_token::text,o.runtime,o.trace_context FROM deployment_outbox o WHERE o.published_at IS NULL ORDER BY o.created_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &dep, &token, &runtime, &traceContext)
 	if err == pgx.ErrNoRows {
 		return false, nil
 	}
@@ -102,7 +123,9 @@ func dispatch(ctx context.Context, pool *pgxpool.Pool, conn *amqp.Connection) (b
 	pub := rabbit.NewPublisher(ch, "fgvc.deployment.v1", runtime)
 	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err = pub.Publish(timeout, outbox.Event{MessageID: id, EventType: "deployment.build", Payload: payload}); err != nil {
+	headers := map[string]string{}
+	_ = json.Unmarshal(traceContext, &headers)
+	if err = pub.Publish(timeout, outbox.Event{MessageID: id, EventType: "deployment.build", Payload: payload, Headers: headers}); err != nil {
 		return false, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE deployment_outbox SET published_at=now() WHERE id=$1`, id); err != nil {

@@ -1,0 +1,138 @@
+name: finevision
+
+x-observability-logging: &observability-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  observability-console:
+    build:
+      context: .
+      dockerfile: Dockerfile.go
+    image: finevision-go:local
+    profiles: ["observability"]
+    entrypoint: ["/usr/local/bin/observability-console"]
+    environment:
+      FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
+      FINEVISION_LOKI_URL: http://loki:3100
+      FINEVISION_PROMETHEUS_URL: http://prometheus:9090
+      FINEVISION_TEMPO_URL: http://tempo:3200
+      FINEVISION_OBSERVABILITY_CONSOLE_ADDRESS: :9400
+      FINEVISION_OBSERVABILITY_TOKEN: ${FINEVISION_OBSERVABILITY_TOKEN:-}
+      FINEVISION_ENVIRONMENT: ${FINEVISION_ENVIRONMENT:-local}
+      FINEVISION_LOG_LEVEL: ${FINEVISION_LOG_LEVEL:-INFO}
+      FINEVISION_LOG_FORMAT: json
+      FINEVISION_SERVICE_VERSION: ${FINEVISION_SERVICE_VERSION:-dev}
+      FINEVISION_OBSERVABILITY_ENABLED: ${FINEVISION_OBSERVABILITY_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4317
+    ports:
+      - "127.0.0.1:9400:9400"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9400/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging: *observability-logging
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    profiles: ["observability"]
+    command: ["run", "--storage.path=/var/lib/alloy/data", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./ops/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./annotation/runtime:/var/log/finevision/annotation:ro
+      - finevision-alloy:/var/lib/alloy/data
+    ports:
+      - "127.0.0.1:12345:12345"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on: [loki, tempo]
+    logging: *observability-logging
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.8
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./ops/observability/loki/config.yml:/etc/loki/config.yml:ro
+      - finevision-loki:/loki
+    logging: *observability-logging
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/config.yml"]
+    volumes:
+      - ./ops/observability/tempo/config.yml:/etc/tempo/config.yml:ro
+      - finevision-tempo:/var/tempo
+    logging: *observability-logging
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - finevision-prometheus:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging: *observability-logging
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    profiles: ["observability"]
+    environment:
+      DATA_SOURCE_NAME: postgresql://finevision:finevision@postgres:5432/finevision?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *observability-logging
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${FINEVISION_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${FINEVISION_GRAFANA_PASSWORD:-finevision-local-only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://grafana:3000
+    volumes:
+      - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - finevision-grafana:/var/lib/grafana
+    depends_on: [loki, tempo, prometheus]
+    logging: *observability-logging
+    restart: unless-stopped
+
+volumes:
+  finevision-alloy:
+  finevision-loki:
+  finevision-tempo:
+  finevision-prometheus:
+  finevision-grafana:

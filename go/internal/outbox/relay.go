@@ -14,6 +14,7 @@ type Event struct {
 	EventType       string
 	SchemaVersion   int
 	Payload         []byte
+	Headers         map[string]string
 	AvailableAt     time.Time
 	CreatedAt       time.Time
 	PublishedAt     time.Time

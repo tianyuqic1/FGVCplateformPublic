@@ -112,6 +112,41 @@ function Toast({ message }) {
   );
 }
 
+function DiagnosticToast() {
+  const [diagnostic, setDiagnostic] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const receive = (event) => {
+      setCopied(false);
+      setDiagnostic(event.detail);
+    };
+    window.addEventListener("finevision:diagnostic-error", receive);
+    return () => window.removeEventListener("finevision:diagnostic-error", receive);
+  }, []);
+
+  if (!diagnostic) return null;
+  async function copyRequestId() {
+    try {
+      await navigator.clipboard.writeText(diagnostic.requestId);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <div className="diagnostic-toast" role="alert">
+      <Icon name="TriangleAlert" size={19} />
+      <div>
+        <strong>请求未完成</strong>
+        <span>{diagnostic.method} {diagnostic.path} · 诊断编号 {diagnostic.requestId}</span>
+      </div>
+      <button type="button" className="diagnostic-copy" onClick={copyRequestId}>{copied ? "已复制" : "复制编号"}</button>
+      <button type="button" className="diagnostic-close" aria-label="关闭诊断提示" onClick={() => setDiagnostic(null)}>×</button>
+    </div>
+  );
+}
+
 function DatasetTitleRoute({ showToast }) {
   return <DatasetDetailPage showToast={showToast} />;
 }
@@ -155,6 +190,7 @@ export default function App() {
         </Routes>
       </AppShell>
       <Toast message={toast} />
+      <DiagnosticToast />
     </>
   );
 }

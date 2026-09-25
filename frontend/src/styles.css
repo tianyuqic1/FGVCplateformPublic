@@ -1804,6 +1804,69 @@ button:disabled {
   display: flex;
 }
 
+.diagnostic-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 78px;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 11px;
+  width: min(560px, calc(100vw - 44px));
+  min-height: 64px;
+  padding: 11px 11px 11px 14px;
+  border: 1px solid rgba(180, 35, 60, 0.24);
+  border-radius: 10px;
+  color: #7a1830;
+  background: rgba(255, 247, 249, 0.97);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+  animation: toastIn 240ms ease;
+}
+
+.diagnostic-toast div {
+  min-width: 0;
+}
+
+.diagnostic-toast strong,
+.diagnostic-toast span {
+  display: block;
+}
+
+.diagnostic-toast span {
+  overflow: hidden;
+  margin-top: 3px;
+  color: #8f4053;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-copy,
+.diagnostic-close {
+  border: 1px solid rgba(180, 35, 60, 0.2);
+  border-radius: 8px;
+  color: #7a1830;
+  background: #ffffff;
+}
+
+.diagnostic-copy {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.diagnostic-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
 @keyframes toastIn {
   from {
     opacity: 0;

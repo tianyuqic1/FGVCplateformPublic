@@ -20,6 +20,10 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from finevision.observability import bind_context, configure_logging
+from finevision.observability.metrics import start_metrics_server
+from finevision.observability.tracing import configure_tracing
+
 LOG = logging.getLogger(__name__)
 NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
@@ -159,7 +163,9 @@ class Collector:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("hardware-collector", force=True)
+    configure_tracing("hardware-collector")
+    metrics = start_metrics_server("hardware-collector", 9304)
     endpoint = os.environ.get("FINEVISION_HARDWARE_ENDPOINT", "http://localhost:8001/api/internal/hardware/samples")
     token = os.environ.get("FINEVISION_HARDWARE_TOKEN", "")
     if not token:
@@ -172,20 +178,25 @@ def main() -> None:
     interval = max(5, float(os.environ.get("FINEVISION_HARDWARE_INTERVAL", "5")))
     if not math.isfinite(interval):
         raise SystemExit("invalid collection interval")
-    LOG.info("Hardware collector started for node %s", node)
-    while True:
-        start = time.monotonic()
-        sample = collector.sample()
-        request = Request(endpoint, data=json.dumps(sample, allow_nan=False).encode(), headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}, method="POST")
-        try:
-            with urlopen(request, timeout=5) as response:
-                response.read(1024)
-        except HTTPError as error:
-            LOG.warning("Hardware report rejected (HTTP %s)", error.code)
-        except (URLError, TimeoutError, OSError):
-            LOG.warning("Hardware control plane unavailable; retrying next interval")
-        # Do not replay queued samples: recovery reports current metrics.
-        time.sleep(max(.1, interval - (time.monotonic() - start)))
+    with bind_context(worker_id=worker_identity(), runtime_node_id=node):
+        LOG.info("Hardware collector started", extra={"event": "hardware_collector_started"})
+        while True:
+            start = time.monotonic()
+            sample = collector.sample()
+            request = Request(endpoint, data=json.dumps(sample, allow_nan=False).encode(), headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}, method="POST")
+            try:
+                with urlopen(request, timeout=5) as response:
+                    response.read(1024)
+                metrics.set_heartbeat_age(0)
+                metrics.record_work(kind="hardware_report", outcome="success", duration_seconds=time.monotonic() - start)
+            except HTTPError as error:
+                metrics.record_work(kind="hardware_report", outcome="rejected", duration_seconds=time.monotonic() - start)
+                LOG.warning("Hardware report rejected", extra={"event": "hardware_report_rejected", "status": error.code, "outcome": "rejected"})
+            except (URLError, TimeoutError, OSError) as error:
+                metrics.record_work(kind="hardware_report", outcome="retry", duration_seconds=time.monotonic() - start)
+                LOG.warning("Hardware control plane unavailable; retrying next interval", extra={"event": "hardware_report_unavailable", "error_type": type(error).__name__, "outcome": "retry"})
+            # Do not replay queued samples: recovery reports current metrics.
+            time.sleep(max(.1, interval - (time.monotonic() - start)))
 
 
 if __name__ == "__main__":

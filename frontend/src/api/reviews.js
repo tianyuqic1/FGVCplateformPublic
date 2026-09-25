@@ -1,8 +1,9 @@
+import { apiBaseUrl, fetchJson, withTimeout as withHttpTimeout } from "./http.js";
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
-function apiBaseUrl() {
-  const configured = import.meta.env?.VITE_API_BASE_URL;
-  return configured ? configured.replace(/\/$/, "") : "";
+function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  return withHttpTimeout(request, timeoutMs);
 }
 
 function toAssetUrl(value) {
@@ -18,39 +19,6 @@ function imageUrlFromInputRef(inputRef) {
   if (!normalized.includes("/uploads/")) return null;
   const filename = normalized.split("/").filter(Boolean).pop();
   return filename ? `/api/uploads/${filename}` : null;
-}
-
-async function fetchJson(path, { method = "GET", body, signal } = {}) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-
-  if (!response.ok) {
-    let detail = `${response.status} ${method} ${path}`;
-    try {
-      const payload = await response.json();
-      const message = typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message;
-      detail = message ? `${detail}: ${message}` : detail;
-    } catch {
-      // Keep the HTTP status fallback when the response body is not JSON.
-    }
-    throw new Error(detail);
-  }
-
-  return response.json();
-}
-
-function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
 }
 
 export function extractReviewItemList(payload) {

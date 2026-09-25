@@ -253,16 +253,18 @@ FROM job_attempts WHERE job_id = $1 ORDER BY attempt_number`, jobID)
 }
 
 func loadEvents(ctx context.Context, tx pgx.Tx, jobID string, aggregate *training.Aggregate) error {
-	rows, err := tx.Query(ctx, `SELECT event_type, COALESCE(message, ''), created_at FROM job_events WHERE job_id = $1 ORDER BY created_at`, jobID)
+	rows, err := tx.Query(ctx, `SELECT event_type, COALESCE(message, ''), payload, created_at FROM job_events WHERE job_id = $1 ORDER BY created_at`, jobID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var event training.AuditEvent
-		if err := rows.Scan(&event.EventType, &event.Message, &event.CreatedAt); err != nil {
+		var payload []byte
+		if err := rows.Scan(&event.EventType, &event.Message, &payload, &event.CreatedAt); err != nil {
 			return err
 		}
+		_ = json.Unmarshal(payload, &event.Payload)
 		aggregate.Events = append(aggregate.Events, event)
 	}
 	return rows.Err()
@@ -440,9 +442,10 @@ ON CONFLICT (training_run_id, attempt_id, metric_name, step) DO NOTHING`,
 
 func insertEvents(ctx context.Context, tx pgx.Tx, jobID string, events []training.AuditEvent) error {
 	for _, event := range events {
+		payload, _ := json.Marshal(event.Payload)
 		if _, err := tx.Exec(ctx, `
 INSERT INTO job_events (id, job_id, event_type, message, payload, created_at)
-VALUES ($1,$2,$3,$4,'{}'::jsonb,$5)`, randomUUID(), jobID, event.EventType, event.Message, event.CreatedAt); err != nil {
+VALUES ($1,$2,$3,$4,$5,$6)`, randomUUID(), jobID, event.EventType, event.Message, payload, event.CreatedAt); err != nil {
 			return err
 		}
 	}
@@ -458,10 +461,10 @@ func insertOutbox(ctx context.Context, tx pgx.Tx, events []training.OutboxEvent)
 		if _, err := tx.Exec(ctx, `
 INSERT INTO outbox_events (
  id, message_id, aggregate_type, aggregate_id, aggregate_version, event_type,
- schema_version, payload, available_at, created_at
-) VALUES ($1,$2,'training_job',$3,$4,$5,$6,$7,$8,$8)`,
+ schema_version, payload, trace_context, available_at, created_at
+) VALUES ($1,$2,'training_job',$3,$4,$5,$6,$7,$8,$9,$9)`,
 			randomUUID(), event.MessageID, event.JobID, event.DispatchGeneration,
-			event.EventType, event.SchemaVersion, payload, event.OccurredAt); err != nil {
+			event.EventType, event.SchemaVersion, payload, serializedTraceContext(ctx), event.OccurredAt); err != nil {
 			return err
 		}
 	}

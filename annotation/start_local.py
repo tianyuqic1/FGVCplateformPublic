@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import hashlib
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
@@ -43,6 +44,12 @@ def main():
     for path in (python, models / "manifest.json", qwen, mmproj, sam / "model.safetensors"):
         if not path.exists():
             raise RuntimeError("missing local component: " + str(path))
+    requirements = ROOT / "requirements.txt"
+    dependency_marker = runtime / "requirements.sha256"
+    requirement_hash = hashlib.sha256(requirements.read_bytes()).hexdigest()
+    if not dependency_marker.exists() or dependency_marker.read_text().strip() != requirement_hash:
+        subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "-r", str(requirements)], check=True)
+        dependency_marker.write_text(requirement_hash)
     container("finevision-annotation-qwen-low", ["--cpus", "4", "--memory", "8g", "-p", "127.0.0.1:8087:8080",
         "-v", str(qwen) + ":/models/model.gguf:ro", "-v", str(mmproj) + ":/models/mmproj.gguf:ro",
         QWEN_IMAGE, "-m", "/models/model.gguf", "--mmproj", "/models/mmproj.gguf", "--host", "0.0.0.0",
@@ -65,7 +72,10 @@ def main():
     subprocess.run(["go", "build", "-o", str(binary), "./cmd/annotation-agent"], cwd=REPO / "go", check=True)
     gateway = json.loads(subprocess.check_output(["docker", "inspect", "finevision-go-llm-gateway-1"]))[0]
     config = dict(item.split("=", 1) for item in gateway["Config"]["Env"])
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2"}
+    python_path = str(REPO / "backend" / "src")
+    if os.environ.get("PYTHONPATH"):
+        python_path += os.pathsep + os.environ["PYTHONPATH"]
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2", "PYTHONPATH": python_path}
     for source, target in (("FINEVISION_LLM_BASE_URL", "VLM_BASE_URL"), ("FINEVISION_LLM_MODEL", "VLM_MODEL"),
         ("FINEVISION_LLM_API_KEY", "VLM_API_KEY"), ("FINEVISION_LLM_INTERNAL_TOKEN", "ANNOTATION_WORKER_TOKEN")):
         if not config.get(source):

@@ -1,0 +1,116 @@
+logging {
+	level  = "info"
+	format = "json"
+}
+
+discovery.docker "finevision" {
+	host = "unix:///var/run/docker.sock"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=finevision"]
+	}
+}
+
+discovery.relabel "docker" {
+	targets = discovery.docker.finevision.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		regex         = "(alloy|loki|tempo|prometheus|postgres-exporter|grafana)"
+		action        = "drop"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "compose_service"
+	}
+}
+
+loki.source.docker "finevision" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.docker.output
+	labels     = {platform = "finevision"}
+	forward_to = [loki.process.finevision.receiver]
+}
+
+local.file_match "annotation_legacy" {
+	path_targets = [{__path__ = "/var/log/finevision/annotation/*.log", service = "annotation-worker", platform = "finevision"}]
+	sync_period  = "10s"
+}
+
+loki.source.file "annotation_legacy" {
+	targets       = local.file_match.annotation_legacy.targets
+	tail_from_end = true
+	forward_to    = [loki.process.finevision.receiver]
+}
+
+loki.process "finevision" {
+	stage.drop {
+		// On first installation Docker has no saved positions. Do not replay
+		// pre-observability history into already-active Loki streams.
+		older_than          = "1h"
+		drop_counter_reason = "pre_observability_history"
+	}
+
+	stage.json {
+		expressions = {
+			service     = "service",
+			environment = "environment",
+			level       = "level",
+			outcome     = "outcome",
+		}
+	}
+
+	stage.labels {
+		values = {
+			service     = "",
+			environment = "",
+			level       = "",
+			outcome     = "",
+		}
+	}
+	forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}
+
+otelcol.receiver.otlp "default" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.default.input]
+	}
+}
+
+otelcol.processor.batch "default" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "tempo:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}

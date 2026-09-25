@@ -15,6 +15,7 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/hardware"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/review"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
 )
@@ -56,6 +57,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
+	router.Use(observability.HTTPMiddleware)
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit := int64(512 << 20)
@@ -94,6 +96,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 			middleware.Timeout(timeout)(next).ServeHTTP(w, r)
 		})
 	})
+	registerSwagger(router)
 	dependencies.Hardware.Register(router)
 	dependencies.Annotation.Register(router)
 	registerReviews(router, dependencies.Reviews, dependencies.LLMApplication)
@@ -115,5 +118,6 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	registerDatasetPreviews(router, dependencies.DatasetImport)
+	router.Handle("/metrics", observability.MetricsHandler())
 	return openapi.HandlerFromMux(strict, router)
 }

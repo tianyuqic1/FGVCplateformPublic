@@ -4,11 +4,32 @@ info:
   version: 1.0.0
 servers:
   - url: /
+tags:
+  - name: 系统
+    description: 服务存活状态与基础诊断。
+  - name: 数据集
+    description: 数据集导入、版本扩展与读取。
+  - name: 数据集说明
+    description: 数据集说明的 AI 生成、修订与读取。
+  - name: 任务
+    description: 异步任务状态读取。
+  - name: 预训练权重
+    description: 可用于训练的预训练骨干权重目录。
+  - name: 模型注册
+    description: 模型版本、比较、别名和生命周期管理。
+  - name: 大模型辅助
+    description: 受控的大模型辅助能力。
+  - name: 训练
+    description: 训练任务创建、指标读取与生命周期控制。
+  - name: 内部训练 Worker
+    description: 训练 Worker 使用的租约、心跳和结果上报接口，不面向浏览器用户。
 paths:
   /api/dataset-versions/{dataset_version_id}/card:
     parameters:
       - {name: dataset_version_id, in: path, required: true, schema: {type: string}}
     get:
+      tags: [数据集说明]
+      summary: 获取数据集说明
       operationId: getDatasetCard
       responses:
         "200":
@@ -18,6 +39,8 @@ paths:
               schema: {$ref: "#/components/schemas/FreeFormObject"}
         default: {$ref: "#/components/responses/ErrorResponse"}
     put:
+      tags: [数据集说明]
+      summary: 保存数据集说明修订
       operationId: saveDatasetCard
       requestBody:
         required: true
@@ -41,6 +64,8 @@ paths:
     parameters:
       - {name: dataset_version_id, in: path, required: true, schema: {type: string}}
     post:
+      tags: [数据集说明]
+      summary: 使用 AI 生成数据集说明建议
       operationId: generateDatasetCard
       requestBody:
         required: true
@@ -60,6 +85,8 @@ paths:
         default: {$ref: "#/components/responses/ErrorResponse"}
   /api/dataset-imports:
     get:
+      tags: [数据集]
+      summary: 查询数据集导入任务
       operationId: listDatasetImports
       responses:
         "200":
@@ -70,6 +97,8 @@ paths:
         "503": {$ref: "#/components/responses/ErrorResponse"}
   /api/datasets/upload-imagefolder:
     post:
+      tags: [数据集]
+      summary: 上传并导入 ImageFolder 数据集
       operationId: uploadImagefolder
       requestBody:
         required: true
@@ -98,6 +127,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DatasetID"
     get:
+      tags: [数据集]
+      summary: 获取可回流训练集的已审核样本
       operationId: listTrainingCandidates
       responses:
         "200":
@@ -110,6 +141,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DatasetID"
     post:
+      tags: [数据集]
+      summary: 基于已有版本创建新数据集版本
       operationId: expandDataset
       requestBody:
         required: true
@@ -136,6 +169,8 @@ paths:
         default: {$ref: "#/components/responses/ErrorResponse"}
   /api/health:
     get:
+      tags: [系统]
+      summary: 检查控制面存活状态
       operationId: getHealth
       responses:
         "200":
@@ -146,6 +181,8 @@ paths:
                 $ref: "#/components/schemas/Health"
   /api/datasets:
     get:
+      tags: [数据集]
+      summary: 查询数据集列表
       operationId: listDatasets
       responses:
         "200":
@@ -163,12 +200,16 @@ paths:
     parameters:
       - $ref: "#/components/parameters/DatasetID"
     get:
+      tags: [数据集]
+      summary: 获取数据集详情
       operationId: getDataset
       responses:
         "200": {$ref: "#/components/responses/DatasetResponse"}
         "404": {$ref: "#/components/responses/ErrorResponse"}
   /api/jobs:
     get:
+      tags: [任务]
+      summary: 查询异步任务列表
       operationId: listJobs
       responses:
         "200":
@@ -186,12 +227,16 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     get:
+      tags: [任务]
+      summary: 获取异步任务详情
       operationId: getJob
       responses:
         "200": {$ref: "#/components/responses/JobResponse"}
         "404": {$ref: "#/components/responses/ErrorResponse"}
   /api/model-weights:
     get:
+      tags: [预训练权重]
+      summary: 查询预训练权重目录
       operationId: listModelWeights
       responses:
         "200":
@@ -207,6 +252,8 @@ paths:
                     items: {$ref: "#/components/schemas/FreeFormObject"}
   /api/model-versions:
     get:
+      tags: [模型注册]
+      summary: 查询模型版本列表
       operationId: listModelVersions
       parameters:
         - name: dataset_id
@@ -234,6 +281,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ModelVersionID"
     get:
+      tags: [模型注册]
+      summary: 获取模型版本详情
       operationId: getModelVersion
       responses:
         "200":
@@ -244,6 +293,8 @@ paths:
         "404": {$ref: "#/components/responses/ErrorResponse"}
   /api/model-version-comparisons:
     post:
+      tags: [模型注册]
+      summary: 比较同一数据集范围内的模型版本
       operationId: compareModelVersions
       requestBody:
         required: true
@@ -262,6 +313,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ModelVersionID"
     post:
+      tags: [模型注册]
+      summary: 晋升模型版本
       operationId: promoteModelVersion
       requestBody:
         required: true
@@ -281,6 +334,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ModelVersionID"
     post:
+      tags: [模型注册]
+      summary: 归档模型版本
       operationId: archiveModelVersion
       requestBody:
         required: true
@@ -303,6 +358,8 @@ paths:
         required: true
         schema: {type: string, enum: [champion, challenger]}
     put:
+      tags: [模型注册]
+      summary: 设置数据集范围内的模型别名
       operationId: setModelAlias
       requestBody:
         required: true
@@ -320,6 +377,8 @@ paths:
         "422": {$ref: "#/components/responses/ErrorResponse"}
   /api/llm/assist:
     post:
+      tags: [大模型辅助]
+      summary: 请求大模型辅助结果
       operationId: generateLLMAssistance
       requestBody:
         required: true
@@ -332,6 +391,8 @@ paths:
         "503": {$ref: "#/components/responses/ErrorResponse"}
   /api/training-runs:
     get:
+      tags: [训练]
+      summary: 查询训练任务列表
       operationId: listTrainingRuns
       responses:
         "200":
@@ -346,6 +407,8 @@ paths:
                     type: array
                     items: {$ref: "#/components/schemas/FreeFormObject"}
     post:
+      tags: [训练]
+      summary: 创建训练任务
       operationId: createTrainingRun
       requestBody:
         required: true
@@ -359,6 +422,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/RunID"
     get:
+      tags: [训练]
+      summary: 获取训练任务详情
       operationId: getTrainingRun
       responses:
         "200": {$ref: "#/components/responses/TrainingRunResponse"}
@@ -379,6 +444,8 @@ paths:
         in: query
         schema: {type: integer, minimum: 1, maximum: 5000, default: 1000}
     get:
+      tags: [训练]
+      summary: 获取训练指标序列
       operationId: getTrainingRunMetrics
       responses:
         "200":
@@ -391,6 +458,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/RunID"
     post:
+      tags: [训练]
+      summary: 暂停训练任务
       operationId: pauseTrainingRun
       responses:
         "200": {$ref: "#/components/responses/TrainingRunResponse"}
@@ -400,6 +469,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/RunID"
     post:
+      tags: [训练]
+      summary: 恢复训练任务
       operationId: resumeTrainingRun
       responses:
         "200": {$ref: "#/components/responses/TrainingRunResponse"}
@@ -409,6 +480,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/RunID"
     post:
+      tags: [训练]
+      summary: 取消训练任务
       operationId: cancelTrainingRun
       responses:
         "200": {$ref: "#/components/responses/TrainingRunResponse"}
@@ -418,6 +491,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     post:
+      tags: [内部训练 Worker]
+      summary: 领取训练任务租约
       operationId: claimTrainingJob
       requestBody:
         required: true
@@ -432,6 +507,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     post:
+      tags: [内部训练 Worker]
+      summary: 续约训练任务租约
       operationId: heartbeatTrainingJob
       requestBody:
         required: true
@@ -446,6 +523,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     post:
+      tags: [内部训练 Worker]
+      summary: 上报训练进度与指标
       operationId: reportTrainingProgress
       requestBody:
         required: true
@@ -469,6 +548,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     post:
+      tags: [内部训练 Worker]
+      summary: 完成训练任务并登记产物
       operationId: completeTrainingJob
       requestBody:
         required: true
@@ -484,6 +565,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/JobID"
     post:
+      tags: [内部训练 Worker]
+      summary: 上报训练任务失败
       operationId: failTrainingJob
       requestBody:
         required: true

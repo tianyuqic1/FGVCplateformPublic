@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>FineVision · 日志与观测控制台</title>
+  <link rel="stylesheet" href="/console.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">FV</span><div><strong>FineVision</strong><small>OBSERVABILITY CONSOLE</small></div></div>
+    <div class="topbar-meta"><span class="private-badge">独立运维入口</span><span id="system-state" class="system-state unknown"><i></i>正在检查组件</span></div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div><p class="eyebrow">OPERATIONS / RUNTIME RECORDS</p><h1>日志与系统观测</h1><p>集中查看运行记录、指标、调用链与业务审计。本控制台独立于 FineVision 业务工作台。</p></div>
+      <button id="refresh" class="icon-button" type="button" title="刷新当前页面">↻</button>
+    </section>
+
+    <nav class="tabs" aria-label="观测控制台导航">
+      <button type="button" class="active" data-tab="overview">运行总览</button>
+      <button type="button" data-tab="logs">分类日志</button>
+      <button type="button" data-tab="timeline">业务时间线</button>
+      <button type="button" data-tab="alerts">告警中心</button>
+    </nav>
+
+    <div id="notice" class="notice hidden" role="alert"></div>
+    <section id="view" aria-live="polite"></section>
+  </main>
+
+  <div id="trace-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Trace 详情">
+    <div class="modal-card"><header><div><small>TRACE DETAIL</small><strong id="trace-title"></strong></div><button id="trace-close" type="button">×</button></header><pre id="trace-body"></pre></div>
+  </div>
+  <script type="module" src="/console.js"></script>
+</body>
+</html>

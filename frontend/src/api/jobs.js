@@ -1,34 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 2500;
-
-function apiBaseUrl() {
-  const configured = import.meta.env?.VITE_API_BASE_URL;
-  return configured ? configured.replace(/\/$/, "") : "";
-}
-
-async function fetchJson(path, { method = "GET", body, signal } = {}) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`${response.status} ${method} ${path}`);
-  }
-
-  return response.json();
-}
-
-function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
-}
+import { fetchJson, withTimeout } from "./http.js";
 
 function firstNumber(...values) {
   const value = values.find((item) => Number.isFinite(Number(item)));

@@ -36,8 +36,10 @@ const base = process.env.SHOWCASE_URL || 'http://localhost:5180';
       assert.equal(new URL(page.url()).hash, '#chapter-3-10');
       await page.getByRole('heading', { name: '3.10 图像工具层与受限工作流', exact: false }).waitFor();
 
-      const annotationProductLink = page.locator('a[href="http://localhost:5173/annotation"]');
-      assert.ok(await annotationProductLink.count() >= 1);
+      const routeTable = page.locator('#chapter-0-2 + .table-wrap');
+      assert.equal(await routeTable.count(), 1);
+      assert.equal(await routeTable.locator('a').count(), 0);
+      assert.equal(await routeTable.getByText('/annotation', { exact: true }).count(), 1);
       assert.equal(await page.locator('a[href^="./annotation/"]').count(), 0);
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),

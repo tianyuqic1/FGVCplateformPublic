@@ -1,0 +1,44 @@
+groups:
+  - name: finevision-runtime
+    rules:
+      - alert: FineVisionAPIHigh5xxRate
+        expr: sum(rate(finevision_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(finevision_http_requests_total[5m])), 0.001) > 0.02
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: FineVision API 5xx 比例持续超过 2%
+      - alert: FineVisionRuntimeTargetDown
+        expr: up{job=~"finevision-.*|rabbitmq|postgres",required!="false"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: FineVision 运行模块不可达
+      - alert: FineVisionOutboxLag
+        expr: finevision_outbox_oldest_age_seconds > 60
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: FineVision Outbox 最老事件超过 60 秒
+      - alert: FineVisionDeadLetterQueueHasMessages
+        expr: rabbitmq_queue_messages_ready{queue=~".*(dlq|dead).*"} > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: FineVision RabbitMQ 死信队列存在待处理消息
+      - alert: FineVisionRuntimeFailures
+        expr: increase(finevision_runtime_work_total{outcome="failed"}[10m]) > 2
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: FineVision Worker 连续出现失败
+      - alert: FineVisionArtifactIntegrityFailure
+        expr: increase(finevision_artifact_integrity_failures_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: FineVision 产物完整性校验失败
+      - alert: FineVisionLLMProviderErrors
+        expr: increase(finevision_llm_requests_total{outcome=~"rate_limited|server_error|failed|unknown"}[10m]) > 2
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: FineVision 大模型 Provider 连续异常

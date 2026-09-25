@@ -123,7 +123,12 @@ func (s *DeploymentRepository) Create(ctx context.Context, modelID string, input
 		return deployment.Record{}, err
 	}
 	if status == "queued" {
-		_, err = tx.Exec(ctx, `INSERT INTO deployment_outbox(id,deployment_id,build_token,runtime) VALUES($1,$2,$3,$4) ON CONFLICT(deployment_id,build_token) DO NOTHING`, uuid.NewString(), id, token, input.Runtime)
+		_, err = tx.Exec(ctx, `INSERT INTO deployment_outbox(id,deployment_id,build_token,runtime,trace_context) VALUES($1,$2,$3,$4,$5) ON CONFLICT(deployment_id,build_token) DO NOTHING`, uuid.NewString(), id, token, input.Runtime, serializedTraceContext(ctx))
+		if err != nil {
+			return deployment.Record{}, err
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO model_deployment_events(id,deployment_id,event_type,actor,to_status,payload)
+		 VALUES($1,$2,'queued',$3,'queued',jsonb_build_object('runtime',$4,'precision',$5,'target_profile',$6))`, uuid.NewString(), id, input.Actor, input.Runtime, input.Precision, profile)
 		if err != nil {
 			return deployment.Record{}, err
 		}
@@ -149,7 +154,12 @@ func (s *DeploymentRepository) Retry(ctx context.Context, id string) (deployment
 	if err != nil {
 		return deployment.Record{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO deployment_outbox(id,deployment_id,build_token,runtime) VALUES($1,$2,$3,$4)`, uuid.NewString(), id, token, runtime)
+	_, err = tx.Exec(ctx, `INSERT INTO deployment_outbox(id,deployment_id,build_token,runtime,trace_context) VALUES($1,$2,$3,$4,$5)`, uuid.NewString(), id, token, runtime, serializedTraceContext(ctx))
+	if err != nil {
+		return deployment.Record{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO model_deployment_events(id,deployment_id,event_type,actor,from_status,to_status)
+	 VALUES($1,$2,'retried','operator','failed','queued')`, uuid.NewString(), id)
 	if err != nil {
 		return deployment.Record{}, err
 	}
@@ -171,6 +181,8 @@ func (s *DeploymentRepository) Claim(ctx context.Context, id, token, worker, run
 	if tag.RowsAffected() != 1 {
 		return deployment.Record{}, review.ErrConflict
 	}
+	_, _ = s.Pool.Exec(ctx, `INSERT INTO model_deployment_events(id,deployment_id,event_type,actor,from_status,to_status,payload)
+	 VALUES($1,$2,'claimed',$3,'queued','building',jsonb_build_object('runtime',$4,'target_profile',$5))`, uuid.NewString(), id, worker, runtime, profile)
 	r, err := scanDeployment(s.Pool.QueryRow(ctx, deploymentSelect+` WHERE id=$1`, id))
 	if err == nil {
 		err = s.Pool.QueryRow(ctx, `SELECT dataset_id::text FROM model_versions WHERE id=$1`, r.ModelVersionID).Scan(&r.DatasetID)
@@ -210,6 +222,21 @@ func (s *DeploymentRepository) Complete(ctx context.Context, id, token, worker s
 		if err = s.Store.Verify(ctx, *compiled); err != nil {
 			return err
 		}
+	}
+	var diagnostic *artifact.Descriptor
+	if rawDiagnostic, ok := validation["diagnostic_log"]; ok {
+		raw, marshalErr := json.Marshal(rawDiagnostic)
+		if marshalErr != nil {
+			return review.ErrInvalid
+		}
+		var candidate artifact.Descriptor
+		if json.Unmarshal(raw, &candidate) != nil || candidate.ArtifactType != "deployment_log" || candidate.Metadata["deployment_id"] != id || candidate.DatasetVersionID != r.Source.DatasetVersionID || candidate.TrainingRunID != r.Source.TrainingRunID || candidate.SizeBytes < 0 || !strings.HasPrefix(candidate.URI, "s3://") {
+			return fmt.Errorf("部署诊断日志校验不通过: %w", review.ErrInvalid)
+		}
+		if err = s.Store.Verify(ctx, candidate); err != nil {
+			return err
+		}
+		diagnostic = &candidate
 	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -261,6 +288,23 @@ func (s *DeploymentRepository) Complete(ctx context.Context, id, token, worker s
 		report, _ := json.Marshal(validation)
 		_, err = tx.Exec(ctx, `UPDATE model_deployments SET status='ready',compiled_artifact_id=$2,compiled_descriptor=$3,validation=$4,lease_expires_at=NULL,updated_at=now() WHERE id=$1`, id, compiled.ArtifactID, raw, report)
 	}
+	if err != nil {
+		return err
+	}
+	if diagnostic != nil {
+		metadata, _ := json.Marshal(diagnostic.Metadata)
+		_, err = tx.Exec(ctx, `INSERT INTO artifacts(id,artifact_key,artifact_type,dataset_id,dataset_version_id,training_run_id,uri,checksum,size_bytes,content_type,storage_version,producer,schema_version,verified_at,artifact_metadata,created_at)
+		 SELECT $1::uuid,$1::text,$2,dataset_id,$3,$4,$5,$6,$7,$8,$9,$10,1,now(),$11,now() FROM model_versions WHERE id=$12 ON CONFLICT(id) DO NOTHING`, diagnostic.ArtifactID, diagnostic.ArtifactType, diagnostic.DatasetVersionID, diagnostic.TrainingRunID, diagnostic.URI, diagnostic.SHA256, diagnostic.SizeBytes, diagnostic.ContentType, diagnostic.StorageVersion, diagnostic.Producer, metadata, r.ModelVersionID)
+		if err != nil {
+			return err
+		}
+	}
+	targetStatus, eventType := "ready", "completed"
+	if failure != "" {
+		targetStatus, eventType = "failed", "failed"
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO model_deployment_events(id,deployment_id,event_type,actor,from_status,to_status,payload)
+	 VALUES($1,$2,$3,$4,'building',$5,jsonb_build_object('error',$6))`, uuid.NewString(), id, eventType, worker, targetStatus, failure)
 	if err != nil {
 		return err
 	}

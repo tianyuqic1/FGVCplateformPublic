@@ -1,42 +1,6 @@
+import { APIError, apiBaseUrl, apiErrorFromResponse, fetchJson, withTimeout } from "./http.js";
+
 const DEFAULT_TIMEOUT_MS = 2500;
-
-function apiBaseUrl() {
-  const configured = import.meta.env?.VITE_API_BASE_URL;
-  return configured ? configured.replace(/\/$/, "") : "";
-}
-
-async function fetchJson(path, { method = "GET", body, signal } = {}) {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    method,
-    headers: {
-      Accept: "application/json",
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
-  });
-
-  if (!response.ok) {
-    let detail = `${response.status} ${method} ${path}`;
-    try {
-      const payload = await response.json();
-      const message = payload?.error?.message ?? (typeof payload?.detail === "string" ? payload.detail : payload?.detail?.message);
-      detail = message ? `${detail}: ${message}` : detail;
-    } catch {
-      // Keep the HTTP status fallback when the response body is not JSON.
-    }
-    throw new Error(detail);
-  }
-
-  return response.json();
-}
-
-function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
-}
 
 function firstNumber(...values) {
   const value = values.find((item) => Number.isFinite(Number(item)));
@@ -251,7 +215,14 @@ export async function uploadImagefolder(input) {
       try { payload = JSON.parse(xhr.responseText); } catch { reject(new Error(`上传响应异常（${xhr.status}），请查看后台导入任务后再重试。`)); return; }
       if (xhr.status < 200 || xhr.status >= 300) {
         const message = payload?.error?.message ?? payload?.detail?.message ?? payload?.detail;
-        reject(new Error(typeof message === "string" ? message : `上传失败（${xhr.status}）`));
+        reject(new APIError(typeof message === "string" ? message : `上传失败（${xhr.status}）`, {
+          status: xhr.status,
+          code: payload?.error?.code,
+          requestId: payload?.error?.request_id || xhr.getResponseHeader("X-Request-ID") || "",
+          method: "POST",
+          path: "/api/datasets/upload-imagefolder",
+          payload,
+        }));
         return;
       }
       if (xhr.status === 202 && payload?.job?.id) { resolve({ job: payload.job }); return; }
@@ -280,8 +251,9 @@ export async function expandDataset(datasetId, { baseVersionId, requestId, files
   form.append("request_id", requestId);
   form.append("feedback_ids", JSON.stringify(feedbackIds));
   files.forEach(file => form.append("files", file, file.webkitRelativePath || file.name));
-  const response = await fetch(`${apiBaseUrl()}/api/datasets/${encodeURIComponent(datasetId)}/versions`, { method: "POST", body: form });
+  const path = `/api/datasets/${encodeURIComponent(datasetId)}/versions`;
+  const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", body: form });
+  if (!response.ok) throw await apiErrorFromResponse(response, { method: "POST", path, fallback: "生成版本失败" });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload?.error?.message ?? "生成版本失败，请刷新后重试");
   return extractImportedDataset(payload);
 }

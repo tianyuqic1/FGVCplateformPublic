@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 )
 
 type OpenAICompatible struct {
@@ -58,10 +59,19 @@ func (provider *OpenAICompatible) Generate(ctx context.Context, request llm.Gate
 	started := time.Now()
 	response, err := provider.client.Do(httpRequest)
 	if err != nil {
+		observability.RecordLLM("openai-compatible", "failed", time.Since(started), 0, 0)
 		return llm.GatewayResult{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		outcome := "failed"
+		if response.StatusCode == http.StatusTooManyRequests {
+			outcome = "rate_limited"
+		}
+		if response.StatusCode >= 500 {
+			outcome = "server_error"
+		}
+		observability.RecordLLM("openai-compatible", outcome, time.Since(started), 0, 0)
 		return llm.GatewayResult{}, fmt.Errorf("LLM provider returned HTTP %d", response.StatusCode)
 	}
 	var body struct {
@@ -76,11 +86,14 @@ func (provider *OpenAICompatible) Generate(ctx context.Context, request llm.Gate
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4*1024*1024)).Decode(&body); err != nil {
+		observability.RecordLLM("openai-compatible", "failed", time.Since(started), 0, 0)
 		return llm.GatewayResult{}, err
 	}
 	if len(body.Choices) == 0 || strings.TrimSpace(body.Choices[0].Message.Content) == "" {
+		observability.RecordLLM("openai-compatible", "failed", time.Since(started), body.Usage.PromptTokens, body.Usage.CompletionTokens)
 		return llm.GatewayResult{}, fmt.Errorf("LLM provider returned no text")
 	}
+	observability.RecordLLM("openai-compatible", "success", time.Since(started), body.Usage.PromptTokens, body.Usage.CompletionTokens)
 	return llm.GatewayResult{
 		Provider: "openai-compatible", Model: provider.model, Text: body.Choices[0].Message.Content,
 		InputTokens: body.Usage.PromptTokens, OutputTokens: body.Usage.CompletionTokens,

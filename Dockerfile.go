@@ -7,7 +7,8 @@ COPY go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/control-plane ./cmd/control-plane \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/outbox-relay ./cmd/outbox-relay \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/llm-gateway ./cmd/llm-gateway \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/deployment-relay ./cmd/deployment-relay
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/deployment-relay ./cmd/deployment-relay \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/observability-console ./cmd/observability-console
 
 FROM alpine:3.22
 RUN addgroup -S finevision && adduser -S -G finevision finevision

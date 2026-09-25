@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,47 @@ func TestHealthReportsControlPlaneIdentity(t *testing.T) {
 	}
 	if payload.Status != "ok" || payload.Runtime != "go-control-plane" {
 		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestSwaggerUIAndEmbeddedSpecifications(t *testing.T) {
+	handler := NewRouter(Dependencies{})
+
+	redirect := httptest.NewRecorder()
+	handler.ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/swagger", nil))
+	if redirect.Code != http.StatusPermanentRedirect || redirect.Header().Get("Location") != "/swagger/" {
+		t.Fatalf("swagger redirect = %d %q", redirect.Code, redirect.Header().Get("Location"))
+	}
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/swagger/", nil))
+	if page.Code != http.StatusOK ||
+		!strings.Contains(page.Body.String(), "FineVision API") ||
+		!strings.Contains(page.Body.String(), "/openapi/finevision.yaml") ||
+		!strings.Contains(page.Body.String(), "/openapi/hardware.yaml") ||
+		!strings.Contains(page.Body.String(), `defaultModelsExpandDepth: -1`) ||
+		!strings.Contains(page.Body.String(), `docExpansion: "list"`) {
+		t.Fatalf("swagger page = %d %q", page.Code, page.Body.String())
+	}
+
+	asset := httptest.NewRecorder()
+	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/swagger/swagger-ui-bundle.js", nil))
+	if asset.Code != http.StatusOK || !strings.Contains(asset.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("swagger asset = %d %q", asset.Code, asset.Header().Get("Content-Type"))
+	}
+
+	for _, specification := range []struct {
+		path  string
+		title string
+	}{
+		{path: "/openapi/finevision.yaml", title: "FineVision Control Plane API"},
+		{path: "/openapi/hardware.yaml", title: "FineVision Hardware Monitoring"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, specification.path, nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "application/yaml") || !strings.Contains(response.Body.String(), specification.title) {
+			t.Fatalf("specification %s = %d %q", specification.path, response.Code, response.Body.String())
+		}
 	}
 }
 

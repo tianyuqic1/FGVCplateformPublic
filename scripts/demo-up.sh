@@ -44,6 +44,13 @@ done
 echo "Validating compose configuration..."
 "${compose[@]}" config >/dev/null
 
+if [[ "${#build_flag[@]}" -gt 0 ]]; then
+  # The inference image extends the local compute image. Build that base first
+  # so a clean machine never races Docker Compose's parallel image builds.
+  echo "Building Python compute base image..."
+  "${compose[@]}" build python-training-worker
+fi
+
 echo "Starting FineVision demo stack..."
 "${compose[@]}" up -d "${build_flag[@]}" \
   frontend go-control-plane outbox-relay go-llm-gateway \

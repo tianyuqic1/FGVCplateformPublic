@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from finevision.compute.hardware_collector import worker_identity
 import threading
@@ -28,6 +29,12 @@ from finevision.artifact_store import ArtifactDescriptor, ArtifactStore, S3Artif
 from finevision.compute.v1 import artifact_pb2, training_lifecycle_pb2, training_lifecycle_pb2_grpc
 from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, WEIGHT_ALIASES, prepare_managed_weight
 from finevision.worker.jobs import TrainingRunStopped, _run_train_classifier
+from finevision.observability import bind_context, configure_logging
+from finevision.observability.metrics import RuntimeMetrics, start_metrics_server
+from finevision.observability.tracing import configure_tracing, observed_message_callback
+
+
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -394,15 +401,16 @@ def create_s3_artifact_store() -> S3ArtifactStore:
 
 
 class QueueTrainingWorker:
-    def __init__(self, lifecycle: Any, artifact_store: ArtifactStore, channel: Any, queue: str) -> None:
+    def __init__(self, lifecycle: Any, artifact_store: ArtifactStore, channel: Any, queue: str, metrics: RuntimeMetrics | None = None) -> None:
         self.lifecycle = lifecycle
         self.artifact_store = artifact_store
         self.channel = channel
         self.queue = queue
+        self.metrics = metrics
 
     def run(self) -> None:
         self.channel.basic_qos(prefetch_count=1)
-        self.channel.basic_consume(queue=self.queue, on_message_callback=self._on_message, auto_ack=False)
+        self.channel.basic_consume(queue=self.queue, on_message_callback=observed_message_callback("training.delivery", self._on_message), auto_ack=False)
         self.channel.start_consuming()
 
     def _on_message(self, channel: Any, method: Any, _properties: Any, body: bytes) -> None:
@@ -426,6 +434,7 @@ class QueueTrainingWorker:
             channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
             return
         if claim.disposition != "claimed":
+            LOG.info("Training delivery was not claimed", extra={"event": "training_delivery_skipped", "job_id": dispatch.job_id, "message_id": dispatch.message_id, "outcome": claim.disposition})
             channel.basic_ack(delivery_tag=method.delivery_tag)
             return
         channel.basic_ack(delivery_tag=method.delivery_tag)
@@ -441,44 +450,70 @@ class QueueTrainingWorker:
             attempt_id=claim.attempt_id,
             execution_epoch=claim.execution_epoch,
         )
-        metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision/metadata"))
-        dataset_files = ExitStack()
-        try:
-            dataset_files.enter_context(HeartbeatLoop(remote_store))
-            if payload.get("dataset_archive"):
-                from finevision.compute.artifacts import descriptor_from_dict
-                from finevision.compute.dataset_compute import unpack_dataset
-                from finevision.ml_toolkit.datasets import scan_imagefolder
-                descriptor = descriptor_from_dict(payload["dataset_archive"])
-                if descriptor.dataset_version_id != payload["dataset_version_id"]:
-                    raise ValueError("Dataset archive scope mismatch")
-                local_archive = self.artifact_store.materialize_verified(descriptor, os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"))
-                root = Path(dataset_files.enter_context(tempfile.TemporaryDirectory(prefix="finevision-training-data-")))
-                unpack_dataset(local_archive, root)
-                manifest = scan_imagefolder(root, str(payload["dataset_id"]), str(payload["dataset_version_id"]))
-                metadata_store = SimpleNamespace(get_dataset_version=lambda version: manifest if version == manifest.dataset_version_id else None)
-            backbone_key = str(payload.get("backbone_id") or payload.get("extractor") or "")
-            backbone_key = WEIGHT_ALIASES.get(backbone_key, backbone_key)
-            if backbone_key in MANAGED_WEIGHTS:
-                prepare_managed_weight(
-                    self.artifact_store,
-                    os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"),
-                    backbone_key,
-                )
-            _run_train_classifier(payload, metadata_store, remote_store)
-        except TrainingRunStopped:
-            return
-        except Exception as error:  # The lifecycle RPC is the error persistence boundary.
-            if not remote_store.failed:
-                try:
-                    remote_store.mark_failed(claim.training_run_id, str(error))
-                except grpc.RpcError:
-                    pass
-        finally:
-            dataset_files.close()
+        with bind_context(
+            message_id=dispatch.message_id,
+            job_id=dispatch.job_id,
+            training_run_id=claim.training_run_id,
+            attempt_id=claim.attempt_id,
+            execution_epoch=claim.execution_epoch,
+            worker_id=worker_identity(),
+            dataset_version_id=str(payload.get("dataset_version_id", "")),
+        ):
+            started = time.monotonic()
+            outcome = "success"
+            if self.metrics:
+                self.metrics.set_inflight(kind="training", value=1)
+            LOG.info("Training attempt started", extra={"event": "training_attempt_started", "outcome": "running"})
+            metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision/metadata"))
+            dataset_files = ExitStack()
+            try:
+                dataset_files.enter_context(HeartbeatLoop(remote_store))
+                if payload.get("dataset_archive"):
+                    from finevision.compute.artifacts import descriptor_from_dict
+                    from finevision.compute.dataset_compute import unpack_dataset
+                    from finevision.ml_toolkit.datasets import scan_imagefolder
+                    descriptor = descriptor_from_dict(payload["dataset_archive"])
+                    if descriptor.dataset_version_id != payload["dataset_version_id"]:
+                        raise ValueError("Dataset archive scope mismatch")
+                    local_archive = self.artifact_store.materialize_verified(descriptor, os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"))
+                    root = Path(dataset_files.enter_context(tempfile.TemporaryDirectory(prefix="finevision-training-data-")))
+                    unpack_dataset(local_archive, root)
+                    manifest = scan_imagefolder(root, str(payload["dataset_id"]), str(payload["dataset_version_id"]))
+                    metadata_store = SimpleNamespace(get_dataset_version=lambda version: manifest if version == manifest.dataset_version_id else None)
+                backbone_key = str(payload.get("backbone_id") or payload.get("extractor") or "")
+                backbone_key = WEIGHT_ALIASES.get(backbone_key, backbone_key)
+                if backbone_key in MANAGED_WEIGHTS:
+                    prepare_managed_weight(
+                        self.artifact_store,
+                        os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache"),
+                        backbone_key,
+                    )
+                _run_train_classifier(payload, metadata_store, remote_store)
+                LOG.info("Training attempt completed", extra={"event": "training_attempt_completed", "outcome": "success"})
+            except TrainingRunStopped:
+                outcome = "cancelled"
+                LOG.warning("Training attempt stopped", extra={"event": "training_attempt_stopped", "outcome": "cancelled"})
+                return
+            except Exception as error:  # The lifecycle RPC is the error persistence boundary.
+                outcome = "failed"
+                LOG.exception("Training attempt failed", extra={"event": "training_attempt_failed", "outcome": "failed", "error_type": type(error).__name__})
+                if not remote_store.failed:
+                    try:
+                        remote_store.mark_failed(claim.training_run_id, str(error))
+                    except grpc.RpcError:
+                        LOG.exception("Training failure callback failed", extra={"event": "training_failure_callback_failed", "outcome": "unknown"})
+            finally:
+                dataset_files.close()
+                if self.metrics:
+                    self.metrics.set_inflight(kind="training", value=0)
+                    self.metrics.record_work(kind="training", outcome=outcome, duration_seconds=time.monotonic() - started)
 
 
 def main() -> None:
+    configure_logging("python-training-worker", force=True)
+    trace_provider = configure_tracing("python-training-worker")
+    metrics = start_metrics_server("python-training-worker", 9301)
+    LOG.info("Training worker starting", extra={"event": "worker_starting"})
     rabbit = pika.BlockingConnection(pika.URLParameters(os.environ["FINEVISION_RABBITMQ_URL"]))
     channel = rabbit.channel()
     grpc_channel = grpc.insecure_channel(os.environ.get("FINEVISION_CONTROL_PLANE_GRPC", "go-control-plane:9000"))
@@ -489,12 +524,16 @@ def main() -> None:
         artifact_store,
         channel,
         os.environ.get("FINEVISION_TRAINING_QUEUE", "finevision.training.v1"),
+        metrics,
     )
     try:
         worker.run()
     finally:
         grpc_channel.close()
-        rabbit.close()
+        if rabbit.is_open:
+            rabbit.close()
+        if trace_provider is not None:
+            trace_provider.shutdown()
 
 
 if __name__ == "__main__":

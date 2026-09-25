@@ -28,12 +28,19 @@ func NewPublisher(channel Channel, exchange, routingKey string) *Publisher {
 func (publisher *Publisher) Publish(ctx context.Context, event outbox.Event) error {
 	confirms := publisher.channel.NotifyPublish(make(chan amqp.Confirmation, 1))
 	returns := publisher.channel.NotifyReturn(make(chan amqp.Return, 1))
+	headers := amqp.Table{}
+	for key, value := range event.Headers {
+		if key == "traceparent" || key == "tracestate" || key == "baggage" {
+			headers[key] = value
+		}
+	}
 	err := publisher.channel.PublishWithContext(ctx, publisher.exchange, publisher.routingKey, true, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
 		ContentType:  "application/json",
 		MessageId:    event.MessageID,
 		Type:         event.EventType,
 		Timestamp:    time.Now().UTC(),
+		Headers:      headers,
 		Body:         event.Payload,
 	})
 	if err != nil {

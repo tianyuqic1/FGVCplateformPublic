@@ -42,10 +42,20 @@ assert page.h3 >= 30, f'Handbook is missing route/engineering detail: {page.h3} 
 assert not re.search(r'sk-[a-zA-Z0-9]{15,}', content), 'Possible API key leaked'
 assert '48 / 48 单元' in content
 assert '9,600 个样本-方法案例' in content
-assert 'CUB-200-2011</td><td>92.50%' in content
+assert 'A / B / C / D 完整结果总表' in content
+assert '2,396 / 2,400' in content
+assert '在线弃权与 OOD 拒识实验' in content
+assert 'Accepted Accuracy' in content and 'OOD Recall' in content
+assert content.count('assets/evaluation/robust-') == 6
+for tool_asset in ('enhance-lowlight-output.png', 'enhance-motion-output.png',
+                   'enhance-denoise-output.png', 'enhance-defocus-output.png',
+                   'enhance-sr-output.png'):
+    assert tool_asset in content, f'Missing enhancement example: {tool_asset}'
 assert 'href="./annotation/' not in content
 assert 'href="./annotation/workflow/' not in content
-assert 'http://localhost:5173/annotation' in content
+navigation_source = (SITE.parent / 'handbook' / '00-navigation.html').read_text()
+assert '<a ' not in navigation_source, 'Product route table must remain static and non-clickable'
+assert 'http://localhost:5173/annotation' not in content
 
 count = 0
 for link in page.links:

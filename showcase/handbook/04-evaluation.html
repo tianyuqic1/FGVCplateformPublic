@@ -34,30 +34,57 @@
 </tbody></table></div>
 <p>B、C、D 使用同一份经过摘要校验的 Qwen 定位与 SAM2 主体像素快照；C、D 使用同一参考库、相同图片预算和分类契约，计划内差异只有文本候选是否参与 RRF。原图始终保留，增强工具不能串联。</p>
 
-<h3>4.4 三轮汇总结果</h3>
-<p>下表为每个数据集三轮共 600 张的全分母 Top-10。括号内为有效分类数；失败或 unknown 已按未命中计入。</p>
-<div class="table-wrap"><table><thead><tr><th>数据集</th><th>A · Direct</th><th>B · Workflow</th><th>C · Image RAG</th><th>D · Image + Text</th><th>D − A</th></tr></thead><tbody>
-<tr><td>ImageNet-100</td><td>99.33%（600/600）</td><td>99.33%（600/600）</td><td>98.83%（600/600）</td><td>99.00%（599/600）</td><td>-0.33 pp</td></tr>
-<tr><td>Stanford Cars</td><td>98.33%（600/600）</td><td>98.83%（600/600）</td><td><b>99.67%</b>（600/600）</td><td>99.00%（597/600）</td><td>+0.67 pp</td></tr>
-<tr><td>CUB-200-2011</td><td>92.50%（600/600）</td><td>93.17%（599/600）</td><td>95.33%（600/600）</td><td><b>95.83%</b>（600/600）</td><td>+3.33 pp</td></tr>
-<tr><td>CUB Robustness</td><td>86.50%（600/600）</td><td>87.50%（600/600）</td><td>89.83%（600/600）</td><td><b>92.33%</b>（600/600）</td><td>+5.83 pp</td></tr>
-</tbody></table></div>
-<p>全部 2,400 张数据集合并后，A / B / C / D 的 Top-10 分别为 94.17%、94.71%、95.92%、96.54%。这项合并结果只用于观察系统级趋势，不代表四个数据集等权混合后的自然总体分布。</p>
+<h3>4.4 鲁棒性样本构造</h3>
+<p>鲁棒性集不是另行挑选的“容易样本”，而是从冻结 CUB 查询图确定性派生。下面展示 6 张实际送入测评的图像；每张图的退化类型、强度、随机种子和文件摘要都记录在 manifest 中。</p>
+<div class="sample-gallery robustness-gallery">
+  <figure><img src="assets/evaluation/robust-0001.png" alt="运动模糊三级样本" loading="lazy"><figcaption><b>运动模糊 · 三级</b><span>21 px 水平核</span></figcaption></figure>
+  <figure><img src="assets/evaluation/robust-0002.png" alt="低光三级样本" loading="lazy"><figcaption><b>低光 · 三级</b><span>Gamma 2.8</span></figcaption></figure>
+  <figure><img src="assets/evaluation/robust-0067.png" alt="高斯噪声三级样本" loading="lazy"><figcaption><b>高斯噪声 · 三级</b><span>σ = 0.085</span></figcaption></figure>
+  <figure><img src="assets/evaluation/robust-0004.png" alt="低分辨率三级样本" loading="lazy"><figcaption><b>低分辨率 · 三级</b><span>缩至 1/8 后重采样</span></figcaption></figure>
+  <figure><img src="assets/evaluation/robust-0010.png" alt="散焦模糊三级样本" loading="lazy"><figcaption><b>散焦模糊 · 三级</b><span>Gaussian radius 3</span></figcaption></figure>
+  <figure><img src="assets/evaluation/robust-0020.png" alt="垂直运动模糊三级样本" loading="lazy"><figcaption><b>运动模糊 · 三级</b><span>21 px 垂直核</span></figcaption></figure>
+</div>
+<p class="caption-note">图 4-1　CUB Robustness 实际测评样本缩略图。页面使用统一窗口做等比裁切，不拉伸像素，便于并排观察退化特征。</p>
 
-<h3>4.5 Top-1、Top-5 与完整候选质量</h3>
-<div class="table-wrap"><table><thead><tr><th>数据集</th><th>方法</th><th>Top-1</th><th>Top-5</th><th>Top-10</th></tr></thead><tbody>
-<tr><td rowspan="2">ImageNet-100</td><td>A</td><td>85.67%</td><td>97.50%</td><td>99.33%</td></tr>
-<tr><td>D</td><td>85.50%</td><td>97.83%</td><td>99.00%</td></tr>
-<tr><td rowspan="2">Stanford Cars</td><td>A</td><td>78.50%</td><td>97.33%</td><td>98.33%</td></tr>
-<tr><td>D</td><td>81.33%</td><td>98.33%</td><td>99.00%</td></tr>
-<tr><td rowspan="2">CUB-200-2011</td><td>A</td><td>62.33%</td><td>88.83%</td><td>92.50%</td></tr>
-<tr><td>D</td><td>69.67%</td><td>93.33%</td><td>95.83%</td></tr>
-<tr><td rowspan="2">CUB Robustness</td><td>A</td><td>53.67%</td><td>81.17%</td><td>86.50%</td></tr>
-<tr><td>D</td><td>61.50%</td><td>87.83%</td><td>92.33%</td></tr>
+<h3>4.5 图像增强工具与真实输出</h3>
+<p>工具由质量规则与 VLM 选择器共同门控，单张最多调用一种，增强结果只作为补充视图。以下均为本项目本地模型的真实输出，不代表每次增强都会提高分类；质量校验不通过时会丢弃增强图并回退原图。</p>
+<div class="enhancement-grid">
+  <article class="enhancement-card"><header><b>Retinexformer</b><span>低光增强</span></header><div class="before-after"><figure><img src="assets/evaluation/enhance-lowlight-input.png" alt="低光增强前"><figcaption>增强前</figcaption></figure><figure><img src="assets/evaluation/enhance-lowlight-output.png" alt="低光增强后"><figcaption>增强后</figcaption></figure></div></article>
+  <article class="enhancement-card"><header><b>Restormer</b><span>运动去模糊</span></header><div class="before-after"><figure><img src="assets/evaluation/enhance-cardinal-motion.png" alt="运动去模糊前"><figcaption>增强前</figcaption></figure><figure><img src="assets/evaluation/enhance-motion-output.png" alt="运动去模糊后"><figcaption>增强后</figcaption></figure></div></article>
+  <article class="enhancement-card"><header><b>Restormer</b><span>高斯去噪</span></header><div class="before-after"><figure><img src="assets/evaluation/enhance-denoise-input.png" alt="高斯去噪前"><figcaption>增强前</figcaption></figure><figure><img src="assets/evaluation/enhance-denoise-output.png" alt="高斯去噪后"><figcaption>增强后</figcaption></figure></div></article>
+  <article class="enhancement-card"><header><b>Restormer</b><span>散焦恢复</span></header><div class="before-after"><figure><img src="assets/evaluation/enhance-defocus-input.png" alt="散焦恢复前"><figcaption>增强前</figcaption></figure><figure><img src="assets/evaluation/enhance-defocus-output.png" alt="散焦恢复后"><figcaption>增强后</figcaption></figure></div></article>
+  <article class="enhancement-card"><header><b>SwinIR ×2</b><span>原生低分辨率超分</span></header><div class="before-after"><figure><img src="assets/evaluation/enhance-sr-input.png" alt="超分前"><figcaption>96 × 96</figcaption></figure><figure><img src="assets/evaluation/enhance-sr-output.png" alt="超分后"><figcaption>192 × 192</figcaption></figure></div></article>
+</div>
+<p class="caption-note">图 4-2　五种工具的输入与输出。超分验收图使用平台自带 Toy Shapes；其余为 CUB 鲁棒性输入。散焦恢复示例也保留了模型可能引入的伪影，用于说明为什么必须保留质量门控。</p>
+
+<h3>4.6 A / B / C / D 完整结果总表</h3>
+<p>每个数据集、每种方法均以三轮 600 张为总分母。成功数用于单独观察调用稳定性；Top-1、Top-5、Top-10 的失败与 unknown 均按未命中计入，不做成功样本筛选。</p>
+<div class="table-wrap evaluation-master-table"><table><thead><tr><th>数据集</th><th>方法</th><th>有效分类</th><th>Top-1</th><th>Top-5</th><th>Top-10</th><th>平均耗时</th></tr></thead><tbody>
+<tr><td rowspan="4">ImageNet-100</td><td>A · Direct</td><td>600 / 600</td><td>85.67%</td><td>97.50%</td><td>99.33%</td><td>2.07 s</td></tr>
+<tr><td>B · Workflow</td><td>600 / 600</td><td>86.00%</td><td>97.83%</td><td>99.33%</td><td>3.76 s</td></tr>
+<tr><td>C · Image RAG</td><td>600 / 600</td><td>83.33%</td><td>97.00%</td><td>98.83%</td><td>5.29 s</td></tr>
+<tr class="method-final"><td>D · Image + Text</td><td>599 / 600</td><td>85.50%</td><td>97.83%</td><td>99.00%</td><td>5.08 s</td></tr>
+<tr><td rowspan="4">Stanford Cars</td><td>A · Direct</td><td>600 / 600</td><td>78.50%</td><td>97.33%</td><td>98.33%</td><td>2.19 s</td></tr>
+<tr><td>B · Workflow</td><td>600 / 600</td><td>79.00%</td><td>98.17%</td><td>98.83%</td><td>3.38 s</td></tr>
+<tr><td>C · Image RAG</td><td>600 / 600</td><td>81.00%</td><td>98.67%</td><td><b>99.67%</b></td><td>4.84 s</td></tr>
+<tr class="method-final"><td>D · Image + Text</td><td>597 / 600</td><td>81.33%</td><td>98.33%</td><td>99.00%</td><td>4.70 s</td></tr>
+<tr><td rowspan="4">CUB-200-2011</td><td>A · Direct</td><td>600 / 600</td><td>62.33%</td><td>88.83%</td><td>92.50%</td><td>异常批次*</td></tr>
+<tr><td>B · Workflow</td><td>599 / 600</td><td>63.83%</td><td>89.33%</td><td>93.17%</td><td>3.92 s</td></tr>
+<tr><td>C · Image RAG</td><td>600 / 600</td><td>68.83%</td><td>91.67%</td><td>95.33%</td><td>5.19 s</td></tr>
+<tr class="method-final"><td>D · Image + Text</td><td>600 / 600</td><td><b>69.67%</b></td><td><b>93.33%</b></td><td><b>95.83%</b></td><td>6.14 s</td></tr>
+<tr><td rowspan="4">CUB Robustness</td><td>A · Direct</td><td>600 / 600</td><td>53.67%</td><td>81.17%</td><td>86.50%</td><td>2.30 s</td></tr>
+<tr><td>B · Workflow</td><td>600 / 600</td><td>56.00%</td><td>81.83%</td><td>87.50%</td><td>4.33 s</td></tr>
+<tr><td>C · Image RAG</td><td>600 / 600</td><td>59.33%</td><td>85.33%</td><td>89.83%</td><td>5.81 s</td></tr>
+<tr class="method-final"><td>D · Image + Text</td><td>600 / 600</td><td><b>61.50%</b></td><td><b>87.83%</b></td><td><b>92.33%</b></td><td>5.96 s</td></tr>
+<tr class="overall-row"><td rowspan="4">四集合并</td><td>A · Direct</td><td>2,400 / 2,400</td><td>70.04%</td><td>91.21%</td><td>94.17%</td><td>—</td></tr>
+<tr class="overall-row"><td>B · Workflow</td><td>2,399 / 2,400</td><td>71.25%</td><td>91.79%</td><td>94.71%</td><td>—</td></tr>
+<tr class="overall-row"><td>C · Image RAG</td><td>2,400 / 2,400</td><td>73.13%</td><td>93.17%</td><td>95.92%</td><td>—</td></tr>
+<tr class="overall-row method-final"><td>D · Image + Text</td><td>2,396 / 2,400</td><td><b>74.50%</b></td><td><b>94.33%</b></td><td><b>96.54%</b></td><td>—</td></tr>
 </tbody></table></div>
+<p class="caption-note">表 4-1　完整 48 单元主结果。* CUB round-1 A 受首包超时和延迟队列恢复影响，锁定时长不代表正常在线延迟，因此不汇报其聚合耗时。</p>
 <p>检索增强对高难度和退化图更有价值：D 相对 A 在 CUB 的 Top-1 / Top-10 分别增加 7.34 / 3.33 个百分点，在鲁棒性集增加 7.83 / 5.83 个百分点。ImageNet-100 已接近上限，增加流程没有带来净收益。</p>
 
-<h3>4.6 检索与文本分支消融</h3>
+<h3>4.7 检索与文本分支消融</h3>
 <div class="table-wrap"><table><thead><tr><th>比较</th><th>ImageNet-100</th><th>Cars</th><th>CUB</th><th>CUB Robustness</th><th>四集合并</th></tr></thead><tbody>
 <tr><td>B − A：工具工作流</td><td>0.00 pp</td><td>+0.50 pp</td><td>+0.67 pp</td><td>+1.00 pp</td><td>+0.54 pp</td></tr>
 <tr><td>C − B：图像检索</td><td>-0.50 pp</td><td>+0.84 pp</td><td>+2.16 pp</td><td>+2.33 pp</td><td>+1.21 pp</td></tr>
@@ -65,7 +92,7 @@
 </tbody></table></div>
 <p>图像检索是 CUB 与鲁棒性提升的主要来源；文本分支在退化图上继续提升，但在 Cars 上出现回退。因此文本融合应保持可配置，不能把某一数据集上的正收益固化成全局必开策略。</p>
 
-<h3>4.7 工具调用与主体处理</h3>
+<h3>4.8 工具调用与主体处理</h3>
 <p>D 方法每个数据集 600 张的主体处理回退分别为：ImageNet-100 30 次（28 次定位回退、2 次 SAM 框回退）、Cars 4 次、CUB 5 次、鲁棒性集 19 次。回退后继续使用原图，不伪造主体图，也不将样本从分母剔除。</p>
 <div class="table-wrap"><table><thead><tr><th>鲁棒性集 D 方法</th><th>执行次数</th><th>占 600 张比例</th><th>说明</th></tr></thead><tbody>
 <tr><td>运动去模糊</td><td>38</td><td>6.33%</td><td>只有质量规则与模型选择都通过才执行</td></tr>
@@ -75,7 +102,7 @@
 </tbody></table></div>
 <p>三种工作流方法在鲁棒性集共实际执行 142 次增强；在三个干净集共执行 15 次。结果说明工具层是按需门控，不是每张图片都依次跑完整网络。当前矩阵没有足够的单工具随机对照，不能把最终提升单独归因于 Retinexformer、Restormer 或 SAM2。</p>
 
-<h3>4.8 稳定性、延迟与恢复策略</h3>
+<h3>4.9 稳定性、延迟与恢复策略</h3>
 <ul>
 <li>9,595 / 9,600 个案例形成有效分类，完成率 99.95%；5 个未完成案例仍作为未命中计分。</li>
 <li>14,102 条完成尝试记录中有 14 次 unknown；9 个阶段在明确允许的条件下重试。结果未知不会自动重复派发，避免重复计费。</li>
@@ -85,7 +112,36 @@
 </ul>
 <div class="callout"><strong>准确率和可用性必须分开解释。</strong>接口返回 HTTP 200 不等于候选命中；同样，某次可选工具选择 unknown 也不必然导致最终分类失败。报告同时保存传输阶段、业务阶段和最终预测状态。</div>
 
-<h3>4.9 完整性与可复现边界</h3>
+<h3>4.10 在线弃权与 OOD 拒识实验</h3>
+<p>平台将“高风险样本交给人工”作为一等能力。策略同时使用最大类别置信度、Top-1/Top-2 间隔和 OOD 分数，并在给定目标风险下最大化自动覆盖率；阈值由验证/校准集生成，不在测试集上回调。</p>
+<pre><code>selective_risk = accepted_errors / accepted_count
+accept_coverage = accepted_count / total_count
+auto_coverage = (accepted_count + rejected_ood_count) / total_count
+review_rate = review_count / total_count
+
+accept ID when:
+  confidence &gt;= tau_conf
+  and margin &gt;= tau_margin
+reject OOD when:
+  ood_score &gt;= tau_ood</code></pre>
+<p>测试使用 CIFAR-100 测试集 1,000 张作为 ID，SVHN 测试集 1,000 张作为 OOD；分类骨干分别为冻结 DINOv3 ViT-S 与 ViT-L。风险预算分为 1% 和 5%，所有指标按落盘的策略与预测重放计算。</p>
+<div class="table-wrap"><table><thead><tr><th>模型</th><th>目标风险</th><th>Raw Top-1</th><th>Accepted Accuracy</th><th>Selective Risk</th><th>Accept Coverage</th><th>Review Rate</th></tr></thead><tbody>
+<tr><td>ViT-S</td><td>1%</td><td>87.80%</td><td>99.17%</td><td>0.83%</td><td>60.00%</td><td>40.00%</td></tr>
+<tr><td>ViT-S</td><td>5%</td><td>87.80%</td><td>95.00%</td><td>5.00%</td><td>82.00%</td><td>18.00%</td></tr>
+<tr><td>ViT-L</td><td>1%</td><td>93.10%</td><td>99.08%</td><td>0.92%</td><td>76.00%</td><td>24.00%</td></tr>
+<tr><td>ViT-L</td><td>5%</td><td>93.10%</td><td>95.21%</td><td>4.79%</td><td>96.00%</td><td>4.00%</td></tr>
+</tbody></table></div>
+<p class="caption-note">表 4-2　仅 ID 的选择性分类结果。覆盖率降低换取被自动接受样本上的错误率约束。</p>
+<div class="table-wrap"><table><thead><tr><th>模型</th><th>目标风险</th><th>策略</th><th>Accepted Accuracy</th><th>Selective Risk</th><th>Auto Coverage</th><th>Review Rate</th><th>OOD Recall</th><th>OOD Accept</th></tr></thead><tbody>
+<tr><td>ViT-S</td><td>1%</td><td>置信度 + 间隔 + OOD</td><td>99.15%</td><td>0.85%</td><td>79.60%</td><td>20.40%</td><td>100.00%</td><td>0.00%</td></tr>
+<tr><td>ViT-S</td><td>5%</td><td>置信度 + 间隔 + OOD</td><td>95.00%</td><td>5.00%</td><td>91.00%</td><td>9.00%</td><td>100.00%</td><td>0.00%</td></tr>
+<tr><td>ViT-L</td><td>1%</td><td>置信度 + 间隔 + OOD</td><td>99.30%</td><td>0.70%</td><td>87.45%</td><td>12.55%</td><td>100.00%</td><td>0.00%</td></tr>
+<tr><td>ViT-L</td><td>5%</td><td>置信度 + 间隔 + OOD</td><td>95.03%</td><td>4.97%</td><td>98.30%</td><td>1.70%</td><td>100.00%</td><td>0.00%</td></tr>
+</tbody></table></div>
+<p class="caption-note">表 4-3　CIFAR-100 + SVHN 联合结果。该冻结测试中 OOD 样本均被拒绝；这不等同于对任意未知分布都可达到 100% 拒识。</p>
+<div class="callout"><strong>在线更新不是直接改生产阈值。</strong>反馈事件先生成候选策略，随后经历 shadow、历史重放、决策记录和人工激活，最终才成为 active。旧策略与阈值始终可追溯、可回滚。</div>
+
+<h3>4.11 完整性与可复现边界</h3>
 <pre><code>top10_all = hits / all_queries
 completion_rate = valid_contract_responses / all_queries
 successful_only_top10 = hits / valid_contract_responses  # 仅诊断
@@ -99,9 +155,10 @@ query_manifest + classes + truth + result
 <li>Qdrant 持久化索引在每轮前后重开校验；测试样本没有进入 confirmed/outbox，也没有写回参考库。</li>
 <li>模型响应标识实际记录为 <code>deepseek-flash</code>；请求别名与供应商内部权重版本分开陈述。</li>
 <li>ImageNet 图片仅用于本地研究测评，不随公开仓库分发；仓库只保存统计结果和协议。</li>
+<li>展示页仅保留 6 张 CUB 鲁棒性缩略样例和工具验收输入/输出；完整查询集、真值与参考库仍不随仓库分发。</li>
 <li>各轮只有一次正式预测冻结，不根据中途真值调提示、换图或选择最好的一轮。</li>
 </ul>
 
-<h3>4.10 结论与下一步</h3>
+<h3>4.12 结论与下一步</h3>
 <p>完整方案在 ImageNet-100、Cars、CUB 和 CUB 鲁棒性集上的三轮 Top-10 分别为 99.00%、99.00%、95.83% 和 92.33%。它在困难与退化数据上明显优于直接看图，但尚不能支持“任意高难度细粒度数据集稳定达到 97%”的结论。</p>
 <p>下一步优先级是：针对退化类型报告配对置信区间；提升 CUB 图像参考召回而不是继续堆叠远程请求；为 Cars 单独校准文本融合权重；将主体 CLIP 编码器常驻并区分冷/热路径；在新的冻结轮次或新的细粒度数据集上复验，避免继续围绕当前三轮过拟合。</p>

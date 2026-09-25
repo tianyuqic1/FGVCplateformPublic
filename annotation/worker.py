@@ -17,8 +17,12 @@ from lab_v4.images import atomic_json, sha_file
 from lab_v4.persistent_provider import Provider
 from lab_v4.state import UnknownOutcome
 from workflow import Workflow
+from finevision.observability import configure_logging
+from finevision.observability.metrics import start_metrics_server
+from finevision.observability.tracing import configure_tracing
 
 LOG = logging.getLogger("annotation-worker")
+OBSERVABLE_TOOLS = {"none", "lowlight", "deblur", "denoise", "sr_x2"}
 
 
 class API:
@@ -82,6 +86,7 @@ def main():
     p.add_argument("--api", default="http://127.0.0.1:8001")
     p.add_argument("--qdrant", default="http://127.0.0.1:6335")
     args = p.parse_args()
+    metrics = start_metrics_server("annotation-worker", 9306)
     args.root = args.root.resolve()
     args.root.mkdir(parents=True, exist_ok=True)
     lock = (args.root / "worker.lock").open("a")
@@ -126,6 +131,9 @@ def main():
                     continue
                 task, project = job["task"], job["project"]
                 details["active_task"] = task["id"]
+                task_started = time.monotonic()
+                task_outcome = "success"
+                metrics.set_inflight(kind="annotation", value=1)
                 LOG.info("%s %s", "index" if indexing else "predict", task["id"])
                 result = None
                 try:
@@ -138,6 +146,7 @@ def main():
                     else:
                         result = prediction(workflow, task, path)
                 except Exception as e:
+                    task_outcome = "failed"
                     # Persist only a safe category, not HTTP bodies, secrets or image paths.
                     LOG.warning("task %s failed: %s", task["id"], type(e).__name__)
                     if indexing:
@@ -147,6 +156,17 @@ def main():
                         # Unexpected failure could have occurred after a paid dispatch.
                         result = {"status": "unknown", "result": {}, "error": "工作流异常，已隔离以避免重复调用；可人工标注"}
                 if result is not None:
+                    if result.get("status") == "unknown":
+                        task_outcome = "unknown"
+                    elif result.get("status") == "failed":
+                        task_outcome = "failed"
+                    remote_seconds = max(0.0, float(result.get("remote_seconds", 0) or 0))
+                    metrics.record_work(kind="vlm_provider_task", outcome=task_outcome, duration_seconds=remote_seconds)
+                    tool_result = result.get("tool") if isinstance(result.get("tool"), dict) else {}
+                    tool_name = str(tool_result.get("tool", "none"))
+                    if tool_name in OBSERVABLE_TOOLS:
+                        tool_outcome = "success" if tool_result.get("status") in {"ok", "not_requested"} else "failed"
+                        metrics.record_work(kind=f"tool_{tool_name}", outcome=tool_outcome, duration_seconds=0)
                     atomic_json(args.root / ("result-" + task["id"] + ".json"),
                         {"id": task["id"], "body": {"token": task["token"], **result}})
             except (OSError, ValueError) as e:
@@ -156,10 +176,15 @@ def main():
                 if workflow:
                     workflow.close()
                 details["active_task"] = None
+                if "task_started" in locals():
+                    metrics.set_inflight(kind="annotation", value=0)
+                    metrics.record_work(kind="annotation", outcome=task_outcome, duration_seconds=time.monotonic() - task_started)
+                    del task_started
     stop.set()
     thread.join(timeout=2)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging("annotation-worker", force=True)
+    configure_tracing("annotation-worker")
     main()

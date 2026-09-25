@@ -31,12 +31,15 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/httpapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
+	observability.Bootstrap("go-control-plane")
 	configuration, err := config.LoadControlPlane()
 	if err != nil {
 		slog.Error("invalid control plane configuration", "error", err)
@@ -44,6 +47,16 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, traceErr := observability.SetupTracing(ctx, "go-control-plane")
+	if traceErr != nil {
+		slog.Warn("tracing exporter unavailable; continuing without export", "error", traceErr)
+	} else {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = shutdownTracing(shutdownCtx)
+		}()
+	}
 	pool, err := pgxpool.New(ctx, configuration.DatabaseURL)
 	if err != nil {
 		slog.Error("connect PostgreSQL", "error", err)
@@ -69,7 +82,7 @@ func main() {
 	})
 	artifactVerifier := s3artifact.New(s3Client, configuration.ArtifactBucket, "")
 	lifecycle := training.NewServiceWithVerifier(repository, artifactVerifier, time.Now, configuration.LeaseTTL)
-	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second})
+	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second, Transport: observability.TraceHTTPTransport(nil)})
 	llmApplication := llm.NewApplication(llmGateway)
 	cardGenerator, err := einocard.New(ctx, llmGateway)
 	if err != nil {
@@ -81,7 +94,7 @@ func main() {
 	if computeAddress == "" {
 		computeAddress = "python-artifact-runtime:9200"
 	}
-	computeConnection, err := grpc.NewClient(computeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	computeConnection, err := grpc.NewClient(computeAddress, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()), grpc.WithChainUnaryInterceptor(observability.UnaryClientMetricsInterceptor()))
 	if err != nil {
 		slog.Error("connect compute runtime", "error", err)
 		os.Exit(1)
@@ -91,7 +104,7 @@ func main() {
 	if inferenceAddress == "" {
 		inferenceAddress = "python-inference-runtime:9100"
 	}
-	inferenceConnection, err := grpc.NewClient(inferenceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	inferenceConnection, err := grpc.NewClient(inferenceAddress, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()), grpc.WithChainUnaryInterceptor(observability.UnaryClientMetricsInterceptor()))
 	if err != nil {
 		slog.Error("configure inference connection", "error", err)
 		os.Exit(1)
@@ -108,7 +121,7 @@ func main() {
 			slog.Error("target profile and deployment token required", "runtime", spec.runtime)
 			os.Exit(1)
 		}
-		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithStatsHandler(otelgrpc.NewClientHandler()), grpc.WithChainUnaryInterceptor(observability.UnaryClientMetricsInterceptor()))
 		if err != nil {
 			slog.Error("invalid runtime address")
 			os.Exit(1)
@@ -132,7 +145,7 @@ func main() {
 	defer func() { stop(); <-workerDone }()
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
-		Handler: httpapi.NewRouter(httpapi.Dependencies{
+		Handler: observability.TracePublicHTTPHandler(httpapi.NewRouter(httpapi.Dependencies{
 			Annotation:  &annotation.Handler{Repo: annotationRepo, Store: artifactVerifier, Token: configuration.LLMInternalToken, Publisher: annotationPublisher},
 			Deployments: deployments, DeploymentToken: os.Getenv("FINEVISION_DEPLOYMENT_TOKEN"),
 			Inference:     &postgresadapter.InferenceService{LegacyUploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Pool: pool, Store: artifactVerifier, Preview: &dataset.PreviewService{Repository: postgresadapter.DatasetRepository{Pool: pool}, Store: artifactVerifier}, Client: computev1.NewInferenceRuntimeClient(inferenceConnection), Deployments: deployments, RuntimeClients: runtimeClients},
@@ -144,7 +157,7 @@ func main() {
 			DatasetQueue:  datasetQueue,
 			Lifecycle:     lifecycle, ReadModels: postgresadapter.NewReadModels(pool), LLMApplication: llmApplication,
 			ModelRegistry: modelregistry.NewService(postgresadapter.NewModelRegistryRepository(pool)).WithPublication(grpcadapter.HeadExporter{Client: computev1.NewModelExportClient(computeConnection)}, artifactVerifier),
-		}),
+		}), "finevision.http"),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	listener, err := net.Listen("tcp", configuration.GRPCAddress)
@@ -152,7 +165,7 @@ func main() {
 		slog.Error("listen for internal gRPC", "error", err)
 		os.Exit(1)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(observability.UnaryServerMetricsInterceptor()))
 	computev1.RegisterTrainingLifecycleServer(grpcServer, grpcadapter.NewTrainingLifecycleServer(lifecycle))
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil {

@@ -116,6 +116,7 @@ type Attempt struct {
 type AuditEvent struct {
 	EventType string
 	Message   string
+	Payload   map[string]any
 	CreatedAt time.Time
 }
 
@@ -325,7 +326,7 @@ func (service *Service) Claim(ctx context.Context, command ClaimCommand) (result
 		job.UpdatedAt = now
 		aggregate.Run.Status = StatusRunning
 		aggregate.Run.UpdatedAt = now
-		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "claimed", Message: "training job claimed", CreatedAt: now})
+		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "claimed", Message: "training job claimed", Payload: map[string]any{"attempt_id": attemptID, "worker_id": command.WorkerID, "execution_epoch": job.ExecutionEpoch}, CreatedAt: now})
 		result = ClaimResult{Disposition: Claimed, JobID: job.ID, TrainingRunID: aggregate.Run.ID,
 			AttemptID: attemptID, ExecutionEpoch: job.ExecutionEpoch, LeaseExpiresAt: leaseExpiresAt, Payload: cloneMap(job.Payload)}
 		return nil
@@ -480,7 +481,7 @@ func (service *Service) Complete(ctx context.Context, command CompleteCommand) (
 		aggregate.Artifacts = append([]artifact.Descriptor(nil), command.Artifacts...)
 		aggregate.Job.Status, aggregate.Run.Status = StatusSucceeded, StatusSucceeded
 		aggregate.Job.Result, aggregate.Job.UpdatedAt, aggregate.Run.UpdatedAt = result, now, now
-		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "completed", Message: "training job completed", CreatedAt: now})
+		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "completed", Message: "training job completed", Payload: map[string]any{"attempt_id": attempt.ID, "model_version_id": result.ModelVersionID}, CreatedAt: now})
 		return nil
 	})
 	return result, err
@@ -508,7 +509,7 @@ func (service *Service) Fail(ctx context.Context, command FailCommand) error {
 			aggregate.Job.Status, aggregate.Run.Status = StatusFailed, StatusFailed
 		}
 		aggregate.Job.UpdatedAt, aggregate.Run.UpdatedAt = now, now
-		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "failed", Message: "training attempt failed", CreatedAt: now})
+		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "failed", Message: "training attempt failed", Payload: map[string]any{"attempt_id": attempt.ID, "error_code": command.ErrorCode, "retryable": command.Retryable}, CreatedAt: now})
 		return nil
 	})
 }
@@ -538,7 +539,7 @@ func (service *Service) ReapExpired(ctx context.Context, limit int) ([]string, e
 				aggregate.Job.Status, aggregate.Run.Status = StatusFailed, StatusFailed
 			}
 			aggregate.Job.UpdatedAt, aggregate.Run.UpdatedAt = now, now
-			aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "lease_expired", Message: "training attempt lease expired", CreatedAt: now})
+			aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "lease_expired", Message: "training attempt lease expired", Payload: map[string]any{"attempt_id": attempt.ID, "worker_id": attempt.WorkerID, "execution_epoch": attempt.ExecutionEpoch}, CreatedAt: now})
 			return nil
 		})
 		if err != nil {

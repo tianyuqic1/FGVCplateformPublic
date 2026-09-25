@@ -83,6 +83,9 @@ docker compose -f docker-compose.yml config >/dev/null
 
 if [[ "$contracts_only" -eq 0 ]]; then
   wait_for_url "api health" "${API_URL%/}/api/health"
+  wait_for_url "swagger ui" "${API_URL%/}/swagger/"
+  wait_for_url "control-plane openapi" "${API_URL%/}/openapi/finevision.yaml"
+  wait_for_url "hardware openapi" "${API_URL%/}/openapi/hardware.yaml"
   wait_for_url "frontend" "$FRONTEND_URL"
 else
   echo "Skipping HTTP probes in contracts-only mode."
@@ -103,6 +106,7 @@ npm --prefix frontend run smoke:inference-client
 npm --prefix frontend run smoke:abstention-client
 npm --prefix frontend run smoke:review-client
 npm --prefix frontend run smoke:llm-client
+npm --prefix frontend run smoke:diagnostics-client
 
 if [[ "$contracts_only" -eq 0 && "$RUN_FRONTEND_ROUTE_SMOKE" == "1" ]]; then
   echo "Running frontend build and route availability smoke..."

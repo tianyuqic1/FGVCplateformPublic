@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 	"unicode/utf8"
@@ -33,7 +34,7 @@ SET lock_owner=$1, lock_expires_at=$2 + make_interval(secs => $3)
 FROM candidates
 WHERE event.id=candidates.id
 RETURNING event.id::text, event.message_id, event.event_type, event.schema_version,
-          event.payload, event.available_at, event.created_at, event.publish_attempts`,
+          event.payload, event.trace_context, event.available_at, event.created_at, event.publish_attempts`,
 		owner, now, int(lockTTL.Seconds()), limit)
 	if err != nil {
 		return nil, err
@@ -42,10 +43,12 @@ RETURNING event.id::text, event.message_id, event.event_type, event.schema_versi
 	events := make([]outbox.Event, 0)
 	for rows.Next() {
 		var event outbox.Event
+		var traceContext []byte
 		if err := rows.Scan(&event.ID, &event.MessageID, &event.EventType, &event.SchemaVersion,
-			&event.Payload, &event.AvailableAt, &event.CreatedAt, &event.PublishAttempts); err != nil {
+			&event.Payload, &traceContext, &event.AvailableAt, &event.CreatedAt, &event.PublishAttempts); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(traceContext, &event.Headers)
 		event.LockOwner, event.LockExpiresAt = owner, now.Add(lockTTL)
 		events = append(events, event)
 	}

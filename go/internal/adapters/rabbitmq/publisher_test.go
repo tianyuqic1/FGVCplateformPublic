@@ -36,7 +36,10 @@ func TestPublisherUsesPersistentMandatoryMessagesAndWaitsForConfirm(t *testing.T
 	t.Parallel()
 	channel := &fakeChannel{}
 	publisher := rabbitmq.NewPublisher(channel, "finevision.training", "training.ready")
-	event := outbox.Event{MessageID: "message-1", EventType: "training.job.ready.v1", Payload: []byte(`{"job_id":"job-1"}`)}
+	event := outbox.Event{
+		MessageID: "message-1", EventType: "training.job.ready.v1", Payload: []byte(`{"job_id":"job-1"}`),
+		Headers: map[string]string{"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
+	}
 
 	if err := publisher.Publish(context.Background(), event); err != nil {
 		t.Fatal(err)
@@ -46,5 +49,8 @@ func TestPublisherUsesPersistentMandatoryMessagesAndWaitsForConfirm(t *testing.T
 	}
 	if channel.message.DeliveryMode != amqp.Persistent || channel.message.MessageId != "message-1" || channel.message.ContentType != "application/json" {
 		t.Fatalf("message = %#v", channel.message)
+	}
+	if channel.message.Headers["traceparent"] != event.Headers["traceparent"] {
+		t.Fatalf("trace headers = %#v", channel.message.Headers)
 	}
 }

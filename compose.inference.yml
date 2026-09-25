@@ -13,9 +13,21 @@ x-deployment-env: &deployment-env
   FINEVISION_INFERENCE_GRPC_ADDRESS: '[::]:9100'
   FINEVISION_DEVICE_ID: '0'
   OMP_NUM_THREADS: '2'
+  FINEVISION_ENVIRONMENT: ${FINEVISION_ENVIRONMENT:-local}
+  FINEVISION_LOG_LEVEL: ${FINEVISION_LOG_LEVEL:-INFO}
+  FINEVISION_LOG_FORMAT: json
+  FINEVISION_SERVICE_VERSION: ${FINEVISION_SERVICE_VERSION:-dev}
+  FINEVISION_METRICS_ENABLED: ${FINEVISION_METRICS_ENABLED:-true}
+  FINEVISION_OBSERVABILITY_ENABLED: ${FINEVISION_OBSERVABILITY_ENABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://alloy:4317}
+
+x-default-logging: &default-logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
 
 services:
   tensorrt-inference:
+    logging: *default-logging
     profiles: [tensorrt]
     image: finevision-tensorrt:10.9
     build: { context: ., dockerfile: Dockerfile.tensorrt }
@@ -27,6 +39,7 @@ services:
       FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
     volumes: [finevision-trt-cache:/data/cache]
   tensorrt-builder:
+    logging: *default-logging
     profiles: [tensorrt]
     image: finevision-tensorrt:10.9
     command: [python, -m, finevision.compute.deployment_worker]
@@ -38,6 +51,7 @@ services:
       FINEVISION_TARGET_PROFILE: ${FINEVISION_TENSORRT_TARGET:-}
     volumes: [finevision-trt-builds:/data/builds, finevision-trt-cache:/data/cache]
   ascend-inference:
+    logging: *default-logging
     profiles: [ascend]
     image: finevision-ascend:local
     build:
@@ -52,6 +66,7 @@ services:
       FINEVISION_TARGET_PROFILE: ${FINEVISION_ASCEND_TARGET:-}
     volumes: [/usr/local/Ascend/driver:/usr/local/Ascend/driver:ro, finevision-ascend-cache:/data/cache]
   ascend-builder:
+    logging: *default-logging
     profiles: [ascend]
     image: finevision-ascend:local
     command: [python, -m, finevision.compute.deployment_worker]

@@ -15,7 +15,7 @@ FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖
 - **选择性推理**：置信度、margin、能量分数与类别阈值组合；低置信样本进入人工复核。
 - **AI 标注**：Qwen 主体定位、SAM2 分割、受限图像增强、CLIP/Qdrant 图像记忆、文本原型 RRF、视觉大模型 Top-10 和人工确认。
 - **闭环发布**：已确认标注进入待发布区，可创建新数据集或追加到既有数据集的新版本；推理反馈只进入下一版本训练集。
-- **工程可观测性**：训练曲线、任务状态、硬件指标、Outbox 投递和可恢复的任务执行记录。
+- **工程可观测性**：统一 JSON 日志、诊断编号、Prometheus 告警、Loki 检索、Tempo 跨 HTTP/gRPC/RabbitMQ 链路，以及可恢复的 PostgreSQL 审计事件。
 
 ## 系统架构
 
@@ -71,9 +71,13 @@ scripts/demo-up.sh
 |---|---|
 | Web 工作台 | <http://localhost:5173> |
 | Go API | <http://localhost:8001/api/health> |
+| Swagger API 文档 | <http://localhost:8001/swagger/> |
+| OpenAPI YAML | <http://localhost:8001/openapi/finevision.yaml> |
 | MinIO Console | <http://localhost:9001> |
 | RabbitMQ Console | <http://localhost:15672> |
 | 展示文档 | <http://localhost:5180> |
+| 独立日志与观测控制台 | <http://localhost:9400> |
+| 观测服务健康检查 | <http://localhost:9400/health> |
 
 启用 NVIDIA GPU：
 
@@ -89,6 +93,16 @@ docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-tr
 
 多后端推理与硬件要求见 [推理部署文档](docs/inference-deployments.md)。
 
+可选启用集中日志、指标与 Trace：
+
+~~~bash
+FINEVISION_OBSERVABILITY_ENABLED=true \
+docker compose -f docker-compose.yml -f compose.observability.yml \
+  --profile observability up -d
+~~~
+
+运行日志不出现在业务工作台中，日常排障使用独立的日志与观测控制台，无需分别登录 Loki、Prometheus、Tempo 或 Grafana。设置 `FINEVISION_OBSERVABILITY_TOKEN` 后，控制台页面和查询 API 必须通过 Token 验证；Grafana 仅作为容器网络内的高级运维工具保留。字段、查询、告警、保留和生产安全边界见 [可观测性操作手册](docs/observability.md)。
+
 ## 配置清单
 
 | 配置 | 是否必需 | 用途 |
@@ -102,6 +116,11 @@ docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-tr
 | FINEVISION_*_DEVICE | 否 | CPU/CUDA 计算设备选择 |
 | FINEVISION_DEPLOYMENT_TOKEN | 硬件 Worker 时 | 部署 Worker 与控制面的内部鉴权 |
 | FINEVISION_TENSORRT_* / FINEVISION_ASCEND_* | 对应后端时 | 硬件目标地址与 profile |
+| FINEVISION_LOG_LEVEL / FINEVISION_LOG_FORMAT | 否 | 结构化日志级别与格式 |
+| FINEVISION_OBSERVABILITY_ENABLED | 否 | 启用 OTLP Trace 导出；默认关闭 |
+| FINEVISION_OBSERVABILITY_TOKEN | 否 | 独立日志控制台访问令牌；本地默认关闭门禁 |
+| OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_TRACES_SAMPLER_ARG | 否 | Alloy 地址与成功链路采样率 |
+| FINEVISION_GRAFANA_USER / PASSWORD | 高级运维时 | 内部 Grafana 管理账号；普通用户不需要 |
 
 完整示例见 [.env.example](.env.example)。
 
@@ -210,6 +229,7 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 - [数据集样本预览](docs/dataset-preview-api.md)
 - [多后端推理部署](docs/inference-deployments.md)
 - [硬件监控](docs/hardware-monitoring.md)
+- [日志、指标、追踪与业务审计](docs/observability.md)
 - [展示文档构建说明](showcase/README.md)
 
 ## 安全与发布边界

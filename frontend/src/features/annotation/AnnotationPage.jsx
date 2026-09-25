@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchJson, apiBaseUrl } from "../../api/http.js";
+import { apiBaseUrl, apiErrorFromResponse, fetchJson } from "../../api/http.js";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import { Icon } from "../../components/icons.jsx";
 import "./annotation.css";
@@ -92,10 +92,14 @@ export function AnnotationPage() {
       let count = 0;
       for (const file of files) {
         const form = new FormData(); form.append("image", file);
-        const response = await fetch(`${apiBaseUrl()}${ROOT}/projects/${projectId}/images`, { method: "POST", body: form });
+        const path = `${ROOT}/projects/${projectId}/images`;
+        const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", body: form });
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(`已处理 ${count} 张；${file.name} 上传失败：${data.detail || response.status}。已上传的图片会保留。`);
+          throw await apiErrorFromResponse(response, {
+            method: "POST",
+            path,
+            fallback: `已处理 ${count} 张；${file.name} 上传失败。已上传的图片会保留`,
+          });
         }
         count++; setBusy(`上传 ${count}/${files.length}`);
       }

@@ -162,6 +162,8 @@ func (s *Repository) Add(ctx context.Context, pid, name string, a artifact.Descr
 	if err != nil {
 		return Task{}, err
 	}
+	_, _ = s.Pool.Exec(ctx, `INSERT INTO annotation_task_events(id,task_id,event_type,actor,to_status,payload)
+	 VALUES($1,$2,'created','system','pending',jsonb_build_object('filename',$3)) ON CONFLICT DO NOTHING`, uuid.NewString(), id, name)
 	return s.Task(ctx, id)
 }
 func (s *Repository) Queue(ctx context.Context, pid string, ids []string) (int64, error) {
@@ -174,7 +176,10 @@ func (s *Repository) Queue(ctx context.Context, pid string, ids []string) (int64
 		}
 	}
 	// Only fresh jobs can be queued. Unknown/failed paid calls are never silently replayed.
-	tag, err := s.Pool.Exec(ctx, `UPDATE annotation_tasks SET status='queued',updated_at=now() WHERE project_id=$1 AND id=ANY($2::uuid[]) AND status='pending'`, pid, ids)
+	tag, err := s.Pool.Exec(ctx, `WITH changed AS (
+	 UPDATE annotation_tasks SET status='queued',updated_at=now() WHERE project_id=$1 AND id=ANY($2::uuid[]) AND status='pending' RETURNING id
+	) INSERT INTO annotation_task_events(id,task_id,event_type,actor,from_status,to_status)
+	 SELECT gen_random_uuid(),id,'queued','operator','pending','queued' FROM changed`, pid, ids)
 	return tag.RowsAffected(), err
 }
 func (s *Repository) Confirm(ctx context.Context, id, label, actor string) error {
@@ -218,6 +223,11 @@ func (s *Repository) Confirm(ctx context.Context, id, label, actor string) error
 	if err != nil {
 		return err
 	}
+	_, err = tx.Exec(ctx, `INSERT INTO annotation_task_events(id,task_id,event_type,actor,from_status,to_status,payload)
+	 VALUES($1,$2,'confirmed',$3,$4,'confirmed',jsonb_build_object('label',$5))`, uuid.NewString(), id, actor, status, label)
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO annotation_memory_outbox(task_id) VALUES($1) ON CONFLICT DO NOTHING`, id)
 	if err != nil {
 		return err
@@ -231,7 +241,10 @@ func (s *Repository) Claim(ctx context.Context) (Task, error) {
 	}
 	defer tx.Rollback(ctx)
 	// Expiry is quarantined rather than requeued: provider may already have billed.
-	_, err = tx.Exec(ctx, `UPDATE annotation_tasks SET status='unknown',error='Worker 租约过期；结果未知，不自动重复调用',updated_at=now() WHERE status='running' AND lease_until<now()`)
+	_, err = tx.Exec(ctx, `WITH changed AS (
+	 UPDATE annotation_tasks SET status='unknown',error='Worker 租约过期；结果未知，不自动重复调用',updated_at=now() WHERE status='running' AND lease_until<now() RETURNING id
+	) INSERT INTO annotation_task_events(id,task_id,event_type,actor,from_status,to_status)
+	 SELECT gen_random_uuid(),id,'lease_expired','system','running','unknown' FROM changed`)
 	if err != nil {
 		return Task{}, err
 	}
@@ -247,6 +260,11 @@ func (s *Repository) Claim(ctx context.Context) (Task, error) {
 		return Task{}, err
 	}
 	_, err = tx.Exec(ctx, `UPDATE annotation_tasks SET status='running',claim_token=$2,lease_until=now()+interval '20 minutes',updated_at=now() WHERE id=$1`, id, uuid.NewString())
+	if err != nil {
+		return Task{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO annotation_task_events(id,task_id,event_type,actor,from_status,to_status)
+	 VALUES($1,$2,'claimed','annotation-worker','queued','running')`, uuid.NewString(), id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -287,7 +305,10 @@ func (s *Repository) Finish(ctx context.Context, id, token, status string, resul
 	if len(data.ClassIDs) > 10 || (status == "suggested" && len(data.ClassIDs) != min(10, len(p.Classes))) {
 		return ErrInvalid
 	}
-	tag, err := s.Pool.Exec(ctx, `UPDATE annotation_tasks SET status=$3,result=$4,error=$5,lease_until=NULL,updated_at=now() WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>now()`, id, token, status, result, message)
+	tag, err := s.Pool.Exec(ctx, `WITH changed AS (
+	 UPDATE annotation_tasks SET status=$3,result=$4,error=$5,lease_until=NULL,updated_at=now() WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>now() RETURNING id
+	) INSERT INTO annotation_task_events(id,task_id,event_type,actor,from_status,to_status,payload)
+	 SELECT gen_random_uuid(),id,'worker_finished','annotation-worker','running',$3,jsonb_build_object('candidate_count',$6) FROM changed`, id, token, status, result, message, len(data.ClassIDs))
 	if err == nil && tag.RowsAffected() == 0 {
 		var same bool
 		e := s.Pool.QueryRow(ctx, `SELECT claim_token=$2::uuid AND status=$3 AND result=$4::jsonb AND error=$5 FROM annotation_tasks WHERE id=$1`, id, token, status, result, message).Scan(&same)

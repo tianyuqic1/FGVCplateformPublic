@@ -1,0 +1,122 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat", "title": "API 请求速率", "id": 1,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(finevision_http_requests_total[5m]))", "legendFormat": "req/s"}],
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 0}
+    },
+    {
+      "type": "stat", "title": "API 5xx 比例", "id": 2,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.02}]}}},
+      "targets": [{"expr": "sum(rate(finevision_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(finevision_http_requests_total[5m])), 0.001)"}],
+      "gridPos": {"h": 6, "w": 4, "x": 4, "y": 0}
+    },
+    {
+      "type": "stat", "title": "Outbox 最老事件", "id": 3,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 60}]}}},
+      "targets": [{"expr": "max(finevision_outbox_oldest_age_seconds)", "legendFormat": "秒"}],
+      "gridPos": {"h": 6, "w": 4, "x": 8, "y": 0}
+    },
+    {
+      "type": "stat", "title": "异常目标", "id": 4,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "sum(up{job=~\"finevision-.*|rabbitmq|postgres\",required!=\"false\"} == 0)", "legendFormat": "down"}],
+      "gridPos": {"h": 6, "w": 4, "x": 12, "y": 0}
+    },
+    {
+      "type": "stat", "title": "Artifact 校验失败", "id": 5,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "sum(increase(finevision_artifact_integrity_failures_total[1h]))", "legendFormat": "最近 1 小时"}],
+      "gridPos": {"h": 6, "w": 4, "x": 16, "y": 0}
+    },
+    {
+      "type": "stat", "title": "死信消息", "id": 6,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "sum(rabbitmq_queue_messages_ready{queue=~\".*(dlq|dead).*\"})", "legendFormat": "ready"}],
+      "gridPos": {"h": 6, "w": 4, "x": 20, "y": 0}
+    },
+    {
+      "type": "timeseries", "title": "HTTP P95 延迟", "id": 7,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(finevision_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{route}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6}
+    },
+    {
+      "type": "timeseries", "title": "gRPC P95 延迟", "id": 8,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, direction, method) (rate(finevision_grpc_request_duration_seconds_bucket[5m])))", "legendFormat": "{{direction}} · {{method}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 6}
+    },
+    {
+      "type": "timeseries", "title": "Worker 工作吞吐", "id": 9,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (service, kind, outcome) (rate(finevision_runtime_work_total[5m]))", "legendFormat": "{{service}} · {{kind}} · {{outcome}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 6}
+    },
+    {
+      "type": "timeseries", "title": "Outbox 积压", "id": 10,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "finevision_outbox_pending", "legendFormat": "{{relay}} pending"},
+        {"expr": "rate(finevision_outbox_publish_failures_total[5m])", "legendFormat": "{{relay}} failures/s"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 14}
+    },
+    {
+      "type": "timeseries", "title": "LLM Provider", "id": 11,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum by (provider, outcome) (rate(finevision_llm_requests_total[5m]))", "legendFormat": "{{provider}} · {{outcome}}"},
+        {"expr": "histogram_quantile(0.95, sum by (le, provider) (rate(finevision_llm_request_duration_seconds_bucket[5m])))", "legendFormat": "{{provider}} p95"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 14}
+    },
+    {
+      "type": "timeseries", "title": "RabbitMQ 队列", "id": 12,
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "rabbitmq_queue_messages_ready", "legendFormat": "{{queue}}"}],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 14}
+    },
+    {
+      "type": "logs", "title": "近期运行日志", "id": 13,
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{platform=\"finevision\", service=~\"$service\"} | json | level=~\"$level\" |~ \"$search\"", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": false, "wrapLogMessage": true, "enableLogDetails": true},
+      "gridPos": {"h": 15, "w": 24, "x": 0, "y": 22}
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["finevision", "observability"],
+  "templating": {
+    "list": [
+      {
+        "name": "service", "label": "服务", "type": "query", "datasource": {"type": "loki", "uid": "loki"},
+        "query": "label_values({platform=\"finevision\"}, service)", "definition": "label_values({platform=\"finevision\"}, service)",
+        "includeAll": true, "allValue": ".*", "multi": true, "refresh": 2, "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "level", "label": "级别", "type": "custom", "query": "DEBUG,INFO,WARN,WARNING,ERROR",
+        "includeAll": true, "allValue": ".*", "multi": true, "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "search", "label": "request_id / job_id / attempt_id", "type": "textbox", "query": "", "current": {"text": "", "value": ""}
+      }
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "FineVision · 系统可观测性",
+  "uid": "finevision-observability",
+  "version": 2
+}

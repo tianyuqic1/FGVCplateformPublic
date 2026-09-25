@@ -650,100 +650,100 @@ type ReportTrainingProgressJSONRequestBody ReportTrainingProgressJSONBody
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-
+	// ListDatasetImports 查询数据集导入任务
 	// (GET /api/dataset-imports)
 	ListDatasetImports(w http.ResponseWriter, r *http.Request)
-
+	// GetDatasetCard 获取数据集说明
 	// (GET /api/dataset-versions/{dataset_version_id}/card)
 	GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
-
+	// SaveDatasetCard 保存数据集说明修订
 	// (PUT /api/dataset-versions/{dataset_version_id}/card)
 	SaveDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
-
+	// GenerateDatasetCard 使用 AI 生成数据集说明建议
 	// (POST /api/dataset-versions/{dataset_version_id}/card/generate)
 	GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
-
+	// ListDatasets 查询数据集列表
 	// (GET /api/datasets)
 	ListDatasets(w http.ResponseWriter, r *http.Request)
-
+	// UploadImagefolder 上传并导入 ImageFolder 数据集
 	// (POST /api/datasets/upload-imagefolder)
 	UploadImagefolder(w http.ResponseWriter, r *http.Request)
-
+	// GetDataset 获取数据集详情
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
-
+	// ListTrainingCandidates 获取可回流训练集的已审核样本
 	// (GET /api/datasets/{dataset_id}/training-candidates)
 	ListTrainingCandidates(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
-
+	// ExpandDataset 基于已有版本创建新数据集版本
 	// (POST /api/datasets/{dataset_id}/versions)
 	ExpandDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID)
-
+	// GetHealth 检查控制面存活状态
 	// (GET /api/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
-
+	// ListJobs 查询异步任务列表
 	// (GET /api/jobs)
 	ListJobs(w http.ResponseWriter, r *http.Request)
-
+	// GetJob 获取异步任务详情
 	// (GET /api/jobs/{job_id})
 	GetJob(w http.ResponseWriter, r *http.Request, jobId JobID)
-
+	// GenerateLLMAssistance 请求大模型辅助结果
 	// (POST /api/llm/assist)
 	GenerateLLMAssistance(w http.ResponseWriter, r *http.Request)
-
+	// SetModelAlias 设置数据集范围内的模型别名
 	// (PUT /api/model-aliases/{alias})
 	SetModelAlias(w http.ResponseWriter, r *http.Request, alias string)
-
+	// CompareModelVersions 比较同一数据集范围内的模型版本
 	// (POST /api/model-version-comparisons)
 	CompareModelVersions(w http.ResponseWriter, r *http.Request)
-
+	// ListModelVersions 查询模型版本列表
 	// (GET /api/model-versions)
 	ListModelVersions(w http.ResponseWriter, r *http.Request, params ListModelVersionsParams)
-
+	// GetModelVersion 获取模型版本详情
 	// (GET /api/model-versions/{model_version_id})
 	GetModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
-
+	// ArchiveModelVersion 归档模型版本
 	// (POST /api/model-versions/{model_version_id}/archive)
 	ArchiveModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
-
+	// PromoteModelVersion 晋升模型版本
 	// (POST /api/model-versions/{model_version_id}/promote)
 	PromoteModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID)
-
+	// ListModelWeights 查询预训练权重目录
 	// (GET /api/model-weights)
 	ListModelWeights(w http.ResponseWriter, r *http.Request)
-
+	// ListTrainingRuns 查询训练任务列表
 	// (GET /api/training-runs)
 	ListTrainingRuns(w http.ResponseWriter, r *http.Request)
-
+	// CreateTrainingRun 创建训练任务
 	// (POST /api/training-runs)
 	CreateTrainingRun(w http.ResponseWriter, r *http.Request)
-
+	// GetTrainingRun 获取训练任务详情
 	// (GET /api/training-runs/{run_id})
 	GetTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
-
+	// CancelTrainingRun 取消训练任务
 	// (POST /api/training-runs/{run_id}/cancel)
 	CancelTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
-
+	// GetTrainingRunMetrics 获取训练指标序列
 	// (GET /api/training-runs/{run_id}/metrics)
 	GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request, runId RunID, params GetTrainingRunMetricsParams)
-
+	// PauseTrainingRun 暂停训练任务
 	// (POST /api/training-runs/{run_id}/pause)
 	PauseTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
-
+	// ResumeTrainingRun 恢复训练任务
 	// (POST /api/training-runs/{run_id}/resume)
 	ResumeTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID)
-
+	// ClaimTrainingJob 领取训练任务租约
 	// (POST /internal/training-jobs/{job_id}/claim)
 	ClaimTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID)
-
+	// CompleteTrainingJob 完成训练任务并登记产物
 	// (POST /internal/training-jobs/{job_id}/complete)
 	CompleteTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID)
-
+	// FailTrainingJob 上报训练任务失败
 	// (POST /internal/training-jobs/{job_id}/fail)
 	FailTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID)
-
+	// HeartbeatTrainingJob 续约训练任务租约
 	// (POST /internal/training-jobs/{job_id}/heartbeat)
 	HeartbeatTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID)
-
+	// ReportTrainingProgress 上报训练进度与指标
 	// (POST /internal/training-jobs/{job_id}/progress)
 	ReportTrainingProgress(w http.ResponseWriter, r *http.Request, jobId JobID)
 }
@@ -752,161 +752,193 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// ListDatasetImports 查询数据集导入任务
 // (GET /api/dataset-imports)
 func (_ Unimplemented) ListDatasetImports(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetDatasetCard 获取数据集说明
 // (GET /api/dataset-versions/{dataset_version_id}/card)
 func (_ Unimplemented) GetDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// SaveDatasetCard 保存数据集说明修订
 // (PUT /api/dataset-versions/{dataset_version_id}/card)
 func (_ Unimplemented) SaveDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GenerateDatasetCard 使用 AI 生成数据集说明建议
 // (POST /api/dataset-versions/{dataset_version_id}/card/generate)
 func (_ Unimplemented) GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListDatasets 查询数据集列表
 // (GET /api/datasets)
 func (_ Unimplemented) ListDatasets(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// UploadImagefolder 上传并导入 ImageFolder 数据集
 // (POST /api/datasets/upload-imagefolder)
 func (_ Unimplemented) UploadImagefolder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetDataset 获取数据集详情
 // (GET /api/datasets/{dataset_id})
 func (_ Unimplemented) GetDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListTrainingCandidates 获取可回流训练集的已审核样本
 // (GET /api/datasets/{dataset_id}/training-candidates)
 func (_ Unimplemented) ListTrainingCandidates(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ExpandDataset 基于已有版本创建新数据集版本
 // (POST /api/datasets/{dataset_id}/versions)
 func (_ Unimplemented) ExpandDataset(w http.ResponseWriter, r *http.Request, datasetId DatasetID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetHealth 检查控制面存活状态
 // (GET /api/health)
 func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListJobs 查询异步任务列表
 // (GET /api/jobs)
 func (_ Unimplemented) ListJobs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetJob 获取异步任务详情
 // (GET /api/jobs/{job_id})
 func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GenerateLLMAssistance 请求大模型辅助结果
 // (POST /api/llm/assist)
 func (_ Unimplemented) GenerateLLMAssistance(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// SetModelAlias 设置数据集范围内的模型别名
 // (PUT /api/model-aliases/{alias})
 func (_ Unimplemented) SetModelAlias(w http.ResponseWriter, r *http.Request, alias string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CompareModelVersions 比较同一数据集范围内的模型版本
 // (POST /api/model-version-comparisons)
 func (_ Unimplemented) CompareModelVersions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListModelVersions 查询模型版本列表
 // (GET /api/model-versions)
 func (_ Unimplemented) ListModelVersions(w http.ResponseWriter, r *http.Request, params ListModelVersionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetModelVersion 获取模型版本详情
 // (GET /api/model-versions/{model_version_id})
 func (_ Unimplemented) GetModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ArchiveModelVersion 归档模型版本
 // (POST /api/model-versions/{model_version_id}/archive)
 func (_ Unimplemented) ArchiveModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// PromoteModelVersion 晋升模型版本
 // (POST /api/model-versions/{model_version_id}/promote)
 func (_ Unimplemented) PromoteModelVersion(w http.ResponseWriter, r *http.Request, modelVersionId ModelVersionID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListModelWeights 查询预训练权重目录
 // (GET /api/model-weights)
 func (_ Unimplemented) ListModelWeights(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ListTrainingRuns 查询训练任务列表
 // (GET /api/training-runs)
 func (_ Unimplemented) ListTrainingRuns(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CreateTrainingRun 创建训练任务
 // (POST /api/training-runs)
 func (_ Unimplemented) CreateTrainingRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetTrainingRun 获取训练任务详情
 // (GET /api/training-runs/{run_id})
 func (_ Unimplemented) GetTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CancelTrainingRun 取消训练任务
 // (POST /api/training-runs/{run_id}/cancel)
 func (_ Unimplemented) CancelTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// GetTrainingRunMetrics 获取训练指标序列
 // (GET /api/training-runs/{run_id}/metrics)
 func (_ Unimplemented) GetTrainingRunMetrics(w http.ResponseWriter, r *http.Request, runId RunID, params GetTrainingRunMetricsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// PauseTrainingRun 暂停训练任务
 // (POST /api/training-runs/{run_id}/pause)
 func (_ Unimplemented) PauseTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ResumeTrainingRun 恢复训练任务
 // (POST /api/training-runs/{run_id}/resume)
 func (_ Unimplemented) ResumeTrainingRun(w http.ResponseWriter, r *http.Request, runId RunID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ClaimTrainingJob 领取训练任务租约
 // (POST /internal/training-jobs/{job_id}/claim)
 func (_ Unimplemented) ClaimTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// CompleteTrainingJob 完成训练任务并登记产物
 // (POST /internal/training-jobs/{job_id}/complete)
 func (_ Unimplemented) CompleteTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// FailTrainingJob 上报训练任务失败
 // (POST /internal/training-jobs/{job_id}/fail)
 func (_ Unimplemented) FailTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// HeartbeatTrainingJob 续约训练任务租约
 // (POST /internal/training-jobs/{job_id}/heartbeat)
 func (_ Unimplemented) HeartbeatTrainingJob(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ReportTrainingProgress 上报训练进度与指标
 // (POST /internal/training-jobs/{job_id}/progress)
 func (_ Unimplemented) ReportTrainingProgress(w http.ResponseWriter, r *http.Request, jobId JobID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -3355,100 +3387,100 @@ func (response ReportTrainingProgress409JSONResponse) VisitReportTrainingProgres
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-
+	// ListDatasetImports 查询数据集导入任务
 	// (GET /api/dataset-imports)
 	ListDatasetImports(ctx context.Context, request ListDatasetImportsRequestObject) (ListDatasetImportsResponseObject, error)
-
+	// GetDatasetCard 获取数据集说明
 	// (GET /api/dataset-versions/{dataset_version_id}/card)
 	GetDatasetCard(ctx context.Context, request GetDatasetCardRequestObject) (GetDatasetCardResponseObject, error)
-
+	// SaveDatasetCard 保存数据集说明修订
 	// (PUT /api/dataset-versions/{dataset_version_id}/card)
 	SaveDatasetCard(ctx context.Context, request SaveDatasetCardRequestObject) (SaveDatasetCardResponseObject, error)
-
+	// GenerateDatasetCard 使用 AI 生成数据集说明建议
 	// (POST /api/dataset-versions/{dataset_version_id}/card/generate)
 	GenerateDatasetCard(ctx context.Context, request GenerateDatasetCardRequestObject) (GenerateDatasetCardResponseObject, error)
-
+	// ListDatasets 查询数据集列表
 	// (GET /api/datasets)
 	ListDatasets(ctx context.Context, request ListDatasetsRequestObject) (ListDatasetsResponseObject, error)
-
+	// UploadImagefolder 上传并导入 ImageFolder 数据集
 	// (POST /api/datasets/upload-imagefolder)
 	UploadImagefolder(ctx context.Context, request UploadImagefolderRequestObject) (UploadImagefolderResponseObject, error)
-
+	// GetDataset 获取数据集详情
 	// (GET /api/datasets/{dataset_id})
 	GetDataset(ctx context.Context, request GetDatasetRequestObject) (GetDatasetResponseObject, error)
-
+	// ListTrainingCandidates 获取可回流训练集的已审核样本
 	// (GET /api/datasets/{dataset_id}/training-candidates)
 	ListTrainingCandidates(ctx context.Context, request ListTrainingCandidatesRequestObject) (ListTrainingCandidatesResponseObject, error)
-
+	// ExpandDataset 基于已有版本创建新数据集版本
 	// (POST /api/datasets/{dataset_id}/versions)
 	ExpandDataset(ctx context.Context, request ExpandDatasetRequestObject) (ExpandDatasetResponseObject, error)
-
+	// GetHealth 检查控制面存活状态
 	// (GET /api/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
-
+	// ListJobs 查询异步任务列表
 	// (GET /api/jobs)
 	ListJobs(ctx context.Context, request ListJobsRequestObject) (ListJobsResponseObject, error)
-
+	// GetJob 获取异步任务详情
 	// (GET /api/jobs/{job_id})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
-
+	// GenerateLLMAssistance 请求大模型辅助结果
 	// (POST /api/llm/assist)
 	GenerateLLMAssistance(ctx context.Context, request GenerateLLMAssistanceRequestObject) (GenerateLLMAssistanceResponseObject, error)
-
+	// SetModelAlias 设置数据集范围内的模型别名
 	// (PUT /api/model-aliases/{alias})
 	SetModelAlias(ctx context.Context, request SetModelAliasRequestObject) (SetModelAliasResponseObject, error)
-
+	// CompareModelVersions 比较同一数据集范围内的模型版本
 	// (POST /api/model-version-comparisons)
 	CompareModelVersions(ctx context.Context, request CompareModelVersionsRequestObject) (CompareModelVersionsResponseObject, error)
-
+	// ListModelVersions 查询模型版本列表
 	// (GET /api/model-versions)
 	ListModelVersions(ctx context.Context, request ListModelVersionsRequestObject) (ListModelVersionsResponseObject, error)
-
+	// GetModelVersion 获取模型版本详情
 	// (GET /api/model-versions/{model_version_id})
 	GetModelVersion(ctx context.Context, request GetModelVersionRequestObject) (GetModelVersionResponseObject, error)
-
+	// ArchiveModelVersion 归档模型版本
 	// (POST /api/model-versions/{model_version_id}/archive)
 	ArchiveModelVersion(ctx context.Context, request ArchiveModelVersionRequestObject) (ArchiveModelVersionResponseObject, error)
-
+	// PromoteModelVersion 晋升模型版本
 	// (POST /api/model-versions/{model_version_id}/promote)
 	PromoteModelVersion(ctx context.Context, request PromoteModelVersionRequestObject) (PromoteModelVersionResponseObject, error)
-
+	// ListModelWeights 查询预训练权重目录
 	// (GET /api/model-weights)
 	ListModelWeights(ctx context.Context, request ListModelWeightsRequestObject) (ListModelWeightsResponseObject, error)
-
+	// ListTrainingRuns 查询训练任务列表
 	// (GET /api/training-runs)
 	ListTrainingRuns(ctx context.Context, request ListTrainingRunsRequestObject) (ListTrainingRunsResponseObject, error)
-
+	// CreateTrainingRun 创建训练任务
 	// (POST /api/training-runs)
 	CreateTrainingRun(ctx context.Context, request CreateTrainingRunRequestObject) (CreateTrainingRunResponseObject, error)
-
+	// GetTrainingRun 获取训练任务详情
 	// (GET /api/training-runs/{run_id})
 	GetTrainingRun(ctx context.Context, request GetTrainingRunRequestObject) (GetTrainingRunResponseObject, error)
-
+	// CancelTrainingRun 取消训练任务
 	// (POST /api/training-runs/{run_id}/cancel)
 	CancelTrainingRun(ctx context.Context, request CancelTrainingRunRequestObject) (CancelTrainingRunResponseObject, error)
-
+	// GetTrainingRunMetrics 获取训练指标序列
 	// (GET /api/training-runs/{run_id}/metrics)
 	GetTrainingRunMetrics(ctx context.Context, request GetTrainingRunMetricsRequestObject) (GetTrainingRunMetricsResponseObject, error)
-
+	// PauseTrainingRun 暂停训练任务
 	// (POST /api/training-runs/{run_id}/pause)
 	PauseTrainingRun(ctx context.Context, request PauseTrainingRunRequestObject) (PauseTrainingRunResponseObject, error)
-
+	// ResumeTrainingRun 恢复训练任务
 	// (POST /api/training-runs/{run_id}/resume)
 	ResumeTrainingRun(ctx context.Context, request ResumeTrainingRunRequestObject) (ResumeTrainingRunResponseObject, error)
-
+	// ClaimTrainingJob 领取训练任务租约
 	// (POST /internal/training-jobs/{job_id}/claim)
 	ClaimTrainingJob(ctx context.Context, request ClaimTrainingJobRequestObject) (ClaimTrainingJobResponseObject, error)
-
+	// CompleteTrainingJob 完成训练任务并登记产物
 	// (POST /internal/training-jobs/{job_id}/complete)
 	CompleteTrainingJob(ctx context.Context, request CompleteTrainingJobRequestObject) (CompleteTrainingJobResponseObject, error)
-
+	// FailTrainingJob 上报训练任务失败
 	// (POST /internal/training-jobs/{job_id}/fail)
 	FailTrainingJob(ctx context.Context, request FailTrainingJobRequestObject) (FailTrainingJobResponseObject, error)
-
+	// HeartbeatTrainingJob 续约训练任务租约
 	// (POST /internal/training-jobs/{job_id}/heartbeat)
 	HeartbeatTrainingJob(ctx context.Context, request HeartbeatTrainingJobRequestObject) (HeartbeatTrainingJobResponseObject, error)
-
+	// ReportTrainingProgress 上报训练进度与指标
 	// (POST /internal/training-jobs/{job_id}/progress)
 	ReportTrainingProgress(ctx context.Context, request ReportTrainingProgressRequestObject) (ReportTrainingProgressResponseObject, error)
 }

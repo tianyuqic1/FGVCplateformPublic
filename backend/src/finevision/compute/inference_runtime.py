@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from concurrent import futures
 from pathlib import Path
@@ -24,12 +25,20 @@ from finevision.compute.artifacts import (
     descriptor_from_dict as _descriptor_from_dict,
     create_s3_client as _create_s3_client,
 )
+from finevision.observability import configure_logging
+from finevision.observability.grpc_metrics import MetricsServerInterceptor
+from finevision.observability.metrics import start_metrics_server
+from finevision.observability.tracing import configure_tracing
+
+
+LOG = logging.getLogger(__name__)
 
 
 class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeServicer):
-    def __init__(self, cache_root: str | Path, s3_client: object | None = None) -> None:
+    def __init__(self, cache_root: str | Path, s3_client: object | None = None, metrics=None) -> None:
         self.cache_root = Path(cache_root).resolve()
         self.s3_client = s3_client
+        self.metrics = metrics
         from finevision.compute.deployment_sessions import Sessions
         self.backend = os.environ.get("FINEVISION_INFERENCE_BACKEND", "onnx_cpu")
         if self.backend not in ("onnx_cpu", "tensorrt", "ascend_acl"):
@@ -109,6 +118,8 @@ class InferenceRuntimeService(inference_runtime_pb2_grpc.InferenceRuntimeService
                 evidence_k=int(policy.get("evidence_k", 3)),
             )
         except ArtifactIntegrityError as error:
+            if self.metrics:
+                self.metrics.record_integrity_failure("inference_artifact")
             context.abort(grpc.StatusCode.DATA_LOSS, str(error))
         except RuntimeError as error:
             context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(error))
@@ -272,16 +283,26 @@ def _validate_bundle_scope(
 
 
 def main() -> None:
+    configure_logging("python-inference-runtime", force=True)
+    trace_provider = configure_tracing("python-inference-runtime")
+    metrics = start_metrics_server("python-inference-runtime", 9302)
     s3_client = _create_s3_client()
     cache_root = os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache")
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))),
+        interceptors=(MetricsServerInterceptor(metrics),),
+    )
     inference_runtime_pb2_grpc.add_InferenceRuntimeServicer_to_server(
-        InferenceRuntimeService(cache_root, s3_client=s3_client),
+        InferenceRuntimeService(cache_root, s3_client=s3_client, metrics=metrics),
         server,
     )
-    server.add_insecure_port(os.environ.get("FINEVISION_INFERENCE_GRPC_ADDRESS", "[::]:9100"))
+    address = os.environ.get("FINEVISION_INFERENCE_GRPC_ADDRESS", "[::]:9100")
+    server.add_insecure_port(address)
     server.start()
+    LOG.info("Inference runtime started", extra={"event": "runtime_started", "address": address, "runtime": os.environ.get("FINEVISION_INFERENCE_BACKEND", "onnx_cpu")})
     server.wait_for_termination()
+    if trace_provider is not None:
+        trace_provider.shutdown()
 
 
 if __name__ == "__main__":

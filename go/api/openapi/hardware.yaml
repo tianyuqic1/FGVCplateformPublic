@@ -3,9 +3,16 @@ info:
   title: FineVision Hardware Monitoring
   version: 1.0.0
   description: Companion contract to finevision.yaml. Routes are registered by internal/hardware.Handler. Reads follow the existing control-plane access boundary; only collectors can write using a separate bearer token.
+tags:
+  - name: 硬件监控
+    description: 计算节点状态、历史指标、告警与活动训练任务。
+  - name: 内部采集器
+    description: 硬件采集 Agent 使用的受保护写入接口。
 paths:
   /api/internal/hardware/samples:
     post:
+      tags: [内部采集器]
+      summary: 上报节点硬件快照
       operationId: ingestHardwareSample
       security: [{CollectorToken: []}]
       description: Report at most once per five seconds per host. Clock tolerance is 30 seconds. Server assigns received_at; samples must have a strictly newer sampled_at than the node's previous sample. Body limit 128 KiB. No samples are replayed after an outage.
@@ -30,6 +37,8 @@ paths:
         '503': {$ref: '#/components/responses/Error'}
   /api/hardware/nodes:
     get:
+      tags: [硬件监控]
+      summary: 查询计算节点列表
       operationId: listHardwareNodes
       responses:
         '200':
@@ -54,6 +63,8 @@ paths:
         '503': {$ref: '#/components/responses/Error'}
   /api/hardware/nodes/{nodeID}:
     get:
+      tags: [硬件监控]
+      summary: 获取节点详情与历史指标
       operationId: getHardwareNode
       parameters:
         - {in: path, name: nodeID, required: true, schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$'}}
