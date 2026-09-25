@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiBaseUrl, fetchJson } from "../../api/http.js";
+import {
+  annotationTaskImageUrl,
+  listPublicationCandidates,
+  listPublicationHistory,
+  listPublicationTargets,
+  previewPublication,
+  transitionPublication,
+} from "../../api/annotation.js";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import "./publication.css";
 import { selectAllCandidates } from "./selectAllCandidates.js";
 
-const ROOT = "/api/annotation/publications";
 const statuses = { preview: "待发布", queued: "排队中", building: "构建中", registering: "注册中", published: "已发布", failed: "发布失败", cancelled: "已取消" };
 const sum = counts => Object.values(counts || {}).reduce((a, b) => a + Number(b), 0);
 
@@ -40,16 +46,16 @@ export function PublicationPanel({ projects, projectId, historyOnly = false }) {
   const chosen = Object.values(selected);
   const effectiveTrainOnly = source === "feedback" || (mode === "append" && trainOnly);
   const scope = source === "annotation" ? scopeProject : targetId;
-  useEffect(() => { fetchJson(`${ROOT}/targets`).then(d => setTargets(d.items)).catch(e => setError(e.message)); }, [revision]);
+  useEffect(() => { listPublicationTargets().then(d => setTargets(d.items)).catch(e => setError(e.message)); }, [revision]);
   useEffect(() => { if (!scopeProject && projectId) setScopeProject(projectId); }, [projectId, scopeProject]);
   useEffect(() => {
     let live = true; setItems({ items: [], total: 0 });
-    if (scope && !historyOnly) fetchJson(`${ROOT}/candidates?source=${source}&scope=${encodeURIComponent(scope)}&page=${page}`).then(d => { if (live) { setItems(d); if (d.total && page > Math.ceil(d.total / 12)) setPage(Math.ceil(d.total / 12)); } }).catch(e => { if (live) setError(e.message); });
+    if (scope && !historyOnly) listPublicationCandidates(source, scope, page).then(d => { if (live) { setItems(d); if (d.total && page > Math.ceil(d.total / 12)) setPage(Math.ceil(d.total / 12)); } }).catch(e => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [source, scope, page, revision, historyOnly]);
   useEffect(() => {
     let live = true;
-    const refresh = () => fetchJson(`${ROOT}/?page=${historyPage}`).then(d => { if (live) setHistory(d); }).catch(e => { if (live) setError(e.message); });
+    const refresh = () => listPublicationHistory(historyPage).then(d => { if (live) setHistory(d); }).catch(e => { if (live) setError(e.message); });
     refresh(); const timer = setInterval(refresh, 4000);
     return () => { live = false; clearInterval(timer); };
   }, [historyPage, revision]);
@@ -61,7 +67,7 @@ export function PublicationPanel({ projects, projectId, historyOnly = false }) {
   async function run(fn) { setBusy(true); setError(""); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); } }
   async function selectAll() {
     await run(async () => {
-      const all = await selectAllCandidates(p => fetchJson(`${ROOT}/candidates?source=${source}&scope=${encodeURIComponent(scope)}&page=${p}`, { signal: AbortSignal.timeout(15000) }));
+      const all = await selectAllCandidates(p => listPublicationCandidates(source, scope, p, { signal: AbortSignal.timeout(15000) }));
       invalidate();
       const origins = [...new Set(all.map(t => t.source_version_id).filter(Boolean))];
       if (source === "feedback" && origins.length === 1) setBaseId(origins[0]);
@@ -71,12 +77,12 @@ export function PublicationPanel({ projects, projectId, historyOnly = false }) {
   }
   async function check() {
     await run(async () => {
-      const data = await fetchJson(`${ROOT}/preview`, { method: "POST", body: { id: identity.current, source, project_id: source === "annotation" ? scopeProject : "", dataset_id: mode === "append" ? targetId : "", base_id: mode === "append" ? baseId : "", name: mode === "new" ? name : "", ids: chosen.map(t => t.id), train_only: effectiveTrainOnly, split, notes } });
+      const data = await previewPublication({ id: identity.current, source, project_id: source === "annotation" ? scopeProject : "", dataset_id: mode === "append" ? targetId : "", base_id: mode === "append" ? baseId : "", name: mode === "new" ? name : "", ids: chosen.map(t => t.id), train_only: effectiveTrainOnly, split, notes });
       setPreview(data); setRevision(r => r + 1);
     });
   }
   async function transition(id, action) {
-    await run(async () => { await fetchJson(`${ROOT}/${id}/${action}`, { method: "POST" }); if (action !== "cancel") { setNotice("发布批次已进入后台，离开页面不影响执行。不会自动训练。"); setSelected({}); } setPreview(null); identity.current = crypto.randomUUID(); setRevision(r => r + 1); });
+    await run(async () => { await transitionPublication(id, action); if (action !== "cancel") { setNotice("发布批次已进入后台，离开页面不影响执行。不会自动训练。"); setSelected({}); } setPreview(null); identity.current = crypto.randomUUID(); setRevision(r => r + 1); });
   }
   const validRatios = Number.isInteger(split.train) && split.train > 0 && [split.val, split.test, split.seed].every(Number.isInteger) && split.val >= 0 && split.test >= 0 && split.train + split.val + split.test === 100;
   const ready = chosen.length > 0 && chosen.length <= 1000 && validRatios && (mode === "new" ? name.trim() : baseId && targetId);
@@ -88,7 +94,7 @@ export function PublicationPanel({ projects, projectId, historyOnly = false }) {
       <div className="pub-options">{[["annotation", "标注成果"], ["feedback", "推理回流"]].map(([value, label]) => <button type="button" key={value} className={`btn ${source === value ? "primary" : ""}`} onClick={() => { resetScope(); setSource(value); if (value === "feedback") setMode("append"); }}>{label}</button>)}</div>
       {source === "annotation" ? <label>标注项目<PaginatedSelect aria-label="发布标注项目" value={scopeProject} onChange={e => { resetScope(); setScopeProject(e.target.value); }} options={projects.map(p => ({ value: p.id, label: p.name, detail: `${p.confirmed} 张已确认` }))} /></label> : <label>来源数据集<PaginatedSelect aria-label="回流来源数据集" value={targetId} onChange={e => chooseDataset(e.target.value)} options={datasets.map(([value, label]) => ({ value, label }))} placeholder="选择模型所属数据集" /></label>}
       <div className="pub-selection"><span>已选 {chosen.length} 张 · 可选 {items.total} 张</span><button type="button" className="btn" disabled={busy || !scope || !items.total} title="选择当前来源的全部待发布样本，包含其他页" onClick={selectAll}>全选</button><button type="button" className="btn" onClick={selectPage}>选择本页</button><button type="button" className="btn" onClick={() => { invalidate(); setSelected({}); }}>清空</button></div>
-      <div className="pub-samples">{items.items.map(t => <label key={t.id} className={`pub-sample ${selected[t.id] ? "selected" : ""}`}><input type="checkbox" checked={!!selected[t.id]} onChange={() => toggle(t)} />{source === "annotation" && <img src={`${apiBaseUrl()}/api/annotation/tasks/${t.id}/image`} alt="已确认样本" loading="lazy" />}<span><strong>{source === "annotation" ? labels[t.label] || t.label : t.label}</strong><small title={t.filename || t.review_id}>{t.filename || t.review_id}</small>{source === "feedback" && <small>来源 v{targets.find(v => v.version_id === t.source_version_id)?.number || "?"} · 人工已确认</small>}</span></label>)}{!items.items.length && <p className="ann-empty">没有可发布样本。请先完成人工确认，或选择其他来源。</p>}</div>
+      <div className="pub-samples">{items.items.map(t => <label key={t.id} className={`pub-sample ${selected[t.id] ? "selected" : ""}`}><input type="checkbox" checked={!!selected[t.id]} onChange={() => toggle(t)} />{source === "annotation" && <img src={annotationTaskImageUrl(t.id)} alt="已确认样本" loading="lazy" />}<span><strong>{source === "annotation" ? labels[t.label] || t.label : t.label}</strong><small title={t.filename || t.review_id}>{t.filename || t.review_id}</small>{source === "feedback" && <small>来源 v{targets.find(v => v.version_id === t.source_version_id)?.number || "?"} · 人工已确认</small>}</span></label>)}{!items.items.length && <p className="ann-empty">没有可发布样本。请先完成人工确认，或选择其他来源。</p>}</div>
       <Pager page={page} total={items.total} onChange={setPage} prefix="待发布样本" />
     </section><section className="pub-card"><h3><span>02</span>发布去向与划分</h3>
       <div className="pub-options">{[["new", "新建数据集"], ["append", "追加已有数据集"]].map(([value, label]) => <button type="button" key={value} disabled={source === "feedback" && value === "new"} className={`btn ${mode === value ? "primary" : ""}`} onClick={() => { invalidate(); setMode(value); }}>{label}</button>)}</div>

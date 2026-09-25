@@ -12,8 +12,3 @@
 .training-picker-options strong { font-size: 12px; }
 .training-picker-options span { display: block; margin-top: 5px; font-size: 10px; color: var(--text-secondary); }
 .training-picker-options p { padding: 12px; font-size: 12px; color: var(--text-muted); }
-.training-queue-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
-.training-queue-filters input, .training-queue-filters select, .dataset-list-search { min-width: 0; max-width: 100%; min-height: 34px; padding: 7px 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: #fff; color: var(--text-secondary); font-size: 12px; }
-.training-queue-filters input { flex: 1 1 180px; }
-.training-queue-filters select { flex: 1 1 130px; width: 130px; }
-.dataset-list-search { width: min(100%, 280px); margin-bottom: 12px; }

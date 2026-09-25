@@ -6,64 +6,72 @@ body {
 
 button, input, select, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex="0"]:focus-visible {
-  outline: 3px solid rgba(53, 105, 232, .22);
+  outline: 3px solid rgba(40, 76, 101, .2);
   outline-offset: 2px;
 }
 
-.app-shell { min-height: 100vh; grid-template-columns: 214px minmax(0, 1fr); background: var(--surface-canvas); }
+.app-shell { min-height: 100vh; grid-template-columns: 238px minmax(0, 1fr); background: var(--surface-canvas); }
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 19px 13px 14px;
-  border-right: 1px solid #dfe4ed;
-  background: #fbfcfe;
+  gap: 20px;
+  padding: 22px 16px 18px;
+  border-right: 1px solid var(--border-subtle);
+  background: #f8f7f2;
+  backdrop-filter: none;
 }
-.brand { min-height: 42px; gap: 10px; padding: 0 7px; }
+.brand { min-height: 44px; gap: 10px; padding: 0 5px; }
 .brand-mark {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--action-primary);
   border-radius: var(--radius-md);
-  color: #fff;
-  background: linear-gradient(145deg, #274db7, #6d62e5);
-  box-shadow: 0 7px 18px rgba(53, 105, 232, .25);
+  color: var(--surface-panel);
+  background: var(--action-primary);
+  box-shadow: none;
 }
-.brand strong { color: var(--text-primary); font-size: 14px; }
-.brand .small { color: var(--text-muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
-.nav-caption { margin: 26px 10px 7px; color: #99a2b2; font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.brand strong { color: var(--text-primary); font: 700 16px/1.2 Georgia, "Noto Serif SC", serif; letter-spacing: -.01em; }
+.brand .small { margin-top: 2px; color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+.nav-caption { margin: 18px 7px 4px; color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .nav-section { gap: 3px; }
-.nav-button { min-height: 40px; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; color: #617087; font-size: 13px; font-weight: 650; }
-.nav-button:hover { color: #203253; background: #f2f5fa; }
-.nav-button.active { color: #254fb7; border-color: #dbe5ff; background: #edf3ff; box-shadow: inset 3px 0 0 var(--action-primary); }
-.sidebar-card { margin-top: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-panel); box-shadow: none; }
-.sidebar-card > svg { color: var(--action-primary); }
-.sidebar-card h3 { color: var(--text-primary); }
+.nav-button { position: relative; min-height: 39px; gap: 10px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); color: #506069; font-size: 12px; font-weight: 650; }
+.nav-button:hover { color: var(--action-primary); background: #eeefeb; }
+.nav-button.active { color: #183f55; border-color: transparent; background: var(--surface-selected); box-shadow: inset 3px 0 var(--action-primary); }
+.nav-button.active::after { position: absolute; right: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--status-success); content: ""; }
+.sidebar-card { margin-top: auto; padding: 13px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); background: var(--surface-panel); box-shadow: none; }
+.sidebar-card h3 { margin: 8px 0 6px; color: var(--text-primary); font: 600 15px Georgia, "Noto Serif SC", serif; }
+.sidebar-card p { margin: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.55; }
+.sidebar-card-kicker { display: flex; align-items: center; gap: 6px; color: #5a707d; font-size: 8px; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+.sidebar-card-kicker span { width: 6px; height: 6px; border-radius: 50%; background: var(--status-success); }
+.sidebar-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font: 8px var(--font-mono); }
+.sidebar-card-meta strong { color: var(--action-primary); font-size: 8px; }
 .main { min-width: 0; background: transparent; }
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
-  min-height: 70px;
+  min-height: 74px;
   padding: 10px 24px;
-  border-bottom: 1px solid rgba(220, 226, 236, .92);
-  background: rgba(244, 246, 249, .93);
-  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(255, 253, 248, .94);
+  backdrop-filter: blur(12px);
 }
-.crumb { color: #8290a5; font-size: 10px; font-weight: 700; }
-.topbar h1 { color: var(--text-primary); font-size: 17px; letter-spacing: -.02em; }
-.search-box { height: 36px; border: 1px solid #dfe5ee; border-radius: 8px; background: var(--surface-panel); box-shadow: none; }
+.crumb { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.topbar h1 { color: var(--text-primary); font: 600 20px Georgia, "Noto Serif SC", serif; letter-spacing: -.02em; }
+.search-box { height: 36px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: #f9f9f6; box-shadow: none; }
 .search-results { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); box-shadow: var(--shadow-float); }
 .page { max-width: 1600px; padding: 0 24px 40px; }
 
 .primary-button, .secondary-button, .danger-button, .ghost-button {
   min-height: 37px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 750;
 }
-.primary-button { border-color: #2f60d7; background: var(--action-primary); box-shadow: 0 6px 16px rgba(53, 105, 232, .18); }
+.primary-button { border-color: var(--action-primary); background: var(--action-primary); box-shadow: 0 5px 14px rgba(40, 76, 101, .16); }
 .primary-button:hover { background: var(--action-primary-hover); }
-.secondary-button, .ghost-button { border-color: #dce3ee; color: #33435e; background: #fff; box-shadow: none; }
+.secondary-button, .ghost-button { border-color: var(--border-strong); color: var(--action-primary); background: var(--surface-panel); box-shadow: none; }
 .danger-button { border: 1px solid #f0cccc; color: #a63d3d; background: #fff7f7; }
 .primary-button:disabled, .secondary-button:disabled { cursor: not-allowed; opacity: .48; box-shadow: none; }
 

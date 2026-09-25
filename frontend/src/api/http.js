@@ -52,14 +52,14 @@ export async function fetchJson(path, { method = "GET", body, signal } = {}) {
   return response.json();
 }
 
-export async function fetchForm(path, formData, { method = "POST", signal } = {}) {
+export async function fetchForm(path, formData, { method = "POST", signal, fallback = "" } = {}) {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     method,
     headers: { Accept: "application/json" },
     body: formData,
     signal,
   });
-  if (!response.ok) throw await apiErrorFromResponse(response, { method, path });
+  if (!response.ok) throw await apiErrorFromResponse(response, { method, path, fallback });
   if (response.status === 204) return null;
   return response.json();
 }

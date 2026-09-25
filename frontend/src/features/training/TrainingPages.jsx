@@ -25,6 +25,7 @@ import { useTrainingMetrics } from "./useTrainingMetrics.js";
 import { PaginatedList } from "../../design-system/components/PaginatedList.jsx";
 import { DatasetPicker } from "./DatasetPicker.jsx";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
+import "../../design-system/components/filter-controls.css";
 
 import { TrainingParameters } from "./TrainingParameters.jsx";
 import { trainingHeadConfig, trainingParameterRows } from "./trainingParameters.js";

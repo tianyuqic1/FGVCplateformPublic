@@ -1,126 +1,58 @@
-import { useCallback, useEffect, useState } from "react";
 import { getReviewItem, listFeedbackItems, listReviewItemsPage, submitReviewOutcome } from "../api/reviews.js";
+import { useDomainMutation } from "../query/useDomainMutation.js";
+import { useDomainQuery } from "../query/useDomainQuery.js";
+
+function emptyPagination(filters) {
+  return {
+    total: 0,
+    totalKnown: false,
+    limit: filters.limit ?? 50,
+    offset: filters.offset ?? 0,
+    hasMore: false,
+    nextOffset: null,
+  };
+}
 
 export function useReviewItems(filters = {}) {
-  const [state, setState] = useState({
-    reviewItems: [],
-    pagination: { total: 0, limit: filters.limit ?? 50, offset: filters.offset ?? 0, hasMore: false, nextOffset: null },
-    source: "api",
-    loading: true,
-    error: null,
+  const query = useDomainQuery({
+    queryKey: ["review-items", filters.status ?? "", filters.datasetId ?? "", filters.limit ?? 50, filters.offset ?? 0],
+    queryFn: () => listReviewItemsPage(filters),
+    emptyValue: { items: [], pagination: emptyPagination(filters) },
   });
 
-  const refresh = useCallback(() => {
-    let active = true;
-    setState((current) => ({ ...current, loading: true, error: null }));
-
-    listReviewItemsPage(filters)
-      .then(({ items, pagination }) => {
-        if (!active) return;
-        setState({ reviewItems: items, pagination, source: "api", loading: false, error: null });
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState({
-          reviewItems: [],
-          pagination: { total: 0, limit: filters.limit ?? 50, offset: filters.offset ?? 0, hasMore: false, nextOffset: null },
-          source: "api",
-          loading: false,
-          error,
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [filters.status, filters.datasetId, filters.limit, filters.offset]);
-
-  useEffect(() => refresh(), [refresh]);
-
-  return { ...state, refresh };
+  return {
+    reviewItems: query.data.items,
+    pagination: query.data.pagination,
+    ...withoutData(query),
+  };
 }
 
 export function useReviewItem(reviewItemId) {
-  const [state, setState] = useState({
-    reviewItem: null,
-    source: "api",
-    loading: true,
-    error: null,
+  const query = useDomainQuery({
+    queryKey: ["review-item", reviewItemId],
+    queryFn: () => getReviewItem(reviewItemId),
+    enabled: Boolean(reviewItemId),
+    emptyValue: null,
   });
 
-  const refresh = useCallback(() => {
-    let active = true;
-    setState({ reviewItem: null, source: "api", loading: true, error: null });
-
-    getReviewItem(reviewItemId)
-      .then((item) => {
-        if (!active) return;
-        setState({ reviewItem: item, source: "api", loading: false, error: null });
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState({ reviewItem: null, source: "api", loading: false, error });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [reviewItemId]);
-
-  useEffect(() => refresh(), [refresh]);
-
-  return { ...state, refresh };
+  return { reviewItem: query.data, ...withoutData(query) };
 }
 
 export function useSubmitReviewOutcome(reviewItemId) {
-  const [state, setState] = useState({ status: "idle", error: null });
-
-  const submit = useCallback(
-    async (input) => {
-      setState({ status: "submitting", error: null });
-      try {
-        const result = await submitReviewOutcome(reviewItemId, input);
-        setState({ status: "succeeded", error: null });
-        return result;
-      } catch (error) {
-        setState({ status: "failed", error });
-        throw error;
-      }
-    },
-    [reviewItemId],
-  );
-
-  return { ...state, submit };
+  const mutation = useDomainMutation((input) => submitReviewOutcome(reviewItemId, input));
+  return { status: mutation.status, error: mutation.error, submit: mutation.run, reset: mutation.reset };
 }
 
 export function useFeedbackItems(filters = {}) {
-  const [state, setState] = useState({
-    feedbackItems: [],
-    source: "api",
-    loading: true,
-    error: null,
+  const query = useDomainQuery({
+    queryKey: ["feedback-items", filters.destination ?? "", filters.datasetId ?? "", filters.limit ?? 0],
+    queryFn: () => listFeedbackItems(filters),
+    emptyValue: [],
   });
 
-  const refresh = useCallback(() => {
-    let active = true;
-    setState((current) => ({ ...current, loading: true, error: null }));
+  return { feedbackItems: query.data, ...withoutData(query) };
+}
 
-    listFeedbackItems(filters)
-      .then((items) => {
-        if (!active) return;
-        setState({ feedbackItems: items, source: "api", loading: false, error: null });
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState({ feedbackItems: [], source: "api", loading: false, error });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [filters.destination, filters.datasetId, filters.limit]);
-
-  useEffect(() => refresh(), [refresh]);
-
-  return { ...state, refresh };
+function withoutData({ data: _data, ...query }) {
+  return query;
 }

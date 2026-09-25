@@ -1,24 +1,29 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell.jsx";
 import { Icon } from "./components/icons.jsx";
-import { ModelComparisonPage, ModelVersionDetailPage, ModelVersionsPage } from "./features/model-versions/ModelVersionPages.jsx";
-import { TrainingDetailPage, TrainingPage } from "./features/training/TrainingPages.jsx";
-import {
-  DashboardPage,
-  DatasetsPage,
-  InferencePage,
-  FeedbackPage,
-  PipelineRunPage,
-  PipelinesPage,
-  ReviewDetailPage,
-  ReviewPage,
-  WeightManagementPage,
-} from "./pages/pages.jsx";
 
-import { HardwarePage } from "./features/hardware/HardwarePage.jsx";
-import { DatasetDetailPage } from "./features/datasets/DatasetDetailPage.jsx";
-import { AnnotationPage } from "./features/annotation/AnnotationPage.jsx";
+function lazyNamed(loader, name) {
+  return lazy(() => loader().then((module) => ({ default: module[name] })));
+}
+
+const DashboardPage = lazyNamed(() => import("./features/dashboard/DashboardPage.jsx"), "DashboardPage");
+const DatasetsPage = lazyNamed(() => import("./features/datasets/DatasetsPage.jsx"), "DatasetsPage");
+const DatasetDetailPage = lazyNamed(() => import("./features/datasets/DatasetDetailPage.jsx"), "DatasetDetailPage");
+const AnnotationPage = lazyNamed(() => import("./features/annotation/AnnotationPage.jsx"), "AnnotationPage");
+const InferencePage = lazyNamed(() => import("./features/inference/InferencePage.jsx"), "InferencePage");
+const HardwarePage = lazyNamed(() => import("./features/hardware/HardwarePage.jsx"), "HardwarePage");
+const TrainingPage = lazyNamed(() => import("./features/training/TrainingPages.jsx"), "TrainingPage");
+const TrainingDetailPage = lazyNamed(() => import("./features/training/TrainingPages.jsx"), "TrainingDetailPage");
+const ModelVersionsPage = lazyNamed(() => import("./features/model-versions/ModelVersionPages.jsx"), "ModelVersionsPage");
+const ModelComparisonPage = lazyNamed(() => import("./features/model-versions/ModelVersionPages.jsx"), "ModelComparisonPage");
+const ModelVersionDetailPage = lazyNamed(() => import("./features/model-versions/ModelVersionPages.jsx"), "ModelVersionDetailPage");
+const PipelinesPage = lazyNamed(() => import("./features/pipelines/PipelinePages.jsx"), "PipelinesPage");
+const PipelineRunPage = lazyNamed(() => import("./features/pipelines/PipelinePages.jsx"), "PipelineRunPage");
+const WeightManagementPage = lazyNamed(() => import("./features/weights/WeightManagementPage.jsx"), "WeightManagementPage");
+const FeedbackPage = lazyNamed(() => import("./features/review/ReviewPages.jsx"), "FeedbackPage");
+const ReviewDetailPage = lazyNamed(() => import("./features/review/ReviewPages.jsx"), "ReviewDetailPage");
+const ReviewPage = lazyNamed(() => import("./features/review/ReviewPages.jsx"), "ReviewPage");
 
 const legacyPageMap = {
   hardware: "/hardware",
@@ -112,6 +117,15 @@ function Toast({ message }) {
   );
 }
 
+function RouteFallback() {
+  return (
+    <div className="route-fallback" role="status" aria-live="polite">
+      <Icon name="LoaderCircle" size={18} />
+      <span>正在加载页面…</span>
+    </div>
+  );
+}
+
 function DiagnosticToast() {
   const [diagnostic, setDiagnostic] = useState(null);
   const [copied, setCopied] = useState(false);
@@ -166,28 +180,30 @@ export default function App() {
   return (
     <>
       <LegacyRouteBridge />
-      <AppShell title={title} crumb={crumb} onToast={showToast}>
-        <Routes>
-          <Route path="/" element={<DashboardPage showToast={showToast} />} />
-          <Route path="/dashboard" element={<Navigate to="/" replace />} />
-          <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
-          <Route path="/annotation" element={<AnnotationPage />} />
-          <Route path="/datasets/:datasetId" element={<DatasetTitleRoute showToast={showToast} />} />
-          <Route path="/training" element={<TrainingPage showToast={showToast} />} />
-          <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
-          <Route path="/inference" element={<InferencePage showToast={showToast} />} />
-          <Route path="/hardware" element={<HardwarePage />} />
-          <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
-          <Route path="/review" element={<ReviewPage />} />
-          <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
-          <Route path="/feedback" element={<FeedbackPage showToast={showToast} />} />
-          <Route path="/models" element={<ModelVersionsPage />} />
-          <Route path="/models/compare" element={<ModelComparisonPage />} />
-          <Route path="/models/:modelId" element={<ModelVersionDetailPage showToast={showToast} />} />
-          <Route path="/pipelines" element={<PipelinesPage />} />
-          <Route path="/pipelines/:pipelineRunId" element={<PipelineRunPage showToast={showToast} />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      <AppShell title={title} crumb={crumb}>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
+            <Route path="/annotation" element={<AnnotationPage />} />
+            <Route path="/datasets/:datasetId" element={<DatasetTitleRoute showToast={showToast} />} />
+            <Route path="/training" element={<TrainingPage showToast={showToast} />} />
+            <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
+            <Route path="/inference" element={<InferencePage showToast={showToast} />} />
+            <Route path="/hardware" element={<HardwarePage />} />
+            <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
+            <Route path="/review" element={<ReviewPage />} />
+            <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />
+            <Route path="/feedback" element={<FeedbackPage showToast={showToast} />} />
+            <Route path="/models" element={<ModelVersionsPage />} />
+            <Route path="/models/compare" element={<ModelComparisonPage />} />
+            <Route path="/models/:modelId" element={<ModelVersionDetailPage showToast={showToast} />} />
+            <Route path="/pipelines" element={<PipelinesPage />} />
+            <Route path="/pipelines/:pipelineRunId" element={<PipelineRunPage showToast={showToast} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </AppShell>
       <Toast message={toast} />
       <DiagnosticToast />

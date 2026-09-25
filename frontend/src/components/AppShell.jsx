@@ -46,7 +46,7 @@ function navKey(pathname) {
   return "dashboard";
 }
 
-export function AppShell({ title, crumb, children, onToast }) {
+export function AppShell({ title, crumb, children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,7 +75,7 @@ export function AppShell({ title, crumb, children, onToast }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell refreshed-shell">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -96,13 +96,10 @@ export function AppShell({ title, crumb, children, onToast }) {
           ))}
         </nav>
         <div className="sidebar-card">
-          <Icon name="ShieldCheck" size={18} />
-          <h3>受治理的实验</h3>
-          <p className="small">Training Run、Metric、Model Version 与 Artifact 均由 FineVision 统一追踪。</p>
-          <div className="meter" style={{ "--fill": "#a15c07", "--value": "0%" }}>
-            <i />
-          </div>
-          <div className="row-meta">Model Registry · Active</div>
+          <div className="sidebar-card-kicker"><span /> Governed workspace</div>
+          <h3>可追溯实验空间</h3>
+          <p className="small">数据版本、训练运行、模型产物与发布记录保持明确关联。</p>
+          <div className="sidebar-card-meta"><span>Trace scope</span><strong>Dataset → Model</strong></div>
         </div>
       </aside>
       <main className="main">
@@ -140,7 +137,7 @@ export function AppShell({ title, crumb, children, onToast }) {
                 </div>
               )}
             </div>
-            <button className="secondary-button" onClick={() => navigate("/inference")}>
+            <button type="button" className="secondary-button" onClick={() => navigate("/inference")}>
               <Icon name="ImageUp" size={16} />
               推理
             </button>

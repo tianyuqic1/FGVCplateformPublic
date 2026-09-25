@@ -65,10 +65,24 @@ jobs:
         run: npm --prefix frontend ci
       - name: 依赖安全检查
         run: npm --prefix frontend audit --audit-level=high
+      - name: 静态检查与 OpenAPI 类型
+        run: |
+          npm --prefix frontend run lint
+          npm --prefix frontend run format:check
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run check:api-types
+      - name: 单元与组件测试
+        run: npm --prefix frontend run test:run
       - name: 生产构建
         run: |
           npm --prefix frontend run build
+          npm --prefix frontend run check:bundle
           node --check go/internal/observabilityconsole/ui/console.js
+      - name: 关键浏览器链路
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+          npm run test:e2e
       - name: API 客户端契约
         run: scripts/smoke-demo.sh --contracts-only
 

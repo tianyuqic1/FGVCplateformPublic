@@ -7,6 +7,17 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "lint": "biome lint src scripts vite.config.js vitest.config.js playwright.config.js",
+    "format:check": "biome format src/query src/test src/utils src/features/inference src/features/llm src/features/pipelines src/features/review src/features/weights/WeightManagementPage.jsx src/design-system/components/pagination.test.js src/features/datasets/DatasetsPage.jsx src/features/datasets/imageFolder.js src/features/datasets/imageFolder.test.js src/features/datasets/DashboardDatasetPagination.test.jsx e2e scripts/check-bundle-budget.mjs vite.config.js vitest.config.js playwright.config.js",
+    "format": "biome format --write src/query src/test src/utils src/features/inference src/features/llm src/features/pipelines src/features/review src/features/weights/WeightManagementPage.jsx src/design-system/components/pagination.test.js src/features/datasets/DatasetsPage.jsx src/features/datasets/imageFolder.js src/features/datasets/imageFolder.test.js src/features/datasets/DashboardDatasetPagination.test.jsx e2e scripts/check-bundle-budget.mjs vite.config.js vitest.config.js playwright.config.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:e2e": "playwright test",
+    "generate:api-types": "openapi-typescript ../go/api/openapi/finevision.yaml -o src/api/generated/finevision.d.ts",
+    "check:api-types": "npm run generate:api-types && git diff --exit-code -- src/api/generated/finevision.d.ts",
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test:run && npm run build && npm run check:bundle",
     "smoke:dataset-versions": "node scripts/smoke-dataset-versions.mjs",
     "smoke:routes": "node scripts/smoke-routes.mjs",
     "smoke:dataset-import": "node scripts/smoke-dataset-import.mjs",
@@ -22,6 +33,7 @@
     "smoke:diagnostics-client": "node scripts/smoke-diagnostics-client.mjs"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.103.2",
     "@vitejs/plugin-react": "^5.1.1",
     "echarts": "^6.1.0",
     "lucide-react": "^0.555.0",
@@ -30,5 +42,15 @@
     "react-router-dom": "^7.10.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@playwright/test": "^1.63.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "jsdom": "^30.1.1",
+    "openapi-typescript": "^7.13.0",
+    "vitest": "^5.0.2"
   }
 }

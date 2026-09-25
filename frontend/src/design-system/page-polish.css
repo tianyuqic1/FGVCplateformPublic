@@ -14,6 +14,7 @@
   box-shadow: none;
 }
 .page-hero h2, .fv-page-heading h2, .ann-hero h1 {
+  font-family: Georgia, "Noto Serif SC", serif;
   font-size: clamp(23px, 2.1vw, 28px);
   font-weight: 700;
   line-height: 1.35;
@@ -49,21 +50,21 @@
 .annotation-page .btn.primary {
   background: var(--action-primary);
   border-color: var(--action-primary);
-  box-shadow: 0 3px 8px #3569e81a;
+  box-shadow: 0 3px 8px #284c651a;
 }
 .annotation-page .btn.primary:hover:not(:disabled) { background: var(--action-primary-hover); border-color: var(--action-primary-hover); }
 .secondary-button:hover:not(:disabled), .ghost-button:hover:not(:disabled),
-.annotation-page .btn:not(.primary):hover:not(:disabled) { background: var(--surface-selected); border-color: #c4d4f5; }
+.annotation-page .btn:not(.primary):hover:not(:disabled) { background: var(--surface-selected); border-color: var(--border-strong); }
 .tab-button.active, .seg-button.active {
-  color: #2859b8;
-  border-color: #c9d8f8;
+  color: var(--action-primary);
+  border-color: var(--border-strong);
   background: var(--surface-selected);
 }
 .ann-tabs { margin: 0; padding-bottom: 4px; }
 .dataset-pagination__pages button[aria-current="page"] { background: var(--action-primary); border-color: var(--action-primary); box-shadow: none; }
 .dataset-pagination__pages button[aria-current="page"]:hover { background: var(--action-primary-hover); }
 .annotation-page button:focus-visible, .annotation-page input:focus-visible,
-textarea:focus-visible, summary:focus-visible { outline: 3px solid #3569e838; outline-offset: 2px; }
+textarea:focus-visible, summary:focus-visible { outline: 3px solid #284c6538; outline-offset: 2px; }
 .field input, .field select, .field textarea, .fv-form input, .fv-form select {
   border-color: var(--border-subtle);
   border-radius: var(--radius-md);
@@ -80,12 +81,12 @@ textarea:focus-visible, summary:focus-visible { outline: 3px solid #3569e838; ou
 .ann-project-stats strong { font-size: 23px; }
 .ann-thumb.active, .ann-candidates > button.chosen {
   background: var(--surface-selected);
-  border-color: #c9d8f8;
-  color: #2859b8;
+  border-color: var(--border-strong);
+  color: var(--action-primary);
 }
 .ann-confirm { background: var(--surface-panel-soft); }
 .pub-card .pub-sample { background: var(--surface-panel); }
-.pub-card .pub-sample.selected { background: var(--surface-selected); border-color: #adc5f5; }
+.pub-card .pub-sample.selected { background: var(--surface-selected); border-color: var(--border-strong); }
 .pub-table-wrap th { background: var(--surface-panel-soft); color: var(--text-secondary); }
 .inference-stack > .panel { border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); padding: 20px; }
 .inference-stack .panel-title h2 { font-size: 15px; }
@@ -108,4 +109,25 @@ textarea:focus-visible, summary:focus-visible { outline: 3px solid #3569e838; ou
   .topbar-actions { width: auto; flex-wrap: nowrap; }
   .topbar-actions .ghost-button { width: auto; }
   .inference-stack > .panel { padding: 14px; }
+}
+.route-fallback {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.route-fallback svg {
+  animation: route-fallback-spin 900ms linear infinite;
+}
+
+@keyframes route-fallback-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-fallback svg { animation: none; }
 }

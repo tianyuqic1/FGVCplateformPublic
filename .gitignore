@@ -17,6 +17,9 @@ data/test/
 
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 annotation/runtime/
 annotation/models/*
 !annotation/models/README.md

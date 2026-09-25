@@ -1,7 +1,5 @@
 import { APIError, apiBaseUrl, apiErrorFromResponse, fetchJson, withTimeout } from "./http.js";
 
-const DEFAULT_TIMEOUT_MS = 2500;
-
 function firstNumber(...values) {
   const value = values.find((item) => Number.isFinite(Number(item)));
   return value === undefined ? 0 : Number(value);

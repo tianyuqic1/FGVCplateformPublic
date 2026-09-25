@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { catalogTemplate, parseCatalog } from "./catalog.js";
-import { fetchJson } from "../../api/http.js";
+import { validateAnnotationCatalog } from "../../api/annotation.js";
 import "./catalog.css";
 
 export function CatalogImport({ value, onChange, disabled }) {
@@ -20,7 +20,7 @@ export function CatalogImport({ value, onChange, disabled }) {
     try {
       if (!/\.json$/i.test(file.name) || file.size > 512 * 1024) throw new Error("仅支持不超过 512 KiB 的 .json 文件。");
       const parsed = parseCatalog(await file.text());
-      const validated = await fetchJson("/api/annotation/catalog/validate", { method: "POST", body: parsed });
+      const validated = await validateAnnotationCatalog(parsed);
       onChange(validated); setFilename(file.name); setPage(1); setQuery("");
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }

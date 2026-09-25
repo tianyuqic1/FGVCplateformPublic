@@ -1,6 +1,6 @@
 import { PaginatedList } from "../../design-system/components/PaginatedList.jsx";
 import { useState } from "react";
-import "../training/trainingFilters.css";
+import "../../design-system/components/filter-controls.css";
 
 export function DashboardDatasetPagination({ items, children, showStatus = true }) {
   const [query, setQuery] = useState("");

@@ -1,14 +1,19 @@
-import { useEffect, useState } from "react";
 import { listInferenceModels } from "../api/inferenceModels.js";
+import { useDomainQuery } from "../query/useDomainQuery.js";
 
 export function useInferenceModels() {
-  const [state, setState] = useState({ models: [], source: "loading" });
-  useEffect(() => {
-    let active = true;
-    listInferenceModels()
-      .then((models) => { if (active) setState({ models, source: "api" }); })
-      .catch(() => { if (active) setState({ models: [], source: "unavailable" }); });
-    return () => { active = false; };
-  }, []);
-  return state;
+  const query = useDomainQuery({
+    queryKey: ["inference-models"],
+    queryFn: listInferenceModels,
+    emptyValue: [],
+  });
+
+  return {
+    models: query.data,
+    source: query.source,
+    loading: query.loading,
+    refreshing: query.refreshing,
+    error: query.error,
+    refresh: query.refresh,
+  };
 }

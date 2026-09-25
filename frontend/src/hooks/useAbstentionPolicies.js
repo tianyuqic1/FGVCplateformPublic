@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   activateAbstentionPolicy,
   deactivateAbstentionPolicy,
@@ -6,116 +5,59 @@ import {
   listAbstentionShadowDecisions,
   proposeAbstentionPolicy,
 } from "../api/abstentionPolicies.js";
+import { useDomainMutation } from "../query/useDomainMutation.js";
+import { useDomainQuery } from "../query/useDomainQuery.js";
 
 export function useAbstentionPolicies(filters = {}) {
   const enabled = filters.enabled !== false;
-  const [state, setState] = useState({ policies: [], loading: enabled, error: null });
+  const query = useDomainQuery({
+    queryKey: ["abstention-policies", filters.datasetVersionId ?? "", filters.modelVersionId ?? "", filters.status ?? "", filters.limit ?? 0],
+    queryFn: () => listAbstentionPolicies(filters),
+    enabled,
+    emptyValue: [],
+  });
 
-  const refresh = useCallback(() => {
-    if (!enabled) {
-      setState({ policies: [], loading: false, error: null });
-      return () => {};
-    }
-    let active = true;
-    setState((current) => ({ ...current, loading: true, error: null }));
-    listAbstentionPolicies(filters)
-      .then((policies) => {
-        if (!active) return;
-        setState({ policies, loading: false, error: null });
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState({ policies: [], loading: false, error });
-      });
-    return () => {
-      active = false;
-    };
-  }, [enabled, filters.datasetVersionId, filters.modelVersionId, filters.status, filters.limit]);
-
-  useEffect(() => refresh(), [refresh]);
-
-  return { ...state, refresh };
+  return { policies: query.data, ...withoutData(query) };
 }
 
 export function useAbstentionShadowDecisions(policyId, filters = {}) {
-  const [state, setState] = useState({ shadowDecisions: [], loading: Boolean(policyId), error: null });
+  const query = useDomainQuery({
+    queryKey: ["abstention-shadow-decisions", policyId ?? "", filters.diff ?? "", filters.limit ?? 0],
+    queryFn: () => listAbstentionShadowDecisions(policyId, filters),
+    enabled: Boolean(policyId),
+    emptyValue: [],
+  });
 
-  const refresh = useCallback(() => {
-    if (!policyId) {
-      setState({ shadowDecisions: [], loading: false, error: null });
-      return () => {};
-    }
-    let active = true;
-    setState((current) => ({ ...current, loading: true, error: null }));
-    listAbstentionShadowDecisions(policyId, filters)
-      .then((shadowDecisions) => {
-        if (!active) return;
-        setState({ shadowDecisions, loading: false, error: null });
-      })
-      .catch((error) => {
-        if (!active) return;
-        setState({ shadowDecisions: [], loading: false, error });
-      });
-    return () => {
-      active = false;
-    };
-  }, [policyId, filters.diff, filters.limit]);
-
-  useEffect(() => refresh(), [refresh]);
-
-  return { ...state, refresh };
+  return { shadowDecisions: query.data, ...withoutData(query) };
 }
 
 export function useProposeAbstentionPolicy() {
-  const [state, setState] = useState({ status: "idle", error: null });
-
-  const propose = useCallback(async (input) => {
-    setState({ status: "submitting", error: null });
-    try {
-      const policy = await proposeAbstentionPolicy(input);
-      setState({ status: "succeeded", error: null });
-      return policy;
-    } catch (error) {
-      setState({ status: "failed", error });
-      throw error;
-    }
-  }, []);
-
-  return { ...state, propose };
+  const mutation = useDomainMutation(proposeAbstentionPolicy);
+  return { status: mutation.status, error: mutation.error, propose: mutation.run, reset: mutation.reset };
 }
 
 export function useActivateAbstentionPolicy() {
-  const [state, setState] = useState({ status: "idle", error: null, result: null });
-
-  const activate = useCallback(async (policyId, input = {}) => {
-    setState({ status: "submitting", error: null, result: null });
-    try {
-      const result = await activateAbstentionPolicy(policyId, input);
-      setState({ status: "succeeded", error: null, result });
-      return result;
-    } catch (error) {
-      setState({ status: "failed", error, result: null });
-      throw error;
-    }
-  }, []);
-
-  return { ...state, activate };
+  const mutation = useDomainMutation(({ policyId, input }) => activateAbstentionPolicy(policyId, input));
+  return {
+    status: mutation.status,
+    error: mutation.error,
+    result: mutation.result,
+    activate: (policyId, input = {}) => mutation.run({ policyId, input }),
+    reset: mutation.reset,
+  };
 }
 
 export function useDeactivateAbstentionPolicy() {
-  const [state, setState] = useState({ status: "idle", error: null, result: null });
+  const mutation = useDomainMutation(({ policyId, input }) => deactivateAbstentionPolicy(policyId, input));
+  return {
+    status: mutation.status,
+    error: mutation.error,
+    result: mutation.result,
+    deactivate: (policyId, input = {}) => mutation.run({ policyId, input }),
+    reset: mutation.reset,
+  };
+}
 
-  const deactivate = useCallback(async (policyId, input = {}) => {
-    setState({ status: "submitting", error: null, result: null });
-    try {
-      const result = await deactivateAbstentionPolicy(policyId, input);
-      setState({ status: "succeeded", error: null, result });
-      return result;
-    } catch (error) {
-      setState({ status: "failed", error, result: null });
-      throw error;
-    }
-  }, []);
-
-  return { ...state, deactivate };
+function withoutData({ data: _data, ...query }) {
+  return query;
 }

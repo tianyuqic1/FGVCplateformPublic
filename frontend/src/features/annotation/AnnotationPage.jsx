@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiBaseUrl, apiErrorFromResponse, fetchJson } from "../../api/http.js";
+import {
+  annotationProjectCatalogUrl,
+  annotationProjectExportUrl,
+  annotationTaskImageUrl,
+  confirmAnnotationTask,
+  createAnnotationProject,
+  getAnnotationQueueSummary,
+  getAnnotationStatus,
+  listAnnotationProjects,
+  listAnnotationTasks,
+  queueAllAnnotationTasks,
+  queueAnnotationTasks,
+  uploadAnnotationImage,
+} from "../../api/annotation.js";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import { Icon } from "../../components/icons.jsx";
 import "./annotation.css";
@@ -7,10 +20,9 @@ import { useSearchParams } from "react-router-dom";
 import { PublicationPanel } from "./PublicationPanel.jsx";
 import { CatalogImport } from "./CatalogImport.jsx";
 
-const ROOT = "/api/annotation";
 const states = { pending: "待标注", queued: "排队中", running: "AI 分析中", suggested: "待确认", confirmed: "已确认", failed: "建议不完整", unknown: "调用结果未知" };
 const methods = { A: "原图直读", B: "工具工作流", C: "工作流 + 图像检索", D: "工作流 + 图文检索" };
-const picture = id => `${apiBaseUrl()}${ROOT}/tasks/${id}/image`;
+const picture = annotationTaskImageUrl;
 
 export function AnnotationPage() {
   const [params, setParams] = useSearchParams();
@@ -41,14 +53,14 @@ export function AnnotationPage() {
   const pageCount = Math.max(1, Math.ceil(view.total / 12));
 
   const loadProjects = useCallback(async () => {
-    const data = await fetchJson(`${ROOT}/projects`);
+    const data = await listAnnotationProjects();
     setProjects(data.items);
     setProjectId(current => current || data.items[0]?.id || "");
   }, []);
   const reload = useCallback(async () => {
     if (!projectId) return;
     const ticket = ++generation.current;
-    const [data, summary] = await Promise.all([fetchJson(`${ROOT}/projects/${projectId}/tasks?page=${page}&status=${filter}`), fetchJson(`${ROOT}/projects/${projectId}/queue-summary`)]);
+    const [data, summary] = await Promise.all([listAnnotationTasks(projectId, page, filter), getAnnotationQueueSummary(projectId)]);
     if (ticket !== generation.current) return;
     setView(data);
     setQueueSummary(summary);
@@ -59,7 +71,7 @@ export function AnnotationPage() {
   useEffect(() => {
     let stopped = false;
     const refresh = async () => {
-      try { await Promise.all([reload(), loadProjects()]); const status = await fetchJson(`${ROOT}/status`); if (!stopped) setWorker(status); }
+      try { await Promise.all([reload(), loadProjects()]); const status = await getAnnotationStatus(); if (!stopped) setWorker(status); }
       catch (e) { if (!stopped) setError(e.message); }
     };
     refresh();
@@ -79,7 +91,7 @@ export function AnnotationPage() {
     event.preventDefault();
     if (!catalog) { setError("请先导入并校验 JSON 类别目录。"); return; }
     await act("创建项目", async () => {
-      const p = await fetchJson(`${ROOT}/projects`, { method: "POST", body: { name: draft.name, catalog, method: draft.method, domain: draft.domain } });
+      const p = await createAnnotationProject({ name: draft.name, catalog, method: draft.method, domain: draft.domain });
       changeProject(p.id); setCreating(false); setCatalog(null); setDraft({ name: "", method: "D", domain: "general" });
       setNotice("项目已创建，上传图片后即可开始。不会自动发送图片到大模型。");
     });
@@ -91,16 +103,7 @@ export function AnnotationPage() {
     await act("上传图片", async () => {
       let count = 0;
       for (const file of files) {
-        const form = new FormData(); form.append("image", file);
-        const path = `${ROOT}/projects/${projectId}/images`;
-        const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", body: form });
-        if (!response.ok) {
-          throw await apiErrorFromResponse(response, {
-            method: "POST",
-            path,
-            fallback: `已处理 ${count} 张；${file.name} 上传失败。已上传的图片会保留`,
-          });
-        }
+        await uploadAnnotationImage(projectId, file, count);
         count++; setBusy(`上传 ${count}/${files.length}`);
       }
       setNotice(`已处理 ${count} 张图片；相同图片自动去重。`); setPage(1);
@@ -108,21 +111,21 @@ export function AnnotationPage() {
   }
   async function queue(ids) {
     await act("加入 AI 队列", async () => {
-      const data = await fetchJson(`${ROOT}/projects/${projectId}/queue`, { method: "POST", body: { ids, allow_remote: consent } });
+      const data = await queueAnnotationTasks(projectId, ids, consent);
       setNotice(`${data.queued} 张已进入后台队列，可以离开页面。`);
     });
   }
-  async function prepareBatch() { await act("检查批量范围", async () => { const snapshot = await fetchJson(`${ROOT}/projects/${projectId}/queue-summary`); setBatch({ ...snapshot, projectId }); }); }
+  async function prepareBatch() { await act("检查批量范围", async () => { const snapshot = await getAnnotationQueueSummary(projectId); setBatch({ ...snapshot, projectId }); }); }
   async function queueAll() {
     await act("提交批量分析", async () => {
-      const data = await fetchJson(`${ROOT}/projects/${batch.projectId}/queue-all`, { method: "POST", body: { through_seq: batch.through_seq, allow_remote: consent } });
+      const data = await queueAllAnnotationTasks(batch.projectId, batch.through_seq, consent);
       setBatch(null); setNotice(`${data.queued} 张已进入后台批量分析；按低资源单并发处理，无需停留在本页。`);
     });
   }
   async function confirm() {
     const targetId = selected.id;
     await act("保存标注", async () => {
-      await fetchJson(`${ROOT}/tasks/${targetId}/confirm`, { method: "POST", body: { label, actor } });
+      await confirmAnnotationTask(targetId, label, actor);
       setNotice("人工标签已保存，确认样本将异步写入检索库。"); setLabel("");
     });
   }
@@ -138,7 +141,7 @@ export function AnnotationPage() {
       <div className="ann-project-select"><label>标注项目</label><PaginatedSelect aria-label="标注项目" value={projectId} disabled={!!busy} onChange={e => changeProject(e.target.value)} options={projects.map(p => ({ value: p.id, label: p.name, detail: `${p.classes.length} 类 · ${p.confirmed}/${p.total} 已确认 · ${methods[p.method]}` }))} placeholder="创建第一个标注项目" /></div>
       {project && <div className="ann-project-stats"><span><strong>{project.total}</strong> 张图片</span><span><strong>{project.confirmed}</strong> 已确认</span><span><strong>{project.indexed}</strong> 已入库</span></div>}
       <button className="btn" disabled={!!busy} onClick={() => setCreating(!creating)}><Icon name="Plus" size={16} />新建项目</button>
-      {project && <><button className="btn primary" disabled={!!busy} onClick={() => fileInput.current?.click()}><Icon name="Upload" size={16} />上传图片</button><a className="btn" href={`${apiBaseUrl()}${ROOT}/projects/${projectId}/export`} download>导出标注</a><a className="btn" href={`${apiBaseUrl()}${ROOT}/projects/${projectId}/catalog`} download>类别 JSON</a></>}
+      {project && <><button className="btn primary" disabled={!!busy} onClick={() => fileInput.current?.click()}><Icon name="Upload" size={16} />上传图片</button><a className="btn" href={annotationProjectExportUrl(projectId)} download>导出标注</a><a className="btn" href={annotationProjectCatalogUrl(projectId)} download>类别 JSON</a></>}
       <input ref={fileInput} type="file" hidden multiple accept="image/jpeg,image/png" onChange={upload} />
     </section>
     {creating && <form className="ann-create" onSubmit={create}>

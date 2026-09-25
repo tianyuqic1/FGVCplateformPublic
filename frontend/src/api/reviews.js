@@ -27,11 +27,13 @@ export function extractReviewItemList(payload) {
 
 export function extractPagination(payload, fallbackLength = 0) {
   const pagination = payload?.pagination ?? {};
+  const totalKnown = pagination.total !== null && pagination.total !== undefined && pagination.total !== "" && Number.isFinite(Number(pagination.total));
   const limit = Number.isFinite(Number(pagination.limit)) ? Number(pagination.limit) : fallbackLength;
   const offset = Number.isFinite(Number(pagination.offset)) ? Number(pagination.offset) : 0;
-  const total = Number.isFinite(Number(pagination.total)) ? Number(pagination.total) : fallbackLength;
+  const total = totalKnown ? Number(pagination.total) : fallbackLength;
   return {
     total,
+    totalKnown,
     limit,
     offset,
     hasMore: Boolean(pagination.has_more ?? pagination.hasMore),

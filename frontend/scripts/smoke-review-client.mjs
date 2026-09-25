@@ -56,8 +56,16 @@ const payload = {
 const items = extractReviewItemList(payload).map(normalizeReviewItem);
 const pagination = extractPagination({ ...payload, pagination: { total: 21, limit: 20, offset: 20, has_more: true, next_offset: 40 } });
 if (items.length !== 1) throw new Error("Review list extraction failed");
-if (pagination.total !== 21 || pagination.limit !== 20 || pagination.offset !== 20 || !pagination.hasMore) {
+if (pagination.total !== 21 || !pagination.totalKnown || pagination.limit !== 20 || pagination.offset !== 20 || !pagination.hasMore) {
   throw new Error("Review pagination extraction failed");
+}
+const fallbackPagination = extractPagination({ review_items: [{ id: "one" }] }, 1);
+if (fallbackPagination.totalKnown || fallbackPagination.total !== 1) {
+  throw new Error("Pagination fallback must not pretend the total is known");
+}
+const nullTotalPagination = extractPagination({ pagination: { total: null } }, 3);
+if (nullTotalPagination.totalKnown || nullTotalPagination.total !== 3) {
+  throw new Error("Null pagination total must use the explicit fallback");
 }
 if (items[0].id !== "review-001") throw new Error("Review id missing");
 if (items[0].inferenceRunId !== "infer-run-001") throw new Error("Review inference run id missing");

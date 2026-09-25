@@ -1,45 +1,32 @@
-import { useCallback, useState } from "react";
 import { generateLLMAssistance, generateReviewAssistance } from "../api/llm.js";
+import { useDomainMutation } from "../query/useDomainMutation.js";
 
 export function useReviewAssistance(reviewItemId) {
-  const [state, setState] = useState({ status: "idle", assistance: null, error: null });
-
-  const generate = useCallback(
-    async (input = {}) => {
-      setState((current) => ({ ...current, status: "generating", error: null }));
-      try {
-        const result = await generateReviewAssistance(reviewItemId, input);
-        setState({ status: "ready", assistance: result.assistance, error: null });
-        return result;
-      } catch (error) {
-        setState((current) => ({ ...current, status: "failed", error }));
-        throw error;
-      }
-    },
-    [reviewItemId],
+  const mutation = useDomainMutation(
+    (input = {}) => generateReviewAssistance(reviewItemId, input),
+    { pending: "generating", success: "ready" },
   );
 
-  const reset = useCallback(() => setState({ status: "idle", assistance: null, error: null }), []);
-
-  return { ...state, generate, reset };
+  return {
+    status: mutation.status,
+    assistance: mutation.result?.assistance ?? null,
+    error: mutation.error,
+    generate: mutation.run,
+    reset: mutation.reset,
+  };
 }
 
 export function useLLMAssistance() {
-  const [state, setState] = useState({ status: "idle", assistance: null, error: null });
+  const mutation = useDomainMutation(
+    ({ task, context }) => generateLLMAssistance({ task, context }),
+    { pending: "generating", success: "ready" },
+  );
 
-  const generate = useCallback(async ({ task, context }) => {
-    setState((current) => ({ ...current, status: "generating", error: null }));
-    try {
-      const assistance = await generateLLMAssistance({ task, context });
-      setState({ status: "ready", assistance, error: null });
-      return assistance;
-    } catch (error) {
-      setState((current) => ({ ...current, status: "failed", error }));
-      throw error;
-    }
-  }, []);
-
-  const reset = useCallback(() => setState({ status: "idle", assistance: null, error: null }), []);
-
-  return { ...state, generate, reset };
+  return {
+    status: mutation.status,
+    assistance: mutation.result,
+    error: mutation.error,
+    generate: mutation.run,
+    reset: mutation.reset,
+  };
 }
