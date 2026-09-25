@@ -127,6 +127,33 @@ func (service *Service) List(ctx context.Context, filter Filter) ([]Version, err
 	return service.repository.List(ctx, filter)
 }
 
+func (service *Service) ListPage(ctx context.Context, filter Filter, query string, limit, offset int) ([]Version, int, error) {
+	if paged, ok := service.repository.(interface {
+		ListPage(context.Context, Filter, string, int, int) ([]Version, int, error)
+	}); ok {
+		return paged.ListPage(ctx, filter, query, limit, offset)
+	}
+	versions, err := service.repository.List(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	filtered := make([]Version, 0, len(versions))
+	for _, version := range versions {
+		if strings.Contains(strings.ToLower(version.Name+" "+version.ID+" "+version.DatasetName+" "+version.ReleaseVersion), strings.ToLower(query)) {
+			filtered = append(filtered, version)
+		}
+	}
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return filtered[offset:end], total, nil
+}
+
 func (service *Service) Get(ctx context.Context, id string) (Version, error) {
 	v, err := service.repository.Get(ctx, id)
 	if err != nil {

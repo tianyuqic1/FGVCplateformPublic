@@ -46,6 +46,14 @@ services:
       - ./frontend/src:/app/src:ro
       - ./frontend/scripts:/app/scripts:ro
       - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/package.json:/app/package.json:ro
+      - ./frontend/package-lock.json:/app/package-lock.json:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/src/main.jsx').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
 
   go-control-plane:
     logging: *default-logging

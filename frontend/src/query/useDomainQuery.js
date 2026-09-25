@@ -1,11 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 
-export function useDomainQuery({ queryKey, queryFn, enabled = true, emptyValue, refetchInterval = false }) {
+export function useDomainQuery({
+  queryKey,
+  queryFn,
+  enabled = true,
+  emptyValue,
+  refetchInterval = false,
+  placeholderData,
+}) {
   const query = useQuery({
     queryKey,
     queryFn,
     enabled,
     refetchInterval,
+    placeholderData,
   });
 
   const loading = enabled && query.isPending;

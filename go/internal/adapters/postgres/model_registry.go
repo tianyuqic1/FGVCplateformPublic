@@ -48,6 +48,37 @@ ORDER BY mv.created_at DESC`, filter.DatasetID, filter.DatasetVersionID, filter.
 	return versions, rows.Err()
 }
 
+func (repository *ModelRegistryRepository) ListPage(ctx context.Context, filter modelregistry.Filter, query string, limit, offset int) ([]modelregistry.Version, int, error) {
+	const where = ` WHERE (NULLIF($1, '') IS NULL OR d.dataset_key=$1 OR d.id::text=$1)
+  AND (NULLIF($2, '') IS NULL OR dv.version_key=$2 OR mv.dataset_version_id::text=$2)
+  AND (NULLIF($3, '') IS NULL OR mv.architecture=$3)
+  AND (NULLIF($4, '') IS NULL OR mv.pretraining_method=$4 OR mv.pretraining_dataset=$4)
+  AND (NULLIF($5, '') IS NULL OR mv.status=$5)
+  AND ($6='' OR mv.name ILIKE '%'||$6||'%' OR mv.model_key ILIKE '%'||$6||'%' OR mv.id::text ILIKE '%'||$6||'%' OR d.name ILIKE '%'||$6||'%' OR mv.release_version ILIKE '%'||$6||'%')`
+	args := []any{filter.DatasetID, filter.DatasetVersionID, filter.Architecture, filter.Pretraining, string(filter.Status), query}
+	var total int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM model_versions mv JOIN datasets d ON d.id=mv.dataset_id JOIN dataset_versions dv ON dv.id=mv.dataset_version_id`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := repository.pool.Query(ctx, modelVersionSelect+where+` ORDER BY mv.created_at DESC,mv.id LIMIT $7 OFFSET $8`, append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	versions := make([]modelregistry.Version, 0)
+	for rows.Next() {
+		version, err := scanModelVersion(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		if err := repository.loadVersionRelations(ctx, &version); err != nil {
+			return nil, 0, err
+		}
+		versions = append(versions, version)
+	}
+	return versions, total, rows.Err()
+}
+
 func (repository *ModelRegistryRepository) Get(ctx context.Context, id string) (modelregistry.Version, error) {
 	row := repository.pool.QueryRow(ctx, modelVersionSelect+`
 WHERE mv.id::text=$1 OR mv.model_key=$1`, id)

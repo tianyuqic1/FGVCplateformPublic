@@ -203,6 +203,8 @@ export function DashboardPage() {
   const reviewTotal = reviewLoading && !reviewItems.length ? "读取中" : pagination.totalKnown ? String(pagination.total) : `已读取 ${reviewItems.length} 条`;
   const reviewCaption = pagination.totalKnown ? "接口 pagination.total" : "接口未返回队列总数";
 
+  if (loading) return <div className="home-dashboard"><div className="home-api-warning" role="status"><Icon name="LoaderCircle" size={17} />正在同步复核、训练与模型数据；完成前不展示零计数或发布结论。</div></div>;
+
   const actions = [
     failedRuns.length ? { id: "training", order: "01", eyebrow: "阻塞发布的技术风险", title: `${failedRuns.length} 条训练运行失败`, object: firstFailed?.name || shortId(firstFailed?.id), reason: firstFailed?.error || "运行失败，尚未记录可读错误", consequence: "先定位运行故障；只在关联当前模型版本时影响本次发布。", tone: "danger", to: firstFailed ? `/training/${firstFailed.id}` : "/training", cta: "打开运行诊断" } : null,
     reviewItems.length ? { id: "review", order: "02", eyebrow: "需要人的判断", title: `待复核队列 · ${reviewTotal}`, object: selectedReview?.sampleId || `样本 ${shortId(selectedReview?.id)}`, reason: (selectedReview?.reasonCodes ?? []).slice(0, 2).map(reasonLabel).join(" / ") || "推理已弃权", consequence: "确认后进入反馈池，不自动改写已注册数据版本。", tone: "warning", to: selectedReview ? `/review/${selectedReview.id}` : "/review", cta: "进入人工复核" } : null,

@@ -63,6 +63,19 @@ LEFT JOIN LATERAL (
 func (models *ReadModels) ListDatasets(ctx context.Context) ([]map[string]any, error) {
 	return queryObjects(ctx, models.pool, datasetSelect+` ORDER BY d.updated_at DESC`)
 }
+
+func (models *ReadModels) ListDatasetsPage(ctx context.Context, filter httpapi.PageFilter) ([]map[string]any, int, error) {
+	const where = ` WHERE ($1='' OR d.name ILIKE '%'||$1||'%' OR d.dataset_key ILIKE '%'||$1||'%' OR EXISTS (
+ SELECT 1 FROM dataset_versions v WHERE v.dataset_id=d.id AND (v.version_key ILIKE '%'||$1||'%' OR v.id::text ILIKE '%'||$1||'%')))
+ AND ($2='' OR $2='all' OR ($2='production' AND (d.status='production' OR EXISTS (
+ SELECT 1 FROM model_versions mv WHERE mv.dataset_id=d.id AND mv.status='production'))) OR ($2<>'production' AND d.status=$2))`
+	var total int
+	if err := models.pool.QueryRow(ctx, `SELECT count(*) FROM datasets d`+where, filter.Query, filter.Status).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	items, err := queryObjects(ctx, models.pool, datasetSelect+where+` ORDER BY d.updated_at DESC,d.id LIMIT $3 OFFSET $4`, filter.Query, filter.Status, filter.Limit, filter.Offset)
+	return items, total, err
+}
 func (models *ReadModels) GetDataset(ctx context.Context, id string) (map[string]any, error) {
 	return queryObject(ctx, models.pool, datasetSelect+` WHERE d.dataset_key=$1 OR d.id::text=$1`, id)
 }
@@ -94,6 +107,74 @@ FROM jobs j WHERE j.id=$1`, id)
 
 func (models *ReadModels) ListTrainingRuns(ctx context.Context) ([]map[string]any, error) {
 	return queryObjects(ctx, models.pool, trainingRunSelect+` ORDER BY tr.created_at DESC`)
+}
+
+func (models *ReadModels) ListTrainingRunsPage(ctx context.Context, filter httpapi.PageFilter) ([]map[string]any, int, error) {
+	const from = ` FROM training_runs tr JOIN datasets d ON d.id=tr.dataset_id LEFT JOIN jobs j ON j.id=tr.job_id`
+	const where = ` WHERE ($1='' OR j.payload->>'name' ILIKE '%'||$1||'%' OR d.name ILIKE '%'||$1||'%' OR tr.id::text ILIKE '%'||$1||'%' OR tr.dataset_version_id::text ILIKE '%'||$1||'%')
+ AND ($2='' OR $2='all' OR tr.status=$2) AND ($3='' OR d.dataset_key=$3 OR d.id::text=$3) AND ($4='' OR tr.backbone_id=$4)`
+	var total int
+	args := []any{filter.Query, filter.Status, filter.DatasetID, filter.BackboneID}
+	if err := models.pool.QueryRow(ctx, `SELECT count(*)`+from+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	items, err := queryObjects(ctx, models.pool, trainingRunSelect+where+` ORDER BY tr.created_at DESC,tr.id LIMIT $5 OFFSET $6`, append(args, filter.Limit, filter.Offset)...)
+	return items, total, err
+}
+
+func (models *ReadModels) TrainingRunStatusCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := models.pool.Query(ctx, `SELECT status,count(*) FROM training_runs GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, err
+		}
+		counts[status] = count
+	}
+	return counts, rows.Err()
+}
+
+func (models *ReadModels) Search(ctx context.Context, query string, limit int) ([]map[string]any, error) {
+	if limit < 1 || limit > 20 {
+		limit = 10
+	}
+	rows, err := models.pool.Query(ctx, `
+SELECT kind,id,label,hint FROM (
+ SELECT 1 rank,'dataset' kind,d.dataset_key id,d.name label,
+   '数据集 · '||d.dataset_key hint,d.updated_at sort_time
+ FROM datasets d WHERE d.name ILIKE '%'||$1||'%' OR d.dataset_key ILIKE '%'||$1||'%'
+ UNION ALL
+ SELECT 2,'training',tr.id::text,COALESCE(NULLIF(j.payload->>'name',''),tr.id::text),
+   '训练任务 · '||tr.status,tr.created_at
+ FROM training_runs tr LEFT JOIN jobs j ON j.id=tr.job_id WHERE j.payload->>'name' ILIKE '%'||$1||'%' OR tr.id::text ILIKE '%'||$1||'%'
+ UNION ALL
+ SELECT 3,'model',mv.id::text,COALESCE(NULLIF(mv.name,''),mv.model_key),
+   '模型版本 · '||mv.status,mv.created_at
+ FROM model_versions mv WHERE mv.name ILIKE '%'||$1||'%' OR mv.model_key ILIKE '%'||$1||'%' OR mv.id::text ILIKE '%'||$1||'%'
+ UNION ALL
+ SELECT 4,'review',r.review_key,COALESCE(NULLIF(r.sample_id,''),r.review_key),
+   '人工复核 · '||r.status,r.created_at
+ FROM review_items r WHERE r.review_key ILIKE '%'||$1||'%' OR r.sample_id ILIKE '%'||$1||'%'
+) found ORDER BY rank,sort_time DESC LIMIT $2`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var kind, id, label, hint string
+		if err := rows.Scan(&kind, &id, &label, &hint); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{"kind": kind, "id": id, "label": label, "hint": hint})
+	}
+	return items, rows.Err()
 }
 
 func (models *ReadModels) GetTrainingRun(ctx context.Context, id string) (map[string]any, error) {

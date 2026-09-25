@@ -120,6 +120,20 @@ textarea:focus-visible, summary:focus-visible { outline: 3px solid #284c6538; ou
   font-size: 13px;
 }
 
+.mobile-menu-button { display: none; }
+@media (max-width: 620px) {
+  .sidebar { overflow: visible; flex-wrap: wrap; justify-content: space-between; }
+  .sidebar .brand { justify-content: flex-start; margin: 0; }
+  .sidebar .brand > div:last-child { display: flex; flex-direction: column; }
+  .sidebar .brand strong { font-size: 14px; }
+  .mobile-menu-button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 7px; color: var(--action-primary); background: var(--surface-panel); }
+  .sidebar .nav-section { display: none; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 65vh; overflow-y: auto; padding: 7px 0; }
+  .sidebar .nav-section.mobile-nav-open { display: grid; }
+  .sidebar .nav-button { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 10px; }
+  .sidebar .nav-button span { display: inline; font-size: 12px; }
+  .topbar { top: 0; }
+}
+
 .route-fallback svg {
   animation: route-fallback-spin 900ms linear infinite;
 }

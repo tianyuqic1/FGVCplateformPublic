@@ -19,10 +19,12 @@ function SamplePreview({ versionId, browsing = false }) {
   const [split, setSplit] = useState("");
   const visible = samples.filter(sample => (!split || sample.split === split) && sample.label.toLowerCase().includes(query.trim().toLowerCase()));
   const base = (import.meta.env?.VITE_API_BASE_URL || "").replace(/\/$/, "");
-  return <Panel title={browsing ? "样本浏览" : "样本预览"} caption={browsing ? "展示当前版本最多 12 张真实预览；筛选仅作用于已加载图片，不代表完整数据集。" : "当前最新版本的真实图片，最多展示 6 张。"}>
+  const unavailableCount = samples.filter(sample => sample.availability === "unavailable").length;
+  return <Panel title={browsing ? "样本浏览" : "样本预览"} caption={browsing ? "展示当前版本最多 12 张样本；筛选仅作用于已加载记录，不代表完整数据集。" : "当前最新版本最多 6 张样本；历史归档不可用时会明确标注。"}>
+    {!loading && unavailableCount > 0 && <p role="status" className="dataset-detail-empty">{unavailableCount} 张历史样本的图片归档不可用；保留标签与划分信息，不将其计为可预览图片。</p>}
     {browsing && <div className="dataset-sample-filters"><input aria-label="搜索预览类别" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索预览中的类别…" /><select aria-label="预览数据划分" value={split} onChange={e => setSplit(e.target.value)}><option value="">全部划分</option>{Object.entries(splitNames).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><span>{visible.length} / {samples.length} 张预览</span></div>}
     {loading ? <p className="dataset-detail-empty" role="status">正在读取样本…</p> : error ? <p role="alert" className="dataset-detail-empty">预览暂不可用：{error.message.startsWith("404") ? "当前服务尚未提供样本预览接口。" : "图片服务暂时无法访问，请稍后重试。"}</p> : !visible.length ? <p className="dataset-detail-empty">{samples.length ? "没有符合筛选条件的预览" : "暂无可用样本预览"}</p> : <div className="dataset-preview-cards">{visible.map((sample, index) => <article key={sample.sampleId || index}>
-      <div className="dataset-preview-image">{sample.imageUrl ? <img loading="lazy" src={sample.imageUrl.startsWith("/") ? base + sample.imageUrl : sample.imageUrl} alt={sample.label} onError={e => { e.currentTarget.style.display = "none"; e.currentTarget.nextElementSibling.hidden = false; }} /> : null}<span hidden={Boolean(sample.imageUrl)}>图片暂不可用</span></div>
+      <div className="dataset-preview-image">{sample.imageUrl ? <img loading="lazy" src={sample.imageUrl.startsWith("/") ? base + sample.imageUrl : sample.imageUrl} alt={sample.label} onError={e => { e.currentTarget.style.display = "none"; e.currentTarget.nextElementSibling.hidden = false; }} /> : null}<span hidden={Boolean(sample.imageUrl)}>历史图片不可用</span></div>
       <div className="dataset-preview-caption"><strong title={sample.label}>{sample.label}</strong><span>{splitNames[sample.split] || sample.split}</span></div>
     </article>)}</div>}
   </Panel>;

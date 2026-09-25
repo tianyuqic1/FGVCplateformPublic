@@ -135,7 +135,7 @@ export function WeightManagementPage() {
             )}
           </div>
         </Panel>
-        <Panel title="权重说明" caption="权重文件、特征缓存、分类头产物不要混淆。">
+        <Panel title="权重说明" caption="预训练权重用于初始化骨干；训练结果与发布产物单独管理。">
           <div className="timeline">
             <GateRow
               title="预训练权重"
@@ -143,20 +143,20 @@ export function WeightManagementPage() {
               result="pass"
             />
             <GateRow
-              title="特征缓存"
-              description="某个 Dataset Version 提取后的 features.npz；独立于预训练权重保存。"
+              title="当前训练策略"
+              description="DINOv3 冻结骨干，可选 LoRA r=8/16；ImageNet ViT-S / ResNet-50 更新全部参数。图片直接进入分类模型，不做离线特征提取。"
               result="pending"
             />
             <GateRow
-              title="分类头产物"
-              description="平台训练出的模型、校准报告和阈值策略；由训练产物管理。"
+              title="训练与发布产物"
+              description="训练保存完整模型检查点；发布时导出完整图片分类 ONNX，并登记校验和、评估报告与阈值策略。"
               result="pending"
             />
           </div>
           <TechnicalDetails>
-            feature_pool: cls
+            training_input: 图片直接输入分类模型
             <br />
-            image_size_default: 448
+            image_size_default: 224（可在训练任务中调整）
             <br />
             integrity: sha256 + size
             <br />

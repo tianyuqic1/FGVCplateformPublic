@@ -55,11 +55,18 @@ export async function listModelVersions(filters = {}) {
   });
 }
 
-export async function getModelVersion(id) {
+export async function listModelVersionPage({ filters = {}, query = "", limit = 6, offset = 0 } = {}) {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson(`/api/model-versions${filtersQuery({ ...filters, q: query, limit, offset })}`, { signal });
+    return { items: (payload?.model_versions ?? []).map(normalizeModelVersion), pagination: payload?.pagination ?? { total: 0, limit, offset } };
+  });
+}
+
+export async function getModelVersion(id, externalSignal) {
   return withTimeout(async (signal) => {
     const payload = await fetchJson(`/api/model-versions/${encodeURIComponent(id)}`, { signal });
     return normalizeModelVersion(payload?.model_version);
-  });
+  }, 2500, externalSignal);
 }
 
 export async function compareModelVersions(ids) {

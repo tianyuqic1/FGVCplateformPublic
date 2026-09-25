@@ -129,6 +129,7 @@ export function normalizeSamplePreviews(samples) {
     label: sample?.label ?? "unknown",
     split: sample?.split ?? "unknown",
     imageUrl: sample?.imageUrl ?? sample?.image_url ?? null,
+    availability: sample?.availability ?? (sample?.imageUrl ?? sample?.image_url ? "available" : "unavailable"),
   }));
 }
 
@@ -136,6 +137,14 @@ export async function listDatasets() {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/datasets", { signal });
     return extractDatasetList(payload).map(normalizeDataset);
+  });
+}
+
+export async function listDatasetPage({ query = "", status = "all", limit = 6, offset = 0 } = {}) {
+  return withTimeout(async (signal) => {
+    const params = new URLSearchParams({ q: query, status, limit: String(limit), offset: String(offset) });
+    const payload = await fetchJson(`/api/datasets?${params}`, { signal });
+    return { items: extractDatasetList(payload).map(normalizeDataset), pagination: payload?.pagination ?? { total: 0, limit, offset } };
   });
 }
 

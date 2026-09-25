@@ -83,10 +83,24 @@ export async function apiErrorFromResponse(response, { method = "GET", path = ""
   return new APIError(detail, { status: response.status, code, requestId, method, path, payload });
 }
 
-export function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
+export function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS, externalSignal) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  return request(controller.signal).finally(() => window.clearTimeout(timer));
+  let timedOut = false;
+  const onAbort = () => controller.abort(externalSignal.reason);
+  if (externalSignal?.aborted) onAbort();
+  else externalSignal?.addEventListener("abort", onAbort, { once: true });
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  return Promise.resolve().then(() => request(controller.signal)).catch((error) => {
+    if (timedOut) {
+      const timeoutError = new Error(`请求超过 ${Math.ceil(timeoutMs / 1000)} 秒，已停止等待`);
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
+    }
+    throw error;
+  }).finally(() => {
+    window.clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onAbort);
+  });
 }
 
 function errorMessage(detail) {

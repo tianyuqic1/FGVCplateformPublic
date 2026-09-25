@@ -1,4 +1,5 @@
-import { getTrainingRun, listTrainingRuns } from "../api/trainingRuns.js";
+import { getTrainingRun, getTrainingRunSummary, listTrainingRunPage, listTrainingRuns } from "../api/trainingRuns.js";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useDomainQuery } from "../query/useDomainQuery.js";
 
 const ACTIVE_STATUSES = new Set(["queued", "paused", "running", "loading"]);
@@ -11,6 +12,16 @@ export function useTrainingRuns() {
   });
 
   return { trainingRuns: query.data, ...withoutData(query) };
+}
+
+export function useTrainingRunPage(filters) {
+  const query = useDomainQuery({ queryKey: ["training-run-page", filters], queryFn: () => listTrainingRunPage(filters), emptyValue: { items: [], pagination: { total: 0, limit: filters.limit, offset: filters.offset } }, placeholderData: keepPreviousData });
+  return { trainingRuns: query.data.items, pagination: query.data.pagination, ...withoutData(query) };
+}
+
+export function useTrainingRunSummary() {
+  const query = useDomainQuery({ queryKey: ["training-run-summary"], queryFn: getTrainingRunSummary, emptyValue: {} });
+  return { counts: query.data, ...withoutData(query) };
 }
 
 export function useTrainingRun(runId) {

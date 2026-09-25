@@ -2,8 +2,8 @@ import { fetchForm, fetchJson, withTimeout as withHttpTimeout } from "./http.js"
 
 const DEFAULT_TIMEOUT_MS = 120000;
 
-function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  return withHttpTimeout(request, timeoutMs);
+function withTimeout(request, timeoutMs = DEFAULT_TIMEOUT_MS, externalSignal) {
+  return withHttpTimeout(request, timeoutMs, externalSignal);
 }
 
 export function extractInferenceResult(payload) {
@@ -61,10 +61,11 @@ export function normalizeInferenceResult(raw) {
 }
 
 export async function runInference(input) {
+  const { signal: externalSignal, ...body } = input;
   return withTimeout(async (signal) => {
-    const payload = await fetchJson("/api/inference", { method: "POST", body: input, signal });
+    const payload = await fetchJson("/api/inference", { method: "POST", body, signal });
     return normalizeInferenceResult(extractInferenceResult(payload));
-  });
+  }, DEFAULT_TIMEOUT_MS, externalSignal);
 }
 
 export async function runInferenceUpload(input) {
@@ -84,7 +85,7 @@ export async function runInferenceUpload(input) {
   return withTimeout(async (signal) => {
     const payload = await fetchForm("/api/inference/upload", formData, { signal });
     return normalizeInferenceResult(extractInferenceResult(payload));
-  });
+  }, DEFAULT_TIMEOUT_MS, input.signal);
 }
 
 export async function runInferenceUploadFolder(input) {
@@ -112,7 +113,7 @@ export async function runInferenceUploadFolder(input) {
       results: (payload?.results ?? []).map((item) => normalizeInferenceResult(extractInferenceResult(item))),
       failures: payload?.failures ?? [],
     };
-  }, 600000);
+  }, 600000, input.signal);
 }
 
 function normalizeInferenceBatch(raw = {}) {

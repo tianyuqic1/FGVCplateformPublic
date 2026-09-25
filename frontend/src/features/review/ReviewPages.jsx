@@ -47,6 +47,16 @@ function compactStatusLabel(value) {
   return labels[value] ?? value;
 }
 
+function reviewReasonLabel(value) {
+  const labels = {
+    "Model abstained for multiple threshold reasons.": "模型触发多项弃权阈值，需人工确认。",
+    confidence_below_threshold: "置信度低于阈值",
+    top1_top2_margin_below_threshold: "前两名类别间隔过小",
+    embedding_distance_above_threshold: "特征距离超过 OOD 阈值",
+  };
+  return labels[value] ?? value ?? "未记录原因";
+}
+
 function formatPolicyPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
@@ -650,7 +660,7 @@ export function ReviewDetailPage({ showToast }) {
     <>
       <PageHero
         title={item.sampleId || item.id}
-        description={`${item.datasetVersionId} · ${item.modelVersionId} · ${item.reason}`}
+        description={`${item.datasetVersionId} · ${item.modelVersionId} · ${reviewReasonLabel(item.reason)}`}
         actions={
           <>
             <Link className="ghost-button" to={queuePath}>
@@ -690,7 +700,7 @@ export function ReviewDetailPage({ showToast }) {
           </div>
           <div className="reason-box section-gap-small">
             <strong>复核原因</strong>
-            <span>{item.reasonCodes.join(", ") || item.reason}</span>
+            <span>{item.reasonCodes.map(reviewReasonLabel).join("、") || reviewReasonLabel(item.reason)}</span>
           </div>
           <div className="section-gap-small">
             {item.topK.length > 0 ? (

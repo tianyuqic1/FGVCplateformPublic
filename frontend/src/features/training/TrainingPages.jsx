@@ -19,10 +19,10 @@ import {
 } from "../../design-system/components/Workbench.jsx";
 import { useModelWeights } from "../../hooks/useModelWeights.js";
 import { useDatasets } from "../../hooks/useDatasets.js";
-import { useTrainingRun, useTrainingRuns } from "../../hooks/useTrainingRuns.js";
+import { useTrainingRun, useTrainingRunPage, useTrainingRunSummary } from "../../hooks/useTrainingRuns.js";
 import { accuracyChartOption, lossChartOption } from "./metricChartOptions.js";
 import { useTrainingMetrics } from "./useTrainingMetrics.js";
-import { PaginatedList } from "../../design-system/components/PaginatedList.jsx";
+import { ServerPagination } from "../../design-system/components/ServerPagination.jsx";
 import { DatasetPicker } from "./DatasetPicker.jsx";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import "../../design-system/components/filter-controls.css";
@@ -51,10 +51,6 @@ const backbones = [
   },
 ];
 
-function statusCounts(runs) {
-  return runs.reduce((counts, run) => ({ ...counts, [run.status]: (counts[run.status] ?? 0) + 1 }), {});
-}
-
 function runBackboneLabel(run) {
   return backbones.find((item) => item.key === run.backboneId)?.name ?? run.backboneId ?? "未记录骨干";
 }
@@ -68,7 +64,6 @@ function trainingModeLabel(run) {
 
 export function TrainingPage({ showToast }) {
   const navigate = useNavigate();
-  const { trainingRuns, loading, error, refresh } = useTrainingRuns();
   const { weights } = useModelWeights();
   const { datasets } = useDatasets();
   const [searchParams] = useSearchParams();
@@ -76,11 +71,12 @@ export function TrainingPage({ showToast }) {
   const [queueQuery, setQueueQuery] = useState("");
   const [queueDataset, setQueueDataset] = useState("");
   const [queueBackbone, setQueueBackbone] = useState("");
+  const [page, setPage] = useState(1);
+  const { trainingRuns, pagination, loading, error, refresh } = useTrainingRunPage({ query: queueQuery, status: statusFilter, datasetId: queueDataset, backboneId: queueBackbone, limit: 6, offset: (page - 1) * 6 });
+  const { counts } = useTrainingRunSummary();
   const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", epochs: "30", batchSize: "8", imageSize: "224", headLearningRate: "0.001", backboneLearningRate: "0.00001", loraLearningRate: "0.0001", augmentations: {} });
   const isDino = form.backboneKey.startsWith("dinov3_");
   const [submitting, setSubmitting] = useState(false);
-  const counts = statusCounts(trainingRuns);
-  const filtered = trainingRuns.filter(run => (statusFilter === "all" || run.status === statusFilter) && (!queueDataset || run.datasetId === queueDataset) && (!queueBackbone || run.backboneId === queueBackbone) && `${run.name} ${run.id} ${run.datasetName} ${run.datasetVersionId}`.toLowerCase().includes(queueQuery.trim().toLowerCase()));
   const weightByKey = Object.fromEntries(weights.map((weight) => [weight.backboneKey, weight]));
 
   async function submit(event) {
@@ -113,7 +109,7 @@ export function TrainingPage({ showToast }) {
         actions={<button className="secondary-button" type="button" onClick={refresh}><Icon name="RefreshCw" size={15} />刷新</button>}
       />
       <div className="fv-metric-grid">
-        <MetricTile label="全部运行" value={trainingRuns.length} caption="当前可见范围" />
+        <MetricTile label="全部运行" value={Object.values(counts).reduce((sum, count) => sum + count, 0)} caption="全库状态汇总" />
         <MetricTile label="运行中" value={counts.running ?? 0} caption="含当前 worker attempt" tone="running" />
         <MetricTile label="已完成" value={counts.succeeded ?? 0} caption="已生成 Model Version" tone="success" />
         <MetricTile label="失败 / 取消" value={(counts.failed ?? 0) + (counts.cancelled ?? 0)} caption="需检查诊断信息" tone="danger" />
@@ -170,25 +166,24 @@ export function TrainingPage({ showToast }) {
         <Panel
           eyebrow="Run queue"
           title="实验队列"
-          aside={<select aria-label="状态筛选" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">全部状态</option><option value="running">运行中</option><option value="queued">等待中</option><option value="succeeded">已完成</option><option value="failed">失败</option></select>}
+          aside={<select aria-label="状态筛选" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}><option value="all">全部状态</option><option value="running">运行中</option><option value="queued">等待中</option><option value="succeeded">已完成</option><option value="failed">失败</option></select>}
           className="fv-runs-panel"
         >
           <div className="training-queue-filters">
-            <input aria-label="搜索训练任务" placeholder="搜索任务名 / 数据集 / ID" value={queueQuery} onChange={event => setQueueQuery(event.target.value)} />
-            <PaginatedSelect aria-label="队列数据集筛选" value={queueDataset} onChange={event => setQueueDataset(event.target.value)} options={[{ value: "", label: "全部数据集" }, ...datasets.map(item => ({ value: item.id, label: item.name, detail: item.datasetVersionId }))]} />
-            <select aria-label="队列骨干筛选" value={queueBackbone} onChange={event => setQueueBackbone(event.target.value)}><option value="">全部骨干</option>{backbones.map(item => <option key={item.key} value={item.key}>{item.name} · {item.pretraining}</option>)}</select>
-            <button className="ghost-button" onClick={() => { setQueueQuery(""); setQueueDataset(""); setQueueBackbone(""); setStatusFilter("all"); }}>重置</button>
+            <input aria-label="搜索训练任务" placeholder="搜索任务名 / 数据集 / ID" value={queueQuery} onChange={event => { setQueueQuery(event.target.value); setPage(1); }} />
+            <PaginatedSelect aria-label="队列数据集筛选" value={queueDataset} onChange={event => { setQueueDataset(event.target.value); setPage(1); }} options={[{ value: "", label: "全部数据集" }, ...datasets.map(item => ({ value: item.id, label: item.name, detail: item.datasetVersionId }))]} />
+            <select aria-label="队列骨干筛选" value={queueBackbone} onChange={event => { setQueueBackbone(event.target.value); setPage(1); }}><option value="">全部骨干</option>{backbones.map(item => <option key={item.key} value={item.key}>{item.name} · {item.pretraining}</option>)}</select>
+            <button className="ghost-button" onClick={() => { setQueueQuery(""); setQueueDataset(""); setQueueBackbone(""); setStatusFilter("all"); setPage(1); }}>重置</button>
           </div>
           {loading && <EmptyState icon="LoaderCircle" title="正在读取训练队列" description="连接 Go Control Plane…" />}
           {!loading && error && <EmptyState icon="TriangleAlert" title="训练服务不可用" description={error.message} />}
-          {!loading && !error && filtered.length === 0 && <EmptyState title="暂无匹配运行" description="创建一次训练，或调整状态筛选。" />}
-          {filtered.length > 0 && (
-            <PaginatedList key={JSON.stringify([statusFilter, queueQuery, queueDataset, queueBackbone])} items={filtered} label="实验队列分页" className="queue-pagination">{pageItems => (
+          {!loading && !error && trainingRuns.length === 0 && <EmptyState title="暂无匹配运行" description="创建一次训练，或调整状态筛选。" />}
+          {trainingRuns.length > 0 && (
             <div className="fv-table-wrap"><table className="fv-table"><thead><tr><th>训练任务</th><th>Dataset Version</th><th>Backbone</th><th>状态</th><th>最新指标</th><th>创建时间</th></tr></thead><tbody>
-              {pageItems.map((run) => <tr key={run.id} tabIndex="0" onKeyDown={(event) => event.key === "Enter" && navigate(`/training/${run.id}`)}><td><Link to={`/training/${run.id}`}><strong title={run.name}>{run.name}</strong></Link></td><td><CodeValue>{run.datasetVersionId}</CodeValue></td><td>{runBackboneLabel(run)}</td><td><StatusBadge status={run.status} /></td><td>{run.metric}</td><td>{run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "未记录"}</td></tr>)}
+              {trainingRuns.map((run) => <tr key={run.id} tabIndex="0" onKeyDown={(event) => event.key === "Enter" && navigate(`/training/${run.id}`)}><td><Link to={`/training/${run.id}`}><strong title={run.name}>{run.name}</strong></Link></td><td><CodeValue>{run.datasetVersionId}</CodeValue></td><td>{runBackboneLabel(run)}</td><td><StatusBadge status={run.status} /></td><td>{run.metric}</td><td>{run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "未记录"}</td></tr>)}
             </tbody></table></div>
-            )}</PaginatedList>
           )}
+          {!error && <ServerPagination pagination={pagination} onPageChange={setPage} label="实验队列分页" className="queue-pagination" />}
         </Panel>
       </div>
     </div>
@@ -255,6 +250,7 @@ export function TrainingDetailPage({ showToast }) {
         <aside className="fv-side-stack">
           {run.trainingProgress?.stages?.length > 0 && <Panel eyebrow="Pipeline" title="阶段进度"><div className="fv-artifact-list">{run.trainingProgress.stages.map(stage => <div key={stage.id}><span>{stage.label}</span><small>{run.status === "succeeded" ? "已完成" : `${stage.percent}% · ${stage.status}`}</small><progress max="100" value={run.status === "succeeded" ? 100 : stage.percent} aria-label={stage.label} /></div>)}</div></Panel>}
           <Panel eyebrow="Training mode" title="训练方式"><strong>{trainingModeLabel(run)}</strong><p>{run.headConfig?.head_type === "image_classifier_v2" ? "图片 → 骨干网络 → 分类头；保存完整模型，无离线特征或检索产物。" : "历史任务保留原训练方式与产物。"}</p></Panel>
+          {(run.status === "failed" || run.status === "cancelled") && <Panel eyebrow="Diagnostics" title="运行诊断" className="fv-run-diagnostics"><p role="alert">{run.error || (run.status === "cancelled" ? "任务已取消；未返回失败原因。" : "任务失败；服务尚未返回错误详情，请按任务 ID 查阅日志。")}</p><dl className="fv-definition-list"><div><dt>Job ID</dt><dd><CodeValue>{run.jobId || "未记录"}</CodeValue></dd></div><div><dt>Attempt ID</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id || "未记录"}</CodeValue></dd></div><div><dt>计算节点</dt><dd><CodeValue>{run.runtimeNodeId || "未记录"}</CodeValue></dd></div><div><dt>开始时间</dt><dd>{run.startedAt ? new Date(run.startedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>结束时间</dt><dd>{run.finishedAt ? new Date(run.finishedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>缺失产物</dt><dd>{[["模型", run.modelArtifactId], ["报告", run.reportArtifactId], ["校准", run.calibrationArtifactId]].filter(([, value]) => !value).map(([label]) => label).join("、") || "无"}</dd></div></dl><button type="button" className="secondary-button" onClick={async () => { const details = JSON.stringify({ runId: run.id, jobId: run.jobId, attemptId: attemptId || metrics.attempts.at(-1)?.attempt_id, runtimeNodeId: run.runtimeNodeId, status: run.status, error: run.error }, null, 2); try { await navigator.clipboard.writeText(details); showToast?.("诊断信息已复制"); } catch { showToast?.("复制失败，请手动选择诊断信息"); } }}>复制诊断信息</button></Panel>}
           <Panel eyebrow="Training parameters" title="训练参数"><dl className="fv-definition-list">{trainingParameterRows(run).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="fv-training-note">以上为任务保存的配置。验证与测试使用确定性预处理，不应用训练集随机增强。</p></Panel>
           <Panel eyebrow="Run context" title="实验配置"><dl className="fv-definition-list"><div><dt>Dataset Version</dt><dd><CodeValue>{run.datasetVersionId}</CodeValue></dd></div><div><dt>Backbone</dt><dd>{runBackboneLabel(run)}</dd></div><div><dt>Backbone Key</dt><dd><CodeValue>{run.backboneId}</CodeValue></dd></div><div><dt>Pooling</dt><dd>{run.featurePool || "未记录"}</dd></div><div><dt>Input Size</dt><dd>{run.imageSize || "未记录"}</dd></div><div><dt>Head</dt><dd>{run.headConfig?.head_type || "未记录"}</dd></div><div><dt>Attempt</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id}</CodeValue></dd></div></dl></Panel>
           <Panel eyebrow="Integrity" title="训练产物"><div className="fv-artifact-list">{[...(run.headConfig?.head_type === "image_classifier_v2" ? [] : [["Feature", run.featureArtifactId]]), ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "逻辑归属已登记；加载时校验 SHA/大小" : "尚未生成"}</small></div>)}</div></Panel>

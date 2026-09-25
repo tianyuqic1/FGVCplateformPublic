@@ -1,4 +1,5 @@
-import { getDataset, listDatasetSamplePreviews, listDatasets } from "../api/datasets.js";
+import { getDataset, listDatasetPage, listDatasetSamplePreviews, listDatasets } from "../api/datasets.js";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useDomainQuery } from "../query/useDomainQuery.js";
 
 export function useDatasets() {
@@ -9,6 +10,11 @@ export function useDatasets() {
   });
 
   return { datasets: query.data, ...withoutData(query) };
+}
+
+export function useDatasetPage(filters) {
+  const query = useDomainQuery({ queryKey: ["dataset-page", filters], queryFn: () => listDatasetPage(filters), emptyValue: { items: [], pagination: { total: 0, limit: filters.limit, offset: filters.offset } }, placeholderData: keepPreviousData });
+  return { datasets: query.data.items, pagination: query.data.pagination, ...withoutData(query) };
 }
 
 export function useDataset(datasetId) {

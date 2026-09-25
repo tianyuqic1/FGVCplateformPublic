@@ -97,6 +97,8 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		})
 	})
 	registerSwagger(router)
+	registerSearch(router, dependencies.ReadModels)
+	registerTrainingSummary(router, dependencies.ReadModels)
 	dependencies.Hardware.Register(router)
 	dependencies.Annotation.Register(router)
 	registerReviews(router, dependencies.Reviews, dependencies.LLMApplication)

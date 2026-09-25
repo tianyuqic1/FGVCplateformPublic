@@ -184,6 +184,11 @@ paths:
       tags: [数据集]
       summary: 查询数据集列表
       operationId: listDatasets
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [all, ready, production, training]}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200":
           description: Dataset read models
@@ -196,6 +201,7 @@ paths:
                   datasets:
                     type: array
                     items: {$ref: "#/components/schemas/FreeFormObject"}
+                  pagination: {$ref: "#/components/schemas/FreeFormObject"}
   /api/datasets/{dataset_id}:
     parameters:
       - $ref: "#/components/parameters/DatasetID"
@@ -271,6 +277,9 @@ paths:
         - name: status
           in: query
           schema: {type: string, enum: [candidate, staging, production, archived, failed]}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200":
           description: Governed Model Version read models
@@ -394,6 +403,13 @@ paths:
       tags: [训练]
       summary: 查询训练任务列表
       operationId: listTrainingRuns
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string}}
+        - {name: dataset_id, in: query, schema: {type: string}}
+        - {name: backbone_id, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
         "200":
           description: Training Run read models
@@ -406,6 +422,7 @@ paths:
                   training_runs:
                     type: array
                     items: {$ref: "#/components/schemas/FreeFormObject"}
+                  pagination: {$ref: "#/components/schemas/FreeFormObject"}
     post:
       tags: [训练]
       summary: 创建训练任务

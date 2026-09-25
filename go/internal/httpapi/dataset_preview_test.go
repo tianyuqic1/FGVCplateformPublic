@@ -73,13 +73,17 @@ func TestDatasetPreviewRoutes(t *testing.T) {
 			if len(payload.Samples) != 2 || payload.Samples[0]["path"] != "" {
 				t.Fatal(payload)
 			}
-			response = httptest.NewRecorder()
-			router.ServeHTTP(response, httptest.NewRequest("GET", payload.Samples[0]["image_url"], nil))
-			if response.Code != tc.status {
-				t.Fatalf("image status %d: %s", response.Code, response.Body.String())
-			}
-			if tc.status == 200 && (!bytes.Equal(response.Body.Bytes(), image) || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff") {
-				t.Fatal("image bytes or headers changed")
+			if tc.status == 200 {
+				if payload.Samples[0]["availability"] != "available" || payload.Samples[0]["image_url"] == "" {
+					t.Fatal("valid preview must advertise a working image", payload)
+				}
+				response = httptest.NewRecorder()
+				router.ServeHTTP(response, httptest.NewRequest("GET", payload.Samples[0]["image_url"], nil))
+				if response.Code != 200 || !bytes.Equal(response.Body.Bytes(), image) || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+					t.Fatal("image bytes or headers changed")
+				}
+			} else if payload.Samples[0]["availability"] != "unavailable" || payload.Samples[0]["image_url"] != "" {
+				t.Fatal("broken preview must not advertise an image URL", payload)
 			}
 			for _, route := range []string{"/api/dataset-versions/missing/sample-previews", "/api/dataset-versions/version/samples/missing/image", "/api/dataset-versions/missing/samples/sample/image"} {
 				response = httptest.NewRecorder()

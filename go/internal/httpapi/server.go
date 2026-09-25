@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -73,6 +74,18 @@ func (server *Server) ListModelVersions(ctx context.Context, request openapi.Lis
 	}
 	if request.Params.Status != nil {
 		filter.Status = modelregistry.Status(*request.Params.Status)
+	}
+	if request.Params.Limit != nil {
+		query := ""
+		if request.Params.Q != nil {
+			query = strings.TrimSpace(*request.Params.Q)
+		}
+		limit, offset := normalizePageBounds(*request.Params.Limit, valueOrZero(request.Params.Offset))
+		versions, total, err := server.registry.ListPage(ctx, filter, query, limit, offset)
+		if err != nil {
+			return nil, err
+		}
+		return openapi.ListModelVersions200JSONResponse(openapi.FreeFormObject{"model_versions": jsonValue(versions), "pagination": paginationValue(total, limit, offset)}), nil
 	}
 	versions, err := server.registry.List(ctx, filter)
 	if err != nil {
@@ -211,10 +224,42 @@ func (server *Server) GetHealth(context.Context, openapi.GetHealthRequestObject)
 	return openapi.GetHealth200JSONResponse{Status: openapi.Ok, Runtime: openapi.GoControlPlane}, nil
 }
 
-func (server *Server) ListDatasets(ctx context.Context, _ openapi.ListDatasetsRequestObject) (openapi.ListDatasetsResponseObject, error) {
+func (server *Server) ListDatasets(ctx context.Context, request openapi.ListDatasetsRequestObject) (openapi.ListDatasetsResponseObject, error) {
+	params := request.Params
+	if params.Limit != nil {
+		status := ""
+		if params.Status != nil {
+			status = string(*params.Status)
+		}
+		filter := pageFilter(params.Q, &status, nil, nil, params.Limit, params.Offset)
+		if paged, ok := server.reads.(PagedReadModels); ok {
+			items, total, err := paged.ListDatasetsPage(ctx, filter)
+			if err != nil {
+				return nil, err
+			}
+			pagination := openapi.FreeFormObject(paginationValue(total, filter.Limit, filter.Offset))
+			return openapi.ListDatasets200JSONResponse{Datasets: freeFormList(items), Pagination: &pagination}, nil
+		}
+	}
 	items, err := server.reads.ListDatasets(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if params.Limit != nil {
+		limit, offset := normalizePageBounds(*params.Limit, valueOrZero(params.Offset))
+		filtered := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if params.Q != nil && !strings.Contains(strings.ToLower(fmt.Sprint(item["name"])+" "+fmt.Sprint(item["id"])), strings.ToLower(*params.Q)) {
+				continue
+			}
+			if params.Status != nil && string(*params.Status) != "all" && fmt.Sprint(item["status"]) != string(*params.Status) {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		start, end := pageWindow(len(filtered), limit, offset)
+		pagination := openapi.FreeFormObject(paginationValue(len(filtered), limit, offset))
+		return openapi.ListDatasets200JSONResponse{Datasets: freeFormList(filtered[start:end]), Pagination: &pagination}, nil
 	}
 	return openapi.ListDatasets200JSONResponse{Datasets: freeFormList(items)}, nil
 }
@@ -264,6 +309,10 @@ func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 	} else if backbone.Key == modelcatalog.ResNet50Key {
 		category = "imagenet/resnet-50"
 	}
+	trainingStrategy := "ImageNet 预训练初始化，骨干与分类头全参数更新。"
+	if backbone.Key == modelcatalog.DINOv3ViTSKey {
+		trainingStrategy = "DINOv3 骨干冻结；可训练分类头，或启用 LoRA r=8/16 训练低秩增量。"
+	}
 	return map[string]any{
 		"preset": backbone.Key, "extractor": backbone.LegacyExtractor, "backbone_key": backbone.Key,
 		"backbone_id": backbone.Key, "display_name": backbone.DisplayName, "architecture": backbone.Architecture,
@@ -274,16 +323,51 @@ func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 		"state": "managed", "cache_status": "managed", "cached": true, "cache_bytes": backbone.SizeBytes,
 		"complete_size_bytes": backbone.SizeBytes, "complete_file_count": 1, "partial_bytes": 0,
 		"incomplete_file_count": 0, "sha256": backbone.SHA256, "size_bytes": backbone.SizeBytes,
-		"cache_dir":     "s3://finevision-artifacts/pretrained/" + category + "/" + backbone.SHA256[:2] + "/" + backbone.SHA256,
-		"download_hint": "Git LFS release weight is verified and mirrored into the S3-compatible ArtifactStore.",
-		"description":   backbone.DisplayName + "，冻结特征提取后训练轻量分类头。",
+		"cache_dir":         "s3://finevision-artifacts/pretrained/" + category + "/" + backbone.SHA256[:2] + "/" + backbone.SHA256,
+		"download_hint":     "Git LFS release weight is verified and mirrored into the S3-compatible ArtifactStore.",
+		"description":       backbone.DisplayName + "。" + trainingStrategy,
+		"training_strategy": trainingStrategy,
 	}
 }
 
-func (server *Server) ListTrainingRuns(ctx context.Context, _ openapi.ListTrainingRunsRequestObject) (openapi.ListTrainingRunsResponseObject, error) {
+func (server *Server) ListTrainingRuns(ctx context.Context, request openapi.ListTrainingRunsRequestObject) (openapi.ListTrainingRunsResponseObject, error) {
+	params := request.Params
+	if params.Limit != nil {
+		filter := pageFilter(params.Q, params.Status, params.DatasetId, params.BackboneId, params.Limit, params.Offset)
+		if paged, ok := server.reads.(PagedReadModels); ok {
+			items, total, err := paged.ListTrainingRunsPage(ctx, filter)
+			if err != nil {
+				return nil, err
+			}
+			pagination := openapi.FreeFormObject(paginationValue(total, filter.Limit, filter.Offset))
+			return openapi.ListTrainingRuns200JSONResponse{TrainingRuns: freeFormList(items), Pagination: &pagination}, nil
+		}
+	}
 	items, err := server.reads.ListTrainingRuns(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if params.Limit != nil {
+		limit, offset := normalizePageBounds(*params.Limit, valueOrZero(params.Offset))
+		filtered := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if params.Q != nil && !strings.Contains(strings.ToLower(fmt.Sprint(item["name"])+" "+fmt.Sprint(item["id"])+" "+fmt.Sprint(item["dataset_name"])), strings.ToLower(*params.Q)) {
+				continue
+			}
+			if params.Status != nil && *params.Status != "all" && fmt.Sprint(item["status"]) != *params.Status {
+				continue
+			}
+			if params.DatasetId != nil && fmt.Sprint(item["dataset_id"]) != *params.DatasetId {
+				continue
+			}
+			if params.BackboneId != nil && fmt.Sprint(item["backbone_id"]) != *params.BackboneId {
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		start, end := pageWindow(len(filtered), limit, offset)
+		pagination := openapi.FreeFormObject(paginationValue(len(filtered), limit, offset))
+		return openapi.ListTrainingRuns200JSONResponse{TrainingRuns: freeFormList(filtered[start:end]), Pagination: &pagination}, nil
 	}
 	return openapi.ListTrainingRuns200JSONResponse{TrainingRuns: freeFormList(items)}, nil
 }

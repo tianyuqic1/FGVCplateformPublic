@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { searchEntities } from "../api/search.js";
 import { Icon } from "./icons.jsx";
 
 const navItems = [
@@ -21,7 +22,6 @@ const searchItems = [
   { label: "硬件监控", hint: "计算节点、GPU、显存、CPU、内存与存储", to: "/hardware" },
   { label: "工作台", hint: "运营概览、优先任务、低置信样本", to: "/" },
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
-  { label: "CIFAR10 mini 数据集", hint: "dataset@cifar10-mini-001", to: "/datasets/cifar10-mini" },
   { label: "训练队列", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "推理实验室", hint: "上传图片运行 scoped inference", to: "/inference" },
   { label: "权重管理", hint: "DINOv3 / ImageNet ViT-S 与 ResNet-50", to: "/weights" },
@@ -51,14 +51,27 @@ export function AppShell({ title, crumb, children }) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [entityResults, setEntityResults] = useState([]);
+  const [searchState, setSearchState] = useState("idle");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const active = navKey(location.pathname);
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!searchFocused || query.length < 2) { setEntityResults([]); setSearchState("idle"); return undefined; }
+    const controller = new AbortController();
+    setSearchState("loading");
+    const timer = window.setTimeout(() => searchEntities(query, controller.signal).then((items) => {
+      setEntityResults(items);
+      setSearchState("ready");
+    }).catch(() => { if (!controller.signal.aborted) setSearchState("error"); }), 250);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [searchQuery, searchFocused]);
   const filteredSearchItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return searchItems.slice(0, 5);
-    return searchItems
-      .filter((item) => `${item.label} ${item.hint}`.toLowerCase().includes(query))
-      .slice(0, 6);
-  }, [searchQuery]);
+    const pages = searchItems.filter((item) => `${item.label} ${item.hint}`.toLowerCase().includes(query));
+    return [...entityResults, ...pages].slice(0, 10);
+  }, [searchQuery, entityResults]);
 
   function goSearch(item) {
     navigate(item.to);
@@ -86,10 +99,11 @@ export function AppShell({ title, crumb, children }) {
             <span className="small">Research Console</span>
           </div>
         </div>
+        <button type="button" className="mobile-menu-button" aria-label={mobileMenuOpen ? "关闭导航菜单" : "打开导航菜单"} aria-expanded={mobileMenuOpen} aria-controls="primary-navigation" onClick={() => setMobileMenuOpen((open) => !open)}><Icon name={mobileMenuOpen ? "X" : "Menu"} size={18} /><span>菜单</span></button>
         <div className="nav-caption">Workspace</div>
-        <nav className="nav-section">
+        <nav id="primary-navigation" aria-label="主导航" className={`nav-section ${mobileMenuOpen ? "mobile-nav-open" : ""}`}>
           {navItems.map((item) => (
-            <NavLink className={`nav-button ${active === item.id ? "active" : ""}`} key={item.id} to={item.to}>
+            <NavLink className={`nav-button ${active === item.id ? "active" : ""}`} key={item.id} to={item.to} onClick={() => setMobileMenuOpen(false)}>
               <Icon name={item.icon} size={18} />
               <span>{item.label}</span>
             </NavLink>
@@ -119,7 +133,7 @@ export function AppShell({ title, crumb, children }) {
                   onChange={(event) => setSearchQuery(event.target.value)}
                   onFocus={() => setSearchFocused(true)}
                   onKeyDown={handleSearchKeyDown}
-                  placeholder="搜索页面、数据集、复核历史"
+                  placeholder="搜索页面或真实数据集、训练、模型、复核"
                 />
               </label>
               {searchFocused && (
@@ -132,7 +146,7 @@ export function AppShell({ title, crumb, children }) {
                       </button>
                     ))
                   ) : (
-                    <div className="search-empty">没有匹配项</div>
+                    <div className="search-empty">{searchState === "loading" ? "正在搜索业务记录…" : searchState === "error" ? "业务搜索暂不可用；页面导航仍可用" : "没有匹配项"}</div>
                   )}
                 </div>
               )}

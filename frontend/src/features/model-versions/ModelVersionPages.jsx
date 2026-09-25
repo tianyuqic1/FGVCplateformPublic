@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   archiveModelVersion,
@@ -18,7 +18,8 @@ import {
   formatNumber,
   formatPercent,
 } from "../../design-system/components/Workbench.jsx";
-import { useModelVersion, useModelVersions } from "./useModelVersions.js";
+import { useModelVersion, useModelVersionPage } from "./useModelVersions.js";
+import { ServerPagination } from "../../design-system/components/ServerPagination.jsx";
 import "./model-detail.css";
 import { PublishDialog } from "./PublishDialog.jsx";
 import { ModelGroups } from "./ModelGroups.jsx";
@@ -40,27 +41,34 @@ function AliasBadges({ aliases }) {
 export function ModelVersionsPage() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({ architecture: "", pretraining: "", status: "" });
-  const { versions, loading, error, refresh } = useModelVersions(filters);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const { versions, pagination, loading, error, refresh } = useModelVersionPage({ filters, query, limit: 6, offset: (page - 1) * 6 });
   const [publishing, setPublishing] = useState(null);
   const [notice, setNotice] = useState("");
   const [selected, setSelected] = useState([]);
+  const visibleVersionCache = useRef(new Map());
   const production = versions.filter((version) => version.status === "production").length;
   const champion = versions.filter((version) => version.aliases.includes("champion")).length;
 
-  useEffect(() => { setSelected([]); }, [filters, versions]);
+  useEffect(() => { versions.forEach(version => visibleVersionCache.current.set(version.id, version)); }, [versions]);
+  useEffect(() => { setSelected([]); visibleVersionCache.current.clear(); }, [filters, query]);
+  useEffect(() => { setPage(1); }, [filters]);
   function toggle(version) {
-    setSelected(current => toggleModelSelection(current, version, versions));
+    setSelected(current => toggleModelSelection(current, version, [...visibleVersionCache.current.values()]));
   }
 
   return (
     <div className="fv-feature-page">
       <PageHeading eyebrow="Model registry" title="模型版本" description="按数据集管理发布版本，保留训练数据与评估记录。" actions={<button className="primary-button" disabled={selected.length < 2} onClick={() => navigate(`/models/compare?ids=${selected.join(",")}`)}><Icon name="GitCompareArrows" size={15} />比较 {selected.length || ""}</button>} />
-      <div className="fv-metric-grid"><MetricTile label="可见版本" value={versions.length} caption="当前筛选范围" /><MetricTile label="Production" value={production} caption="显式晋级版本" tone="success" /><MetricTile label="Champion" value={champion} caption="Dataset 作用域唯一" tone="success" /><MetricTile label="待验证" value={versions.filter((version) => ["candidate", "staging"].includes(version.status)).length} caption="candidate + staging" tone="running" /></div>
+      <div className="fv-metric-grid"><MetricTile label="匹配版本" value={pagination.total} caption="服务端筛选总数" /><MetricTile label="本页 Production" value={production} caption="当前页已发布" tone="success" /><MetricTile label="本页 Champion" value={champion} caption="当前页冠军别名" tone="success" /><MetricTile label="本页待验证" value={versions.filter((version) => ["candidate", "staging"].includes(version.status)).length} caption="当前页 candidate + staging" tone="running" /></div>
       <Panel eyebrow="Registry table" title="版本清单" aside={<div className="fv-filter-row"><select aria-label="架构筛选" value={filters.architecture} onChange={(event) => setFilters({ ...filters, architecture: event.target.value })}><option value="">全部架构</option><option value="vit_small_patch16">ViT-S/16</option><option value="resnet50">ResNet-50</option></select><select aria-label="预训练筛选" value={filters.pretraining} onChange={(event) => setFilters({ ...filters, pretraining: event.target.value })}><option value="">全部预训练</option><option value="DINOv3">DINOv3</option><option value="supervised">Supervised</option></select><select aria-label="状态筛选" value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">全部状态</option><option value="candidate">Candidate</option><option value="staging">Staging</option><option value="production">Production</option><option value="archived">Archived</option></select></div>}>
+        <div className="training-queue-filters"><input aria-label="搜索模型版本" placeholder="搜索模型名 / 数据集 / 发布版本" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><span className="fv-muted">当前页按数据集分组；筛选到同一数据版本后可比较。</span></div>
         {loading && <EmptyState icon="LoaderCircle" title="正在读取 Model Registry" description="连接 Go Control Plane…" />}
         {!loading && error && <EmptyState icon="TriangleAlert" title="Model Registry 不可用" description={error.message} />}
         {!loading && !error && versions.length === 0 && <EmptyState icon="Boxes" title="尚无 Model Version" description="训练成功后，Control Plane 会创建不可变候选版本。" />}
         {!loading && !error && versions.length > 0 && <ModelGroups versions={versions} onScopeChange={() => setSelected([])}>{groupVersions => <div className="fv-table-wrap"><table className="fv-table fv-registry-table"><thead><tr><th aria-label="选择比较" /><th>模型 / 发布版本</th><th>别名</th><th>数据集名称</th><th>模型方案</th><th>状态</th><th className="numeric">Accuracy</th><th className="numeric">Macro F1</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{groupVersions.map((version) => <tr key={version.id}><td><input aria-label={`选择 ${version.name}`} type="checkbox" checked={selected.includes(version.id)} onChange={() => toggle(version)} disabled={!modelScope(version) || (!selected.includes(version.id) && selected.length >= 5)} /></td><td><Link to={`/models/${version.id}`}><strong title={version.name}>{version.name}</strong><small className="fv-release-tag">{version.releaseVersion || (version.status === "production" ? "历史发布" : "尚未发布")}</small></Link></td><td><AliasBadges aliases={version.aliases} /></td><td><strong>{version.datasetName}</strong><small className="fv-cell-note" title={version.datasetVersionKey}>训练数据 {version.datasetVersionNumber ? `v${version.datasetVersionNumber}` : "历史快照"}</small></td><td>{backboneLabel(version)}<small className="fv-cell-note">{version.pretrainingDataset || "预训练信息未记录"}</small></td><td><StatusBadge status={version.status} /></td><td className="numeric">{formatPercent(version.metrics.accuracy)}</td><td className="numeric">{formatNumber(version.metrics.macro_f1)}</td><td>{version.createdAt ? new Date(version.createdAt).toLocaleString("zh-CN") : "未记录"}</td><td><div className="fv-registry-actions"><Link className="secondary-button" to={`/models/${version.id}`}>详情</Link><button className="primary-button" disabled={!["candidate", "staging", "production"].includes(version.status)} onClick={() => setPublishing(version)}>发布</button></div></td></tr>)}</tbody></table></div>}</ModelGroups>}
+        {!error && <ServerPagination pagination={pagination} onPageChange={setPage} label="模型版本分页" unit="个" />}
       </Panel>
       {notice && <p role="status">{notice}</p>}
       {publishing && <PublishDialog key={publishing.id} version={publishing} onClose={() => setPublishing(null)} onPublished={v => { setPublishing(null); setNotice(`发布成功 · ${v.releaseVersion}`); refresh(); }} />}

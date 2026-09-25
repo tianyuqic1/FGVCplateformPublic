@@ -47,10 +47,10 @@ function metricLabel(metrics = {}, status = "queued") {
   if (Number.isFinite(Number(metrics.accuracy))) {
     return `acc ${(Number(metrics.accuracy) * 100).toFixed(1)}%`;
   }
-  if (status === "failed") return "failed";
-  if (status === "running") return "training";
-  if (status === "paused") return "paused";
-  return "queued";
+  if (status === "failed") return "训练失败";
+  if (status === "running") return "训练中";
+  if (status === "paused") return "已暂停";
+  return "排队中";
 }
 
 export function extractTrainingRunList(payload) {
@@ -114,6 +114,21 @@ export async function listTrainingRuns() {
   return withTimeout(async (signal) => {
     const payload = await fetchJson("/api/training-runs", { signal });
     return extractTrainingRunList(payload).map(normalizeTrainingRun);
+  });
+}
+
+export async function listTrainingRunPage({ query = "", status = "all", datasetId = "", backboneId = "", limit = 6, offset = 0 } = {}) {
+  return withTimeout(async (signal) => {
+    const params = new URLSearchParams({ q: query, status, dataset_id: datasetId, backbone_id: backboneId, limit: String(limit), offset: String(offset) });
+    const payload = await fetchJson(`/api/training-runs?${params}`, { signal });
+    return { items: extractTrainingRunList(payload).map(normalizeTrainingRun), pagination: payload?.pagination ?? { total: 0, limit, offset } };
+  });
+}
+
+export async function getTrainingRunSummary() {
+  return withTimeout(async (signal) => {
+    const payload = await fetchJson("/api/training-runs/summary", { signal });
+    return payload?.counts ?? {};
   });
 }
 

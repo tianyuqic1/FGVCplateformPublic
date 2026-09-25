@@ -246,6 +246,30 @@ func (e PromoteModelVersionRequestTargetStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListDatasetsParamsStatus.
+const (
+	ListDatasetsParamsStatusAll        ListDatasetsParamsStatus = "all"
+	ListDatasetsParamsStatusProduction ListDatasetsParamsStatus = "production"
+	ListDatasetsParamsStatusReady      ListDatasetsParamsStatus = "ready"
+	ListDatasetsParamsStatusTraining   ListDatasetsParamsStatus = "training"
+)
+
+// Valid indicates whether the value is a known member of the ListDatasetsParamsStatus enum.
+func (e ListDatasetsParamsStatus) Valid() bool {
+	switch e {
+	case ListDatasetsParamsStatusAll:
+		return true
+	case ListDatasetsParamsStatusProduction:
+		return true
+	case ListDatasetsParamsStatusReady:
+		return true
+	case ListDatasetsParamsStatusTraining:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListModelVersionsParamsStatus.
 const (
 	ListModelVersionsParamsStatusArchived   ListModelVersionsParamsStatus = "archived"
@@ -558,6 +582,17 @@ type GenerateDatasetCardJSONBody struct {
 	RequestId openapi_types.UUID `json:"request_id"`
 }
 
+// ListDatasetsParams defines parameters for ListDatasets.
+type ListDatasetsParams struct {
+	Q      *string                   `form:"q,omitempty" json:"q,omitempty"`
+	Status *ListDatasetsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	Limit  *int                      `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int                      `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// ListDatasetsParamsStatus defines parameters for ListDatasets.
+type ListDatasetsParamsStatus string
+
 // UploadImagefolderMultipartBody defines parameters for UploadImagefolder.
 type UploadImagefolderMultipartBody struct {
 	Files     []openapi_types.File `json:"files"`
@@ -582,10 +617,23 @@ type ListModelVersionsParams struct {
 	Architecture     *string                        `form:"architecture,omitempty" json:"architecture,omitempty"`
 	Pretraining      *string                        `form:"pretraining,omitempty" json:"pretraining,omitempty"`
 	Status           *ListModelVersionsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	Q                *string                        `form:"q,omitempty" json:"q,omitempty"`
+	Limit            *int                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset           *int                           `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListModelVersionsParamsStatus defines parameters for ListModelVersions.
 type ListModelVersionsParamsStatus string
+
+// ListTrainingRunsParams defines parameters for ListTrainingRuns.
+type ListTrainingRunsParams struct {
+	Q          *string `form:"q,omitempty" json:"q,omitempty"`
+	Status     *string `form:"status,omitempty" json:"status,omitempty"`
+	DatasetId  *string `form:"dataset_id,omitempty" json:"dataset_id,omitempty"`
+	BackboneId *string `form:"backbone_id,omitempty" json:"backbone_id,omitempty"`
+	Limit      *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *int    `form:"offset,omitempty" json:"offset,omitempty"`
+}
 
 // GetTrainingRunMetricsParams defines parameters for GetTrainingRunMetrics.
 type GetTrainingRunMetricsParams struct {
@@ -664,7 +712,7 @@ type ServerInterface interface {
 	GenerateDatasetCard(w http.ResponseWriter, r *http.Request, datasetVersionId string)
 	// ListDatasets 查询数据集列表
 	// (GET /api/datasets)
-	ListDatasets(w http.ResponseWriter, r *http.Request)
+	ListDatasets(w http.ResponseWriter, r *http.Request, params ListDatasetsParams)
 	// UploadImagefolder 上传并导入 ImageFolder 数据集
 	// (POST /api/datasets/upload-imagefolder)
 	UploadImagefolder(w http.ResponseWriter, r *http.Request)
@@ -712,7 +760,7 @@ type ServerInterface interface {
 	ListModelWeights(w http.ResponseWriter, r *http.Request)
 	// ListTrainingRuns 查询训练任务列表
 	// (GET /api/training-runs)
-	ListTrainingRuns(w http.ResponseWriter, r *http.Request)
+	ListTrainingRuns(w http.ResponseWriter, r *http.Request, params ListTrainingRunsParams)
 	// CreateTrainingRun 创建训练任务
 	// (POST /api/training-runs)
 	CreateTrainingRun(w http.ResponseWriter, r *http.Request)
@@ -778,7 +826,7 @@ func (_ Unimplemented) GenerateDatasetCard(w http.ResponseWriter, r *http.Reques
 
 // ListDatasets 查询数据集列表
 // (GET /api/datasets)
-func (_ Unimplemented) ListDatasets(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListDatasets(w http.ResponseWriter, r *http.Request, params ListDatasetsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -874,7 +922,7 @@ func (_ Unimplemented) ListModelWeights(w http.ResponseWriter, r *http.Request) 
 
 // ListTrainingRuns 查询训练任务列表
 // (GET /api/training-runs)
-func (_ Unimplemented) ListTrainingRuns(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListTrainingRuns(w http.ResponseWriter, r *http.Request, params ListTrainingRunsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1048,8 +1096,66 @@ func (siw *ServerInterfaceWrapper) GenerateDatasetCard(w http.ResponseWriter, r 
 // ListDatasets operation middleware
 func (siw *ServerInterfaceWrapper) ListDatasets(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDatasetsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListDatasets(w, r)
+		siw.Handler.ListDatasets(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1333,6 +1439,45 @@ func (siw *ServerInterfaceWrapper) ListModelVersions(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListModelVersions(w, r, params)
 	}))
@@ -1439,8 +1584,92 @@ func (siw *ServerInterfaceWrapper) ListModelWeights(w http.ResponseWriter, r *ht
 // ListTrainingRuns operation middleware
 func (siw *ServerInterfaceWrapper) ListTrainingRuns(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTrainingRunsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "dataset_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dataset_id", r.URL.Query(), &params.DatasetId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dataset_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "backbone_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "backbone_id", r.URL.Query(), &params.BackboneId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "backbone_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backbone_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListTrainingRuns(w, r)
+		siw.Handler.ListTrainingRuns(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2163,6 +2392,7 @@ func (response GenerateDatasetCarddefaultJSONResponse) VisitGenerateDatasetCardR
 }
 
 type ListDatasetsRequestObject struct {
+	Params ListDatasetsParams
 }
 
 type ListDatasetsResponseObject interface {
@@ -2170,7 +2400,8 @@ type ListDatasetsResponseObject interface {
 }
 
 type ListDatasets200JSONResponse struct {
-	Datasets []FreeFormObject `json:"datasets"`
+	Datasets   []FreeFormObject `json:"datasets"`
+	Pagination *FreeFormObject  `json:"pagination,omitempty"`
 }
 
 func (response ListDatasets200JSONResponse) VisitListDatasetsResponse(w http.ResponseWriter) error {
@@ -2837,6 +3068,7 @@ func (response ListModelWeights200JSONResponse) VisitListModelWeightsResponse(w 
 }
 
 type ListTrainingRunsRequestObject struct {
+	Params ListTrainingRunsParams
 }
 
 type ListTrainingRunsResponseObject interface {
@@ -2844,6 +3076,7 @@ type ListTrainingRunsResponseObject interface {
 }
 
 type ListTrainingRuns200JSONResponse struct {
+	Pagination   *FreeFormObject  `json:"pagination,omitempty"`
 	TrainingRuns []FreeFormObject `json:"training_runs"`
 }
 
@@ -3641,8 +3874,10 @@ func (sh *strictHandler) GenerateDatasetCard(w http.ResponseWriter, r *http.Requ
 }
 
 // ListDatasets operation middleware
-func (sh *strictHandler) ListDatasets(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListDatasets(w http.ResponseWriter, r *http.Request, params ListDatasetsParams) {
 	var request ListDatasetsRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListDatasets(ctx, request.(ListDatasetsRequestObject))
@@ -4092,8 +4327,10 @@ func (sh *strictHandler) ListModelWeights(w http.ResponseWriter, r *http.Request
 }
 
 // ListTrainingRuns operation middleware
-func (sh *strictHandler) ListTrainingRuns(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListTrainingRuns(w http.ResponseWriter, r *http.Request, params ListTrainingRunsParams) {
 	var request ListTrainingRunsRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListTrainingRuns(ctx, request.(ListTrainingRunsRequestObject))

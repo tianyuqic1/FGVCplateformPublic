@@ -6,7 +6,7 @@ import { runInference, runInferenceUpload, runInferenceUploadFolder } from "../.
 import { inferenceModelLabel } from "../../api/inferenceModels.js";
 import { getModelVersion } from "../../api/modelVersions.js";
 import { Icon } from "../../components/icons.jsx";
-import { CandidateBar, Panel, ProgressBar, StatusChip } from "../../components/ui.jsx";
+import { CandidateBar, Panel, StatusChip } from "../../components/ui.jsx";
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import { IMAGE_FOLDER_EXTENSIONS } from "../datasets/imageFolder.js";
 import { datasetStatusLabel } from "../datasets/presentation.js";
@@ -77,6 +77,7 @@ export function InferencePage({ showToast }) {
   const requestedInferenceDatasetVersionId = inferenceSearchParams.get("dataset_version_id") || "";
   const requestedInferenceModelVersionId = inferenceSearchParams.get("model_version_id") || "";
   const batchFolderInputRef = useRef(null);
+  const inferenceControllerRef = useRef(null);
   const { datasets: apiDatasets, source: datasetSource } = useDatasets();
   const { models: publishedModels, source: modelSource } = useInferenceModels();
   const llm = useLLMAssistance();
@@ -93,6 +94,13 @@ export function InferencePage({ showToast }) {
     evidenceK: 3,
   });
   const [state, setState] = useState({ status: "idle", result: null, error: null });
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => () => inferenceControllerRef.current?.abort(), []);
+  useEffect(() => {
+    if (state.status !== "running") return undefined;
+    const timer = window.setInterval(() => setElapsedSeconds((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [state.status]);
   const [previewUrl, setPreviewUrl] = useState("");
   const [deployments, setDeployments] = useState({ model: "", rows: [], error: "" });
   const [deploymentId, setDeploymentId] = useState("");
@@ -136,13 +144,15 @@ export function InferencePage({ showToast }) {
     (form.imageFiles.length > 0 || form.imageFile || form.imagePath.trim() || form.sampleId.trim());
   const inferenceBlockReason = canUseInferenceInputs
     ? ""
-    : datasetSource !== "api"
-      ? "数据资产暂不可用，不能运行推理。"
-      : modelSource !== "api"
-        ? "已发布模型列表暂不可用，不能运行推理。"
-        : modelVersionIds.length === 0
-          ? "当前数据版本暂无已发布模型，请先完成模型发布。"
-          : "当前没有真实 dataset version 可用于推理。";
+    : datasetSource === "loading" || modelSource === "loading"
+      ? "正在同步数据集与已发布模型；完成前不判断是否可推理。"
+      : datasetSource !== "api"
+        ? "数据资产暂不可用，不能运行推理。"
+        : modelSource !== "api"
+          ? "已发布模型列表暂不可用，不能运行推理。"
+          : modelVersionIds.length === 0
+            ? "当前数据版本暂无已发布模型，请先完成模型发布。"
+            : "当前没有真实 dataset version 可用于推理。";
 
   useEffect(() => {
     if (datasetSource !== "api" || modelSource !== "api" || datasetVersionOptions.length === 0) return;
@@ -211,9 +221,13 @@ export function InferencePage({ showToast }) {
 
   async function handleRun() {
     if (!canRun) return;
+    const controller = new AbortController();
+    inferenceControllerRef.current = controller;
+    setElapsedSeconds(0);
     setState({ status: "running", result: null, error: null });
     try {
-      const latestModel = await getModelVersion(form.modelVersionId);
+      const latestModel = await getModelVersion(form.modelVersionId, controller.signal);
+      controller.signal.throwIfAborted();
       if (latestModel.status !== "production" || latestModel.datasetVersionId !== form.datasetVersionId) {
         throw new Error("该模型已下架或不属于当前数据集，请刷新并选择已发布模型。");
       }
@@ -223,6 +237,7 @@ export function InferencePage({ showToast }) {
         model_version_id: form.modelVersionId.trim(),
         top_k: Number(form.topK),
         evidence_k: Number(form.evidenceK),
+        signal: controller.signal,
       };
       const result =
         form.imageFiles.length > 0
@@ -241,11 +256,19 @@ export function InferencePage({ showToast }) {
                 image_path: form.imagePath.trim() || null,
                 sample_id: form.sampleId.trim() || null,
               });
+      controller.signal.throwIfAborted();
       setState({ status: "succeeded", result, error: null });
       showToast("推理完成，结果已更新");
     } catch (error) {
-      setState({ status: "failed", result: null, error });
-      showToast("推理请求失败");
+      if (controller.signal.aborted) {
+        setState({ status: "cancelled", result: null, error: null });
+        showToast("已停止等待推理结果；服务端可能仍在处理已提交的请求");
+      } else {
+        setState({ status: "failed", result: null, error });
+        showToast(error?.name === "TimeoutError" ? "推理超时，请稍后重试" : "推理请求失败");
+      }
+    } finally {
+      if (inferenceControllerRef.current === controller) inferenceControllerRef.current = null;
     }
   }
 
@@ -334,7 +357,7 @@ export function InferencePage({ showToast }) {
                   }))
                 }
                 disabled={datasetVersionOptions.length === 0}
-                placeholder="暂无训练数据集"
+                placeholder={datasetSource === "loading" ? "正在加载训练数据集…" : "暂无训练数据集"}
                 options={datasetOptions
                   .filter((dataset) => dataset.datasetVersionId)
                   .map((dataset) => ({
@@ -355,7 +378,11 @@ export function InferencePage({ showToast }) {
                 value={form.modelVersionId}
                 onChange={(event) => updateField("modelVersionId", event.target.value)}
                 disabled={modelVersionIds.length === 0 || state.status === "running"}
-                placeholder="该数据集暂无已发布模型"
+                placeholder={
+                  modelSource === "loading" || datasetSource === "loading"
+                    ? "正在加载已发布模型…"
+                    : "该数据集暂无已发布模型"
+                }
                 options={modelVersionOptions.map((model) => ({
                   value: model.modelVersionId,
                   label: inferenceModelLabel(model),
@@ -416,6 +443,7 @@ export function InferencePage({ showToast }) {
                 <label className="file-picker">
                   <input
                     type="file"
+                    aria-label="选择单张推理图片"
                     accept="image/png,image/jpeg,image/webp,image/bmp"
                     onChange={(event) => updateImageFile(event.target.files?.[0] ?? null)}
                   />
@@ -429,6 +457,7 @@ export function InferencePage({ showToast }) {
                   <input
                     ref={batchFolderInputRef}
                     type="file"
+                    aria-label="选择批量推理图片文件夹"
                     multiple
                     webkitdirectory=""
                     directory=""
@@ -461,8 +490,9 @@ export function InferencePage({ showToast }) {
             </summary>
             <div className="field-grid section-gap-small">
               <div className="field">
-                <label>样本 ID</label>
+                <label htmlFor="inference-sample-id">样本 ID</label>
                 <input
+                  id="inference-sample-id"
                   value={form.sampleId}
                   onChange={(event) => updateField("sampleId", event.target.value)}
                   disabled={Boolean(form.imageFile) || isBatchFolderMode}
@@ -471,8 +501,9 @@ export function InferencePage({ showToast }) {
                 {isBatchFolderMode && <span className="field-hint">已选择文件夹，运行时不会发送 sample_id。</span>}
               </div>
               <div className="field">
-                <label>Top-k</label>
+                <label htmlFor="inference-top-k">Top-k 候选数</label>
                 <input
+                  id="inference-top-k"
                   type="number"
                   min="1"
                   max="10"
@@ -481,8 +512,9 @@ export function InferencePage({ showToast }) {
                 />
               </div>
               <div className="field">
-                <label>近邻数</label>
+                <label htmlFor="inference-evidence-k">检索近邻数</label>
                 <input
+                  id="inference-evidence-k"
                   type="number"
                   min="0"
                   max="10"
@@ -495,16 +527,27 @@ export function InferencePage({ showToast }) {
           </details>
           <div className="toolbar inference-run-bar">
             <span className="inference-run-hint">
-              {isBatchFolderMode
-                ? `已选 ${form.imageFiles.length} 张图片，运行后进入人工复核`
-                : form.imageFile || form.sampleId || form.imagePath
-                  ? "样本已就绪，开始验证模型表现"
-                  : "添加样本后即可开始推理"}
+              {state.status === "running"
+                ? `正在${elapsedSeconds < 3 ? "验证模型与部署" : "计算推理并记录结果"} · 已等待 ${elapsedSeconds} 秒（单张最长 120 秒，批量最长 10 分钟）`
+                : isBatchFolderMode
+                  ? `已选 ${form.imageFiles.length} 张图片，运行后进入人工复核`
+                  : form.imageFile || form.sampleId || form.imagePath
+                    ? "样本已就绪，开始验证模型表现"
+                    : "添加样本后即可开始推理"}
             </span>
             <button className="primary-button" onClick={handleRun} disabled={!canRun}>
               <Icon name={state.status === "running" ? "LoaderCircle" : "Play"} size={16} />
               {state.status === "running" ? "推理中" : "运行推理"}
             </button>
+            {state.status === "running" && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => inferenceControllerRef.current?.abort()}
+              >
+                停止等待
+              </button>
+            )}
             <button
               className="ghost-button"
               onClick={() => updateImageFile(null)}
@@ -541,24 +584,28 @@ export function InferencePage({ showToast }) {
               tone={
                 state.status === "idle"
                   ? "neutral"
-                  : state.status === "failed"
-                    ? "risk"
-                    : state.status === "running"
-                      ? "info"
-                      : isBatchResult
+                  : state.status === "cancelled"
+                    ? "warn"
+                    : state.status === "failed"
+                      ? "risk"
+                      : state.status === "running"
                         ? "info"
-                        : decisionState.tone
+                        : isBatchResult
+                          ? "info"
+                          : decisionState.tone
               }
             >
               {state.status === "idle"
                 ? "待运行"
-                : state.status === "running"
-                  ? "运行中"
-                  : state.status === "failed"
-                    ? "失败"
-                    : isBatchResult
-                      ? "批量结果"
-                      : decisionState.label}
+                : state.status === "cancelled"
+                  ? "已停止等待"
+                  : state.status === "running"
+                    ? "运行中"
+                    : state.status === "failed"
+                      ? "失败"
+                      : isBatchResult
+                        ? "批量结果"
+                        : decisionState.label}
             </StatusChip>
           }
         >
@@ -595,7 +642,9 @@ export function InferencePage({ showToast }) {
                 <div className="row-meta">
                   {form.datasetVersionId} · {form.modelVersionId} · 进度由服务返回后确认
                 </div>
-                <ProgressBar value={35} fill="#315fbd" shimmer />
+                <div className="row-meta" role="status">
+                  服务端尚未返回阶段进度；这里不显示虚构完成百分比。
+                </div>
               </div>
               <StatusChip tone="info">运行中</StatusChip>
             </div>
@@ -610,6 +659,18 @@ export function InferencePage({ showToast }) {
                 <div className="row-meta">{state.error?.message ?? "推理请求失败"}</div>
               </div>
               <StatusChip tone="risk">失败</StatusChip>
+            </div>
+          )}
+          {state.status === "cancelled" && (
+            <div className="timeline-item" role="status">
+              <div className="timeline-icon">
+                <Icon name="Pause" size={18} />
+              </div>
+              <div>
+                <strong>已停止等待推理结果</strong>
+                <div className="row-meta">浏览器请求已取消；服务端可能仍在处理已提交的任务，可稍后查看复核记录。</div>
+              </div>
+              <StatusChip tone="warn">已停止等待</StatusChip>
             </div>
           )}
           {state.status === "succeeded" && isBatchResult && (

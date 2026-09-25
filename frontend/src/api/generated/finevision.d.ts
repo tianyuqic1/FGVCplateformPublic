@@ -1063,7 +1063,12 @@ export interface operations {
     };
     listDatasets: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string;
+                status?: "all" | "ready" | "production" | "training";
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1078,6 +1083,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         datasets: components["schemas"]["FreeFormObject"][];
+                        pagination?: components["schemas"]["FreeFormObject"];
                     };
                 };
             };
@@ -1165,6 +1171,9 @@ export interface operations {
                 architecture?: string;
                 pretraining?: string;
                 status?: "candidate" | "staging" | "production" | "archived" | "failed";
+                q?: string;
+                limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -1339,7 +1348,14 @@ export interface operations {
     };
     listTrainingRuns: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string;
+                status?: string;
+                dataset_id?: string;
+                backbone_id?: string;
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1354,6 +1370,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         training_runs: components["schemas"]["FreeFormObject"][];
+                        pagination?: components["schemas"]["FreeFormObject"];
                     };
                 };
             };

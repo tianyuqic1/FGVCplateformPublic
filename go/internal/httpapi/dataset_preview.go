@@ -68,7 +68,14 @@ func registerDatasetPreviews(router chi.Router, service *dataset.Service) {
 				}
 				sample := groups[label][index]
 				added = true
-				output = append(output, map[string]string{"sample_id": sample.ID, "label": sample.Label, "split": sample.Split, "image_url": "/api/dataset-versions/" + url.PathEscape(snapshot.VersionID) + "/samples/" + url.PathEscape(sample.ID) + "/image"})
+				preview := map[string]string{"sample_id": sample.ID, "label": sample.Label, "split": sample.Split}
+				if _, _, imageErr := previews.Image(r.Context(), snapshot.VersionID, sample.ID); imageErr == nil {
+					preview["image_url"] = "/api/dataset-versions/" + url.PathEscape(snapshot.VersionID) + "/samples/" + url.PathEscape(sample.ID) + "/image"
+					preview["availability"] = "available"
+				} else {
+					preview["availability"] = "unavailable"
+				}
+				output = append(output, preview)
 				if len(output) == limit {
 					break
 				}

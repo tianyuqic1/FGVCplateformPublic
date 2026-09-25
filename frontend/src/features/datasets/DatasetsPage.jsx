@@ -4,12 +4,11 @@ import { uploadImagefolder } from "../../api/datasets.js";
 import { PageHero } from "../../components/AppShell.jsx";
 import { Icon } from "../../components/icons.jsx";
 import { Panel, StatusChip } from "../../components/ui.jsx";
-import { useDatasets } from "../../hooks/useDatasets.js";
-import { DashboardDatasetPagination } from "./DashboardDatasetPagination.jsx";
+import { useDatasetPage } from "../../hooks/useDatasets.js";
+import { ServerPagination } from "../../design-system/components/ServerPagination.jsx";
 import { DatasetImportJobs } from "./DatasetImportJobs.jsx";
 import { DatasetVersionList } from "./DatasetVersions.jsx";
 import { analyzeImageFolderFiles } from "./imageFolder.js";
-import { datasetFilterMatch } from "./presentation.js";
 import { pathWithSearch } from "../../utils/urls.js";
 
 function uiStateLabel(status) {
@@ -72,14 +71,24 @@ function DatasetTable({ items = [] }) {
 }
 
 export function DatasetsPage({ showToast }) {
-  const { datasets: datasetItems, source, loading, refresh } = useDatasets();
+  const [datasetQuery, setDatasetQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [datasetFilter, setDatasetFilter] = useState("all");
+  const {
+    datasets: datasetItems,
+    pagination,
+    source,
+    loading,
+    refreshing,
+    error: listError,
+    refresh,
+  } = useDatasetPage({ query: datasetQuery, status: datasetFilter, limit: 6, offset: (page - 1) * 6 });
   const folderInputRef = useRef(null);
   const uploadController = useRef(null);
   const [submittedJob, setSubmittedJob] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(null);
   useEffect(() => () => uploadController.current?.abort(), []);
   const [showImport, setShowImport] = useState(false);
-  const [datasetFilter, setDatasetFilter] = useState("all");
   const [importForm, setImportForm] = useState({ name: "" });
   const importRequestId = useRef(crypto.randomUUID());
   const [folderSelection, setFolderSelection] = useState({
@@ -90,7 +99,6 @@ export function DatasetsPage({ showToast }) {
   });
   const [importState, setImportState] = useState({ status: "idle", result: null, error: null });
   const sourceLabel = source === "api" ? "数据资产已同步" : "数据资产暂不可用";
-  const visibleDatasets = datasetItems.filter((dataset) => datasetFilterMatch(dataset, datasetFilter));
   const canImport =
     importState.status !== "running" &&
     folderSelection.valid &&
@@ -181,6 +189,7 @@ export function DatasetsPage({ showToast }) {
               <div className="file-picker folder-picker">
                 <input
                   ref={folderInputRef}
+                  aria-label="选择 ImageFolder 数据集文件夹"
                   disabled={importState.status === "running"}
                   type="file"
                   multiple
@@ -304,7 +313,11 @@ export function DatasetsPage({ showToast }) {
       <DatasetImportJobs submittedJob={submittedJob} onCompleted={refresh} />
       <Panel
         title="数据集列表"
-        caption={`${loading ? "正在读取数据资产" : sourceLabel} · 共 ${datasetItems.length} 个数据集 · 每页 6 个 · 筛选结果数量见页脚。`}
+        caption={
+          loading
+            ? "正在读取数据资产；完成前不展示数据集总数。"
+            : `${sourceLabel} · 共 ${pagination.total} 个匹配数据集 · 每页 6 个。${refreshing ? " 正在更新…" : ""}`
+        }
         action={
           <div className="tabs">
             {[
@@ -315,7 +328,10 @@ export function DatasetsPage({ showToast }) {
               <button
                 className={`tab-button ${datasetFilter === value ? "active" : ""}`}
                 key={value}
-                onClick={() => setDatasetFilter(value)}
+                onClick={() => {
+                  setDatasetFilter(value);
+                  setPage(1);
+                }}
               >
                 {label}
               </button>
@@ -323,9 +339,30 @@ export function DatasetsPage({ showToast }) {
           </div>
         }
       >
-        <DashboardDatasetPagination key={datasetFilter} items={visibleDatasets} showStatus={false}>
-          {(items) => <DatasetTable items={items} />}
-        </DashboardDatasetPagination>
+        <div className="training-queue-filters">
+          <input
+            aria-label="搜索数据集"
+            placeholder="搜索数据集名称 / 版本"
+            value={datasetQuery}
+            onChange={(event) => {
+              setDatasetQuery(event.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        {listError && <p role="alert">数据集列表暂不可用：{listError.message}</p>}
+        {loading ? (
+          <p role="status">正在读取数据集…</p>
+        ) : (
+          !listError && (
+            <div aria-busy={refreshing}>
+              <DatasetTable items={datasetItems} />
+            </div>
+          )
+        )}
+        {!loading && !listError && (
+          <ServerPagination pagination={pagination} onPageChange={setPage} label="数据集状态分页" unit="个" />
+        )}
       </Panel>
     </>
   );
