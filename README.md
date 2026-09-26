@@ -1,6 +1,7 @@
 # FineVision
 
 [![CI](https://github.com/tianyuqic1/FGVCplateformPublic/actions/workflows/ci.yml/badge.svg)](https://github.com/tianyuqic1/FGVCplateformPublic/actions/workflows/ci.yml)
+[![Code License: MIT](https://img.shields.io/badge/Code%20License-MIT-blue.svg)](LICENSE)
 
 FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖数据集版本管理、可配置训练、模型发布、多后端推理、在线弃权、人工复核与 AI 辅助标注。系统以 **Go 控制面 + Python 计算面** 为核心，通过 PostgreSQL、RabbitMQ 和 MinIO 把业务状态、长任务和二进制产物解耦。
 
@@ -270,3 +271,11 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 - 公开仓库不包含测评原图、私有真值、DeepSeek/OpenAI Key 或本地数据库。
 - 默认 Compose 密码及服务令牌仅供本机开发；生产环境必须替换并完善 TLS、集中密钥管理、审计、限流与备份。当前已有三角色 RBAC，OIDC/SSO 尚未实现，可按企业统一登录需求接入。
 - TensorRT engine 与 Ascend OM 绑定硬件和运行时 profile，不能跨设备直接复用。
+
+## 许可证
+
+本项目由 Kaiwen Chen 原创的平台代码及配套原创文档采用 [MIT License](LICENSE)，版权署名为 `Copyright (c) 2026 Kaiwen Chen`。允许使用、修改、分发及商业使用；分发时须保留版权与许可声明，软件按原样提供，不附带担保。
+
+**MIT 不覆盖第三方资源。** 模型权重、外部数据集、截图中的第三方图片、依赖库和容器镜像继续遵循各自的许可证。DINOv3 权重保留 DINOv3 License；仓库登记的两份 timm ImageNet 权重保留 Apache-2.0。训练、LoRA 合并或格式转换不会自动移除上游许可要求。
+
+详见 [第三方资源与许可证边界](THIRD_PARTY_NOTICES.md) 和 [权重身份清单](weights/manifest.json)。
