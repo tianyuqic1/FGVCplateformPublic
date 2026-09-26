@@ -28,8 +28,9 @@ LOG = logging.getLogger(__name__)
 
 
 class Worker:
-    def __init__(self, metrics=None):
+    def __init__(self, metrics=None, reporter=None):
         self.metrics = metrics
+        self.reporter = reporter
         self.runtime = os.environ["FINEVISION_INFERENCE_BACKEND"]
         if self.runtime not in ("tensorrt", "ascend_acl"):
             raise ValueError("unknown deployment runtime")
@@ -180,11 +181,19 @@ class Worker:
                 queue = f"fgvc.deployment.{self.runtime}"
                 channel.queue_declare(queue=queue, durable=True, arguments={"x-dead-letter-exchange": "fgvc.deployment.dlx"})
                 channel.basic_qos(prefetch_count=1)
+                if self.reporter:
+                    self.reporter.state("ready", "构建消费者已连接消息队列；硬件与产物按任务校验")
                 for method, properties, body in channel.consume(queue, inactivity_timeout=1):
                     if method is not None:
                         with linked_message_span("deployment.delivery", getattr(properties, "headers", None)):
-                            self.consume(connection, channel, method, body)
+                            if self.reporter:
+                                with self.reporter.task(str(uuid4()), "部署构建与产物登记"):
+                                    self.consume(connection, channel, method, body)
+                            else:
+                                self.consume(connection, channel, method, body)
             except Exception as error:
+                if self.reporter:
+                    self.reporter.state("dependency_error", "消息消费或构建回调异常，正在重新连接")
                 LOG.error("build consumer disconnected (%s); unconfirmed results preserved", type(error).__name__)
                 time.sleep(5)
             finally:
@@ -195,4 +204,9 @@ class Worker:
 if __name__ == "__main__":
     configure_logging("deployment-worker", force=True)
     configure_tracing("deployment-worker")
-    Worker(start_metrics_server("deployment-worker", 9305)).run()
+    from finevision.compute.worker_reporter import WorkerReporter
+    reporter = WorkerReporter("deployment").start()
+    try:
+        Worker(start_metrics_server("deployment-worker", 9305), reporter).run()
+    finally:
+        reporter.close()

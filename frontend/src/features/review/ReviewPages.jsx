@@ -39,7 +39,7 @@ function compactStatusLabel(value) {
     failed: "失败",
     event: "事件",
     guarded: "已隔离",
-    deferred: "待策展",
+    deferred: "待整理",
     gate: "门禁",
     "not found": "未找到",
     missing: "缺失",
@@ -51,7 +51,7 @@ function reviewReasonLabel(value) {
   const labels = {
     "Model abstained for multiple threshold reasons.": "模型触发多项弃权阈值，需人工确认。",
     confidence_below_threshold: "置信度低于阈值",
-    top1_top2_margin_below_threshold: "前两名类别间隔过小",
+    top1_top2_margin_below_threshold: "前两名分数差低于阈值",
     embedding_distance_above_threshold: "特征距离超过 OOD 阈值",
   };
   return labels[value] ?? value ?? "未记录原因";
@@ -115,7 +115,7 @@ function policyStatusDescription(status) {
 function reviewRisk(item) {
   if (item?.riskType === "ood_candidate") return { label: "OOD 候选", tone: "risk", visualType: "ood" };
   if (item?.riskType === "low_confidence") return { label: "低置信", tone: "warn", visualType: "bird" };
-  if (item?.riskType === "low_margin") return { label: "低间隔", tone: "warn", visualType: "bird" };
+  if (item?.riskType === "low_margin") return { label: "分数接近", tone: "warn", visualType: "bird" };
   return { label: "需人工判断", tone: "info", visualType: "bird" };
 }
 
@@ -171,7 +171,7 @@ const REVIEW_STATUS_TABS = [
 
 const FEEDBACK_DESTINATIONS = [
   ["all", "全部反馈", "人工复核后的完整反馈池"],
-  ["training_candidate", "训练候选", "可进入下一轮数据集策展，但不会自动训练"],
+  ["training_candidate", "训练候选", "可进入下一轮数据集整理，但不会自动训练"],
   ["ood_stress", "OOD 压力池", "用于构造拒识/压力测试候选"],
   ["bad_image", "坏图池", "用于数据清洗和采集质量回溯"],
   ["taxonomy_dispute", "类别争议", "用于 taxonomy 讨论和标注规范修正"],
@@ -341,8 +341,8 @@ export function ReviewPage() {
   return (
     <>
       <PageHero
-        title="让人工只处理模型真正不确定的样本。"
-        description="模型弃权和 OOD 候选进入复核队列；人工结论只进入反馈池，不直接污染训练集。"
+        title="人工复核"
+        description="查看模型弃权及疑似分布外样本。复核结果保存到反馈池，不会直接修改训练数据。"
         actions={
           <button className="ghost-button" onClick={refresh}>
             <Icon name="RefreshCw" size={16} />
@@ -504,10 +504,10 @@ export function ReviewPage() {
                   <Icon name="GitCompare" size={18} />
                 </div>
                 <div>
-                  <strong>{lowMarginCount} 条低间隔</strong>
+                  <strong>{lowMarginCount} 条分数接近</strong>
                   <div className="row-meta">top-1 与 top-2 接近，优先检查易混类别。</div>
                 </div>
-                <StatusChip tone="info">低间隔</StatusChip>
+                <StatusChip tone="info">分数接近</StatusChip>
               </div>
             </div>
           </Panel>
@@ -672,7 +672,7 @@ export function ReviewDetailPage({ showToast }) {
         }
       />
       <div className="grid detail">
-        <Panel title="模型证据" caption="保留推理当时的图像、top-k、阈值原因和近邻证据。">
+        <Panel title="推理结果与复核原因" caption="保留推理当时的图像、top-k、阈值原因和近邻证据。">
           <ReviewImage item={item} risk={risk} detail />
           <div className="chips section-gap-small">
             <StatusChip tone={risk.tone}>{risk.label}</StatusChip>
@@ -690,8 +690,8 @@ export function ReviewDetailPage({ showToast }) {
               <strong>{item.decision.confidence.toFixed(4)}</strong>
             </div>
             <div>
-              <span>margin</span>
-              <strong>{item.decision.margin.toFixed(4)}</strong>
+              <span>前两名分数差</span>
+              <strong>{(item.decision.margin * 100).toFixed(2)} 个百分点</strong>
             </div>
             <div>
               <span>ood score</span>
@@ -759,7 +759,7 @@ export function ReviewDetailPage({ showToast }) {
             model: {displayValue(item.modelVersionId)}
           </TechnicalDetails>
         </Panel>
-        <Panel title="通用 LLM 辅助" caption="解释已有证据，不会替代人工判断或提交反馈池。">
+        <Panel title="AI 复核辅助" caption="解释已有证据，不会替代人工判断或提交反馈池。">
           <LLMAssistanceBox
             title="复核辅助建议"
             caption="基于 top-k、阈值原因和近邻证据生成；人工仍必须独立提交最终结论。"
@@ -814,7 +814,7 @@ export function ReviewDetailPage({ showToast }) {
                     </div>
                     <strong>复核已完成，继续处理队列或检查反馈池</strong>
                     <div className="row-meta">
-                      反馈池只是下一轮数据策展候选，不会自动写回训练集；继续下一张会回到当前筛选的待复核队列。
+                      反馈池只是下一轮数据整理候选，不会自动写回训练集；继续下一张会回到当前筛选的待复核队列。
                     </div>
                   </div>
                   <div className="next-step-actions">
@@ -1518,7 +1518,7 @@ export function FeedbackPage({ showToast }) {
     <>
       <PageHero
         title="反馈池"
-        description="人工确认的候选可在待发布区补充到来源版本的训练集；生成新版本，不修改历史标签，不自动触发训练。"
+        description="保存人工复核结果。由管理员选择确认后的样本补充训练集，生成数据集新版本；不会修改历史版本或自动启动训练。"
         actions={
           <>
             <Link className="ghost-button" to="/annotation?tab=publish&source=feedback">
@@ -1602,7 +1602,7 @@ export function FeedbackPage({ showToast }) {
           feedbackLoading={policyScopeLoading}
           showToast={showToast}
         />
-        <Panel title="策展门禁" caption="当前只展示候选池，不会自动生成新数据集版本。">
+        <Panel title="数据纳入条件" caption="当前只展示候选池，不会自动生成新数据集版本。">
           <div className="feedback-summary">
             {poolCounts.map(([value, label, count]) => (
               <div key={value}>
@@ -1617,8 +1617,8 @@ export function FeedbackPage({ showToast }) {
                 <Icon name="ShieldCheck" size={18} />
               </div>
               <div>
-                <strong>不会直接污染训练集</strong>
-                <div className="row-meta">训练仍只能选择不可变 dataset_version。</div>
+                <strong>不会直接修改训练集</strong>
+                <div className="row-meta">训练任务使用已发布的数据集版本，历史版本保持不变。</div>
               </div>
               <StatusChip tone="default">{compactStatusLabel("guarded")}</StatusChip>
             </div>
@@ -1627,8 +1627,8 @@ export function FeedbackPage({ showToast }) {
                 <Icon name="Database" size={18} />
               </div>
               <div>
-                <strong>下一步：数据策展</strong>
-                <div className="row-meta">后续会把已采纳反馈冻结成新的 dataset version。</div>
+                <strong>下一步：生成数据集新版本</strong>
+                <div className="row-meta">由管理员选择已确认样本，在待发布区生成数据集新版本。</div>
               </div>
               <StatusChip tone="warn">{compactStatusLabel("deferred")}</StatusChip>
             </div>
@@ -1644,8 +1644,8 @@ export function FeedbackPage({ showToast }) {
             </div>
           </div>
           <LLMAssistanceBox
-            title="LLM 策展建议"
-            caption="只根据当前反馈池聚合给出策展建议，不会创建 dataset version 或触发训练。"
+            title="AI 数据整理建议"
+            caption="根据当前反馈提供数据整理建议，不会创建数据集版本或启动训练。"
             assistance={llm.assistance}
             status={llm.status}
             error={llm.error}

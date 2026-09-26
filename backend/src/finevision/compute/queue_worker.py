@@ -401,12 +401,13 @@ def create_s3_artifact_store() -> S3ArtifactStore:
 
 
 class QueueTrainingWorker:
-    def __init__(self, lifecycle: Any, artifact_store: ArtifactStore, channel: Any, queue: str, metrics: RuntimeMetrics | None = None) -> None:
+    def __init__(self, lifecycle: Any, artifact_store: ArtifactStore, channel: Any, queue: str, metrics: RuntimeMetrics | None = None, reporter=None) -> None:
         self.lifecycle = lifecycle
         self.artifact_store = artifact_store
         self.channel = channel
         self.queue = queue
         self.metrics = metrics
+        self.reporter = reporter
 
     def run(self) -> None:
         self.channel.basic_qos(prefetch_count=1)
@@ -467,6 +468,8 @@ class QueueTrainingWorker:
             metadata_store = MetadataStore(os.environ.get("FINEVISION_METADATA_DIR", ".finevision/metadata"))
             dataset_files = ExitStack()
             try:
+                if self.reporter:
+                    dataset_files.enter_context(self.reporter.task(claim.training_run_id, "训练执行中"))
                 dataset_files.enter_context(HeartbeatLoop(remote_store))
                 if payload.get("dataset_archive"):
                     from finevision.compute.artifacts import descriptor_from_dict
@@ -510,6 +513,8 @@ class QueueTrainingWorker:
 
 
 def main() -> None:
+    from finevision.compute.worker_reporter import WorkerReporter
+    reporter = WorkerReporter("training").start()
     configure_logging("python-training-worker", force=True)
     trace_provider = configure_tracing("python-training-worker")
     metrics = start_metrics_server("python-training-worker", 9301)
@@ -525,10 +530,13 @@ def main() -> None:
         channel,
         os.environ.get("FINEVISION_TRAINING_QUEUE", "finevision.training.v1"),
         metrics,
+        reporter,
     )
     try:
+        reporter.state("ready", "训练消费者已启动；依赖访问错误见任务详情")
         worker.run()
     finally:
+        reporter.close()
         grpc_channel.close()
         if rabbit.is_open:
             rabbit.close()

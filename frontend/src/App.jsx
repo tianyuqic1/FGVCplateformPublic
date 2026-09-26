@@ -16,6 +16,7 @@ const DatasetDetailPage = lazyNamed(() => import("./features/datasets/DatasetDet
 const AnnotationPage = lazyNamed(() => import("./features/annotation/AnnotationPage.jsx"), "AnnotationPage");
 const InferencePage = lazyNamed(() => import("./features/inference/InferencePage.jsx"), "InferencePage");
 const HardwarePage = lazyNamed(() => import("./features/hardware/HardwarePage.jsx"), "HardwarePage");
+const WorkersPage = lazyNamed(() => import("./features/workers/WorkersPage.jsx"), "WorkersPage");
 const TrainingPage = lazyNamed(() => import("./features/training/TrainingPages.jsx"), "TrainingPage");
 const TrainingDetailPage = lazyNamed(() => import("./features/training/TrainingPages.jsx"), "TrainingDetailPage");
 const ModelVersionsPage = lazyNamed(() => import("./features/model-versions/ModelVersionPages.jsx"), "ModelVersionsPage");
@@ -54,29 +55,31 @@ const legacyAliases = {
 };
 
 function titleForPath(pathname) {
+  if (pathname.startsWith("/workers")) return "Worker 状态";
   if (pathname === "/admin/users") return "用户管理";
-  if (pathname === "/annotation") return "AI 标注";
+  if (pathname === "/annotation") return "AI 辅助标注";
   if (pathname.startsWith("/datasets/")) return "数据集详情";
-  if (pathname === "/hardware") return "硬件监控";
+  if (pathname === "/hardware") return "计算资源";
   if (pathname === "/datasets") return "数据集";
   if (pathname.startsWith("/training/")) return "训练详情";
   if (pathname === "/training") return "训练任务";
-  if (pathname === "/inference") return "推理实验室";
-  if (pathname === "/weights") return "权重管理";
+  if (pathname === "/inference") return "模型推理";
+  if (pathname === "/weights") return "预训练权重";
   if (pathname.startsWith("/review/")) return "复核详情";
   if (pathname === "/review") return "人工复核";
   if (pathname === "/feedback") return "反馈池";
   if (pathname === "/models/compare") return "模型性能对比";
   if (pathname.startsWith("/models/")) return "模型详情";
   if (pathname === "/models") return "模型版本";
-  if (pathname.startsWith("/pipelines/")) return "流水线运行";
-  if (pathname === "/pipelines") return "流水线";
-  return "今日工作台";
+  if (pathname.startsWith("/pipelines/")) return "流水线任务详情";
+  if (pathname === "/pipelines") return "任务流水线";
+  return "工作台";
 }
 
 function crumbForPath(pathname) {
+  if (pathname.startsWith("/workers")) return "系统 / Worker 状态";
   if (pathname === "/admin/users") return "系统 / 用户与角色";
-  if (pathname === "/annotation") return "数据资产 / AI 标注工作区";
+  if (pathname === "/annotation") return "数据资产 / AI 辅助标注工作区";
   if (pathname.startsWith("/datasets/")) return "数据集 / 版本详情";
   if (pathname === "/hardware") return "系统 / 计算资源";
   if (pathname === "/datasets") return "数据资产";
@@ -210,6 +213,8 @@ export default function App() {
             <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
             <Route path="/inference" element={<InferencePage showToast={showToast} />} />
             <Route path="/hardware" element={<HardwarePage />} />
+            <Route path="/workers" element={<WorkersPage />} />
+            <Route path="/workers/:workerId" element={<WorkersPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
             <Route path="/review" element={<ReviewPage />} />

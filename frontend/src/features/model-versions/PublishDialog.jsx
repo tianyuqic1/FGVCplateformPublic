@@ -27,7 +27,7 @@ export function PublishDialog({ version, onClose, onPublished }) {
   }
   return <dialog ref={dialog} className="fv-publish-dialog" aria-labelledby="publish-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <form onSubmit={publish}>
-      <header><div><small>MODEL RELEASE</small><h2 id="publish-title">发布模型</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={onClose} aria-label="关闭发布弹窗">关闭</button></header>
+      <header><div><h2 id="publish-title">发布模型</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={onClose} aria-label="关闭发布弹窗">关闭</button></header>
       <div className="fv-release-preview"><span>{version.datasetName} · {version.name}</span><strong>{preview?.nextReleaseVersion || "正在计算版本…"}</strong><p>{preview?.nextReleaseReason}</p><small>预计版本以成功发布时为准；并发发布可能使版本号递增。</small></div>
       <p className="fv-publish-hint">{version.architecture || version.backboneKey} · 训练数据 {version.datasetVersionNumber ? `v${version.datasetVersionNumber}` : "历史快照"} · Accuracy {version.metrics?.accuracy != null && Number.isFinite(Number(version.metrics.accuracy)) ? `${(Number(version.metrics.accuracy) * 100).toFixed(2)}%` : "未采集"}。不同测试集或评估协议的指标不直接比较。</p>
       <fieldset disabled={busy}><legend>部署精度</legend><div className="fv-precision-options">{["FP32", "FP16"].map(value => <label key={value} className={precision === value ? "is-selected" : ""}>

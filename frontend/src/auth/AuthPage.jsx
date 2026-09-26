@@ -41,8 +41,8 @@ function AuthForm({ mode }) {
   }
 
   return <main className="fv-auth-screen">
-    <section className="fv-auth-intro"><div className="fv-auth-mark"><Icon name="ScanSearch" size={25} /></div><span>FINEVISION · RESEARCH CONSOLE</span><h1>让每一次标注、训练与发布都有明确的责任人。</h1><p>账号审核后即可进入你的工作区。任务、模型与数据版本继续保持可追溯。</p><div className="fv-auth-line"><span>01 / 数据资产</span><span>02 / 视觉训练</span><span>03 / 人工复核</span></div></section>
-    <section className="fv-auth-panel"><div className="fv-auth-kicker">{isRegister ? "CREATE ACCOUNT" : "WELCOME BACK"}</div><h2>{isRegister ? "注册账号" : "登录工作台"}</h2><p>{isRegister ? "新账号不会自动获得业务权限，需管理员审核。" : "使用已审核的账号继续工作。"}</p>
+    <section className="fv-auth-intro"><div className="fv-auth-mark"><Icon name="ScanSearch" size={25} /></div><span>FINEVISION · RESEARCH CONSOLE</span><h1>图像标注、模型训练与推理</h1><p>登录后可按账号权限使用标注、训练、推理和人工复核功能。</p><div className="fv-auth-line"><span>01 / 数据资产</span><span>02 / 视觉训练</span><span>03 / 人工复核</span></div></section>
+    <section className="fv-auth-panel"><h2>{isRegister ? "注册账号" : "登录工作台"}</h2><p>{isRegister ? "新账号不会自动获得业务权限，需管理员审核。" : "使用已审核的账号继续工作。"}</p>
       <form onSubmit={submit}>
         {isRegister && <label>显示名称<input autoComplete="name" maxLength={80} required value={name} onChange={event => setName(event.target.value)} placeholder="例如：陈凯文" /></label>}
         <label>邮箱<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} placeholder="name@example.com" /></label>

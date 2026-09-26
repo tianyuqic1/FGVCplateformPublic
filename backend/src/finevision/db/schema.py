@@ -10,6 +10,23 @@ register_annotation(metadata)
 from .auth_schema import register as register_auth
 register_auth(metadata)
 
+worker_instances = sa.Table(
+    "worker_instances", metadata,
+    sa.Column("id", sa.Text(), primary_key=True),
+    sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
+    sa.Column("sequence", sa.BigInteger(), nullable=False, server_default="0"),
+    sa.Column("registered_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("received_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("snapshot", postgresql.JSONB(), nullable=False),
+)
+worker_sessions = sa.Table(
+    "worker_sessions", metadata,
+    sa.Column("session_id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("worker_id", sa.Text(), nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+)
+sa.Index("worker_sessions_worker", worker_sessions.c.worker_id)
+
 dataset_card_revisions = sa.Table(
     "dataset_card_revisions", metadata,
     sa.Column("dataset_version_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("dataset_versions.id"), primary_key=True),

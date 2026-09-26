@@ -162,8 +162,8 @@ export function DatasetsPage({ showToast }) {
   return (
     <>
       <PageHero
-        title="每个分类任务都是一个独立资产。"
-        description="数据集不仅是图片目录，还包括类别体系、样本质量、特征索引、OOD 压力集、阈值策略和模型版本绑定。"
+        title="数据集"
+        description="导入图片与类别，查看样本、管理数据集版本及关联模型。"
         actions={
           <button className="primary-button" onClick={() => setShowImport((value) => !value)}>
             <Icon name="FolderInput" size={16} />

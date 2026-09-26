@@ -283,14 +283,17 @@ def _validate_bundle_scope(
 
 
 def main() -> None:
+    from finevision.compute.worker_reporter import WorkerReporter, grpc_interceptor
+    capacity = int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))
+    reporter = WorkerReporter("inference", capacity).start()
     configure_logging("python-inference-runtime", force=True)
     trace_provider = configure_tracing("python-inference-runtime")
     metrics = start_metrics_server("python-inference-runtime", 9302)
     s3_client = _create_s3_client()
     cache_root = os.environ.get("FINEVISION_ARTIFACT_CACHE_DIR", "/data/cache")
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=int(os.environ.get("FINEVISION_INFERENCE_WORKERS", "4"))),
-        interceptors=(MetricsServerInterceptor(metrics),),
+        futures.ThreadPoolExecutor(max_workers=capacity),
+        interceptors=(MetricsServerInterceptor(metrics), grpc_interceptor(reporter)),
     )
     inference_runtime_pb2_grpc.add_InferenceRuntimeServicer_to_server(
         InferenceRuntimeService(cache_root, s3_client=s3_client, metrics=metrics),
@@ -299,8 +302,12 @@ def main() -> None:
     address = os.environ.get("FINEVISION_INFERENCE_GRPC_ADDRESS", "[::]:9100")
     server.add_insecure_port(address)
     server.start()
+    reporter.state("ready", "RPC 服务已启动；模型及对象存储按请求校验")
     LOG.info("Inference runtime started", extra={"event": "runtime_started", "address": address, "runtime": os.environ.get("FINEVISION_INFERENCE_BACKEND", "onnx_cpu")})
-    server.wait_for_termination()
+    try:
+        server.wait_for_termination()
+    finally:
+        reporter.close()
     if trace_provider is not None:
         trace_provider.shutdown()
 

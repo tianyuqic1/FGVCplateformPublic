@@ -48,7 +48,7 @@ export function WeightManagementPage() {
   return (
     <>
       <PageHero
-        title="权重管理"
+        title="预训练权重"
         description="查看 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重登记信息及已上报的缓存状态。"
         actions={
           <button type="button" className="ghost-button" onClick={() => refresh()} disabled={loading}>
@@ -59,7 +59,7 @@ export function WeightManagementPage() {
       />
       <div className="grid metrics">
         <MetricCard
-          title="受管权重"
+          title="已登记权重"
           value={`${managedCount}/${weights.length}`}
           caption={sourceLabel}
           fill="#0f766e"
@@ -139,12 +139,12 @@ export function WeightManagementPage() {
           <div className="timeline">
             <GateRow
               title="预训练权重"
-              description="通过 Git LFS 发布并提升到 MinIO 的受管 backbone 参数；这个页面管理的是它。"
+              description="用于初始化骨干网络的参数文件，通过 Git LFS 管理并存储于 MinIO。"
               result="pass"
             />
             <GateRow
               title="当前训练策略"
-              description="DINOv3 冻结骨干，可选 LoRA r=8/16；ImageNet ViT-S / ResNet-50 更新全部参数。图片直接进入分类模型，不做离线特征提取。"
+              description="DINOv3 冻结骨干，可选 LoRA r=8/16；ImageNet ViT-S / ResNet-50 更新全部参数。训练过程直接读取图片。"
               result="pending"
             />
             <GateRow

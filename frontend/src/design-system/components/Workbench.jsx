@@ -21,8 +21,8 @@ const statusLabels = {
   failed: "失败",
   cancelled: "已取消",
   candidate: "候选",
-  staging: "验证中",
-  production: "生产",
+  staging: "预发布",
+  production: "已发布",
   archived: "已归档",
 };
 
@@ -34,7 +34,7 @@ export function MetricTile({ label, value, caption, tone = "neutral" }) {
   return (
     <article className={`fv-metric-tile fv-metric-tile--${tone}`}>
       <span>{label}</span>
-      <strong>{value ?? "N/A"}</strong>
+      <strong>{value ?? "未采集"}</strong>
       <small>{caption}</small>
     </article>
   );
@@ -59,7 +59,7 @@ export function EmptyState({ icon = "Inbox", title, description }) {
 }
 
 export function CodeValue({ children, title }) {
-  return <code className="fv-code" title={title ?? String(children ?? "")}>{children || "N/A"}</code>;
+  return <code className="fv-code" title={title ?? String(children ?? "")}>{children || "未记录"}</code>;
 }
 
 export function formatPercent(value, digits = 2) {

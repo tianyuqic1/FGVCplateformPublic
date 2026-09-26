@@ -21,7 +21,7 @@ async function signedInAs(page, role = "admin") {
 test("workbench navigation keeps the shared shell visible", async ({ page }) => {
   await signedInAs(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "今天先处理什么，依据是什么。" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "平台概览" })).toBeVisible();
 
   await page.getByRole("link", { name: "数据集", exact: true }).click();
   await expect(page).toHaveURL(/\/datasets$/);
@@ -34,13 +34,13 @@ test("lazy routes render without browser errors", async ({ page }) => {
   page.on("pageerror", (error) => errors.push(error.message));
   for (const [path, title] of [
     ["/training", "训练任务"],
-    ["/inference", "推理实验室"],
+    ["/inference", "模型推理"],
     ["/models", "模型版本"],
-    ["/annotation", "AI 标注"],
-    ["/weights", "权重管理"],
+    ["/annotation", "AI 辅助标注"],
+    ["/weights", "预训练权重"],
     ["/review", "人工复核"],
     ["/feedback", "反馈池"],
-    ["/pipelines", "流水线"],
+    ["/pipelines", "任务流水线"],
   ]) {
     await page.goto(path);
     await expect(page.locator(".topbar h1")).toHaveText(title);
@@ -76,7 +76,7 @@ test("annotators cannot open training or account administration", async ({ page 
   await signedInAs(page, "annotator");
   await page.goto("/training");
   await expect(page.getByRole("heading", { name: "此页面不在你的工作权限内" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "训练" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "训练任务" })).toHaveCount(0);
   await page.goto("/admin/users");
   await expect(page.getByRole("heading", { name: "此页面不在你的工作权限内" })).toBeVisible();
 });

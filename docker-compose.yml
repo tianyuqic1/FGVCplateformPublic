@@ -1,6 +1,7 @@
 name: finevision
 
 x-control-plane-environment: &control-plane-environment
+  FINEVISION_WORKER_TOKEN: ${FINEVISION_WORKER_TOKEN:-finevision-dev-worker-only}
   FINEVISION_HARDWARE_TOKEN: ${FINEVISION_HARDWARE_TOKEN:-finevision-dev-hardware-only}
   FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
   FINEVISION_LLM_GATEWAY_URL: http://go-llm-gateway:8080
@@ -14,6 +15,9 @@ x-object-store-environment: &object-store-environment
   FINEVISION_ARTIFACT_BUCKET: finevision-artifacts
 
 x-runtime-environment: &runtime-environment
+  FINEVISION_NODE_ID: ${FINEVISION_NODE_ID:-local-compute}
+  FINEVISION_WORKER_TOKEN: ${FINEVISION_WORKER_TOKEN:-finevision-dev-worker-only}
+  FINEVISION_CONTROL_PLANE_HTTP: http://go-control-plane:8000
   FINEVISION_ENVIRONMENT: ${FINEVISION_ENVIRONMENT:-local}
   FINEVISION_LOG_LEVEL: ${FINEVISION_LOG_LEVEL:-INFO}
   FINEVISION_LOG_FORMAT: json

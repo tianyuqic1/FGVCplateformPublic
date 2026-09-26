@@ -92,6 +92,8 @@ def main():
     lock = (args.root / "worker.lock").open("a")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     api = API(args.api, os.environ["ANNOTATION_WORKER_TOKEN"])
+    from finevision.compute.worker_reporter import WorkerReporter
+    reporter = WorkerReporter("annotation", base=args.api).start()
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
@@ -126,11 +128,13 @@ def main():
                 indexing = job is not None
                 if job is None:
                     job = api.request("/internal/claim", {})
+                reporter.state("ready", "标注任务接口可达；模型服务和检索按任务调用")
                 if job is None:
                     stop.wait(3)
                     continue
                 task, project = job["task"], job["project"]
                 details["active_task"] = task["id"]
+                reporter.begin(task["id"], "人工确认样本入库" if indexing else "AI 标注工作流")
                 task_started = time.monotonic()
                 task_outcome = "success"
                 metrics.set_inflight(kind="annotation", value=1)
@@ -170,18 +174,22 @@ def main():
                     atomic_json(args.root / ("result-" + task["id"] + ".json"),
                         {"id": task["id"], "body": {"token": task["token"], **result}})
             except (OSError, ValueError) as e:
+                reporter.state("dependency_error", "标注任务接口或依赖访问异常，等待重试")
                 LOG.warning("worker transport unavailable: %s", type(e).__name__)
                 stop.wait(5)
             finally:
                 if workflow:
                     workflow.close()
                 details["active_task"] = None
+                if "task" in locals():
+                    reporter.end(task["id"])
                 if "task_started" in locals():
                     metrics.set_inflight(kind="annotation", value=0)
                     metrics.record_work(kind="annotation", outcome=task_outcome, duration_seconds=time.monotonic() - task_started)
                     del task_started
     stop.set()
     thread.join(timeout=2)
+    reporter.close()
 
 
 if __name__ == "__main__":

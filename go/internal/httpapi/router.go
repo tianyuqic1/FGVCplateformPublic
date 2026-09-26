@@ -19,6 +19,7 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/review"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/workers"
 )
 
 type Dependencies struct {
@@ -30,6 +31,7 @@ type Dependencies struct {
 	Policies        PolicyRepository
 	Reviews         review.Repository
 	Hardware        hardware.Handler
+	Workers         workers.Handler
 	DatasetCards    *datasetcard.Service
 	DatasetImport   *dataset.Service
 	DatasetQueue    *dataset.ImportQueue
@@ -105,6 +107,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	registerSearch(router, dependencies.ReadModels)
 	registerTrainingSummary(router, dependencies.ReadModels)
 	dependencies.Hardware.Register(router)
+	dependencies.Workers.Register(router)
 	dependencies.Annotation.Register(router)
 	registerReviews(router, dependencies.Reviews, dependencies.LLMApplication)
 	registerPolicies(router, dependencies.Policies)

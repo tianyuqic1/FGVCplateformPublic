@@ -103,25 +103,24 @@ export function TrainingPage({ showToast }) {
   return (
     <div className="fv-feature-page">
       <PageHeading
-        eyebrow="Experiments"
-        title="训练实验"
-        description="DINOv3 冻结骨干，可选 LoRA；ImageNet 更新全部参数。直接读取图片训练，不再离线提取特征。"
+        title="训练任务"
+        description="选择数据集和预训练权重，配置训练参数并查看任务进度。"
         actions={<button className="secondary-button" type="button" onClick={refresh}><Icon name="RefreshCw" size={15} />刷新</button>}
       />
       <div className="fv-metric-grid">
-        <MetricTile label="全部运行" value={Object.values(counts).reduce((sum, count) => sum + count, 0)} caption="全库状态汇总" />
-        <MetricTile label="运行中" value={counts.running ?? 0} caption="含当前 worker attempt" tone="running" />
-        <MetricTile label="已完成" value={counts.succeeded ?? 0} caption="已生成 Model Version" tone="success" />
+        <MetricTile label="全部任务" value={Object.values(counts).reduce((sum, count) => sum + count, 0)} caption="全部训练任务的状态统计" />
+        <MetricTile label="运行中" value={counts.running ?? 0} caption="正在执行的训练任务" tone="running" />
+        <MetricTile label="已完成" value={counts.succeeded ?? 0} caption="已生成模型版本" tone="success" />
         <MetricTile label="失败 / 取消" value={(counts.failed ?? 0) + (counts.cancelled ?? 0)} caption="需检查诊断信息" tone="danger" />
       </div>
 
       <div className="fv-training-layout">
-        <Panel eyebrow="New run" title="创建训练" className="fv-create-panel">
+        <Panel title="创建训练任务" className="fv-create-panel">
           <form className="fv-form" onSubmit={submit}>
             <label><span>训练任务名</span><input required maxLength={80} placeholder="例如：鸟类识别 · ViT-S 基线实验" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
             <DatasetPicker datasets={datasets} value={form.datasetVersionId} onChange={datasetVersionId => setForm({ ...form, datasetVersionId })} />
             <fieldset>
-              <legend>Pretrained Backbone</legend>
+              <legend>预训练骨干网络</legend>
               <div className="fv-backbone-picker">
                 {backbones.map((item) => {
                   const managed = weightByKey[item.key];
@@ -156,16 +155,15 @@ export function TrainingPage({ showToast }) {
               </> : <div className="fv-adaptation-full"><strong>骨干与分类头共同训练</strong><p>从预训练权重初始化，更新全部参数，不使用 LoRA。</p></div>}
             </section>
             <label><span>训练轮数</span><input type="number" required min="1" max="1000" step="1" value={form.epochs} onChange={event => setForm({ ...form, epochs: event.target.value })} /></label>
-            <label><span>图片批大小</span><input type="number" required min="1" max="128" step="1" value={form.batchSize} onChange={event => setForm({ ...form, batchSize: event.target.value })} /></label>
+            <label><span>批次大小（Batch size）</span><input type="number" required min="1" max="128" step="1" value={form.batchSize} onChange={event => setForm({ ...form, batchSize: event.target.value })} /></label>
             <TrainingParameters form={form} setForm={setForm} />
-            <p className="fv-training-note">保存完整训练检查点；发布时合并 LoRA 并导出完整图片分类 ONNX。本期不生成检索特征。</p>
-            <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim() || !form.name.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练"}</button>
+            <p className="fv-training-note">训练完成后保存完整模型；发布时合并 LoRA 参数（如启用）并导出 ONNX。</p>
+            <button className="primary-button" type="submit" disabled={submitting || !form.datasetVersionId.trim() || !form.name.trim()}><Icon name="Play" size={15} />{submitting ? "正在创建…" : "创建训练任务"}</button>
           </form>
         </Panel>
 
         <Panel
-          eyebrow="Run queue"
-          title="实验队列"
+          title="任务列表"
           aside={<select aria-label="状态筛选" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}><option value="all">全部状态</option><option value="running">运行中</option><option value="queued">等待中</option><option value="succeeded">已完成</option><option value="failed">失败</option></select>}
           className="fv-runs-panel"
         >
@@ -175,15 +173,15 @@ export function TrainingPage({ showToast }) {
             <select aria-label="队列骨干筛选" value={queueBackbone} onChange={event => { setQueueBackbone(event.target.value); setPage(1); }}><option value="">全部骨干</option>{backbones.map(item => <option key={item.key} value={item.key}>{item.name} · {item.pretraining}</option>)}</select>
             <button className="ghost-button" onClick={() => { setQueueQuery(""); setQueueDataset(""); setQueueBackbone(""); setStatusFilter("all"); setPage(1); }}>重置</button>
           </div>
-          {loading && <EmptyState icon="LoaderCircle" title="正在读取训练队列" description="连接 Go Control Plane…" />}
+          {loading && <EmptyState icon="LoaderCircle" title="正在加载训练任务" description="正在获取任务数据…" />}
           {!loading && error && <EmptyState icon="TriangleAlert" title="训练服务不可用" description={error.message} />}
-          {!loading && !error && trainingRuns.length === 0 && <EmptyState title="暂无匹配运行" description="创建一次训练，或调整状态筛选。" />}
+          {!loading && !error && trainingRuns.length === 0 && <EmptyState title="暂无匹配的训练任务" description="创建训练任务，或调整筛选条件。" />}
           {trainingRuns.length > 0 && (
-            <div className="fv-table-wrap"><table className="fv-table"><thead><tr><th>训练任务</th><th>Dataset Version</th><th>Backbone</th><th>状态</th><th>最新指标</th><th>创建时间</th></tr></thead><tbody>
+            <div className="fv-table-wrap"><table className="fv-table"><thead><tr><th>训练任务</th><th>数据集版本</th><th>骨干网络</th><th>状态</th><th>最新指标</th><th>创建时间</th></tr></thead><tbody>
               {trainingRuns.map((run) => <tr key={run.id} tabIndex="0" onKeyDown={(event) => event.key === "Enter" && navigate(`/training/${run.id}`)}><td><Link to={`/training/${run.id}`}><strong title={run.name}>{run.name}</strong></Link></td><td><CodeValue>{run.datasetVersionId}</CodeValue></td><td>{runBackboneLabel(run)}</td><td><StatusBadge status={run.status} /></td><td>{run.metric}</td><td>{run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "未记录"}</td></tr>)}
             </tbody></table></div>
           )}
-          {!error && <ServerPagination pagination={pagination} onPageChange={setPage} label="实验队列分页" className="queue-pagination" />}
+          {!error && <ServerPagination pagination={pagination} onPageChange={setPage} label="任务列表分页" className="queue-pagination" />}
         </Panel>
       </div>
     </div>
@@ -220,13 +218,12 @@ export function TrainingDetailPage({ showToast }) {
     }
   }
 
-  if (loading) return <EmptyState icon="LoaderCircle" title="正在读取 Training Run" description={runId} />;
-  if (error || !run) return <EmptyState icon="TriangleAlert" title="Training Run 不可用" description={error?.message ?? runId} />;
+  if (loading) return <EmptyState icon="LoaderCircle" title="正在加载训练任务" description={runId} />;
+  if (error || !run) return <EmptyState icon="TriangleAlert" title="训练任务加载失败" description={error?.message ?? runId} />;
 
   return (
     <div className="fv-feature-page">
       <PageHeading
-        eyebrow="Training run detail"
         title={run.name}
         description={<><CodeValue>{run.id}</CodeValue> · <CodeValue>{run.datasetVersionId}</CodeValue></>}
         actions={<>{run.runtimeNodeId && <Link className="secondary-button" to={`/hardware?node=${encodeURIComponent(run.runtimeNodeId)}`}><Icon name="Cpu" size={16} />查看运行节点</Link>}<StatusBadge status={run.status} />{run.status === "running" && <button className="secondary-button" onClick={() => action("pause")}>暂停</button>}{run.status === "paused" && <button className="primary-button" onClick={() => action("resume")}>恢复</button>}{["queued", "paused", "running"].includes(run.status) && <button className="danger-button" onClick={() => action("cancel")}>取消</button>}</>}
@@ -240,21 +237,21 @@ export function TrainingDetailPage({ showToast }) {
 
       <div className="fv-detail-grid">
         <div className="fv-chart-stack">
-          <Panel eyebrow="Metric history" title="Train Loss / Epoch" aside={<AttemptSelector attempts={metrics.attempts} value={attemptId} onChange={setAttemptId} />}>
+          <Panel title="训练损失" aside={<AttemptSelector attempts={metrics.attempts} value={attemptId} onChange={setAttemptId} />}>
             {points.some((point) => point.name === "train_loss") ? <EChart option={lossOption} ariaLabel="训练损失曲线" /> : <EmptyState icon="LineChart" title="指标尚未上报" description="图片分类训练在每轮结束后上报损失与验证准确率。" />}
           </Panel>
-          <Panel eyebrow="Metric history" title="Validation Accuracy / Epoch">
-            {latestAccuracy ? <EChart option={accuracyOption} ariaLabel="验证准确率曲线" /> : <EmptyState icon="LineChart" title="暂无验证准确率曲线" description="等待 Compute Runtime 上报新的 Metric Point。" />}
+          <Panel title="验证准确率">
+            {latestAccuracy ? <EChart option={accuracyOption} ariaLabel="验证准确率曲线" /> : <EmptyState icon="LineChart" title="暂无验证准确率曲线" description="等待计算节点上报验证指标。" />}
           </Panel>
         </div>
         <aside className="fv-side-stack">
-          {run.trainingProgress?.stages?.length > 0 && <Panel eyebrow="Pipeline" title="阶段进度"><div className="fv-artifact-list">{run.trainingProgress.stages.map(stage => <div key={stage.id}><span>{stage.label}</span><small>{run.status === "succeeded" ? "已完成" : `${stage.percent}% · ${stage.status}`}</small><progress max="100" value={run.status === "succeeded" ? 100 : stage.percent} aria-label={stage.label} /></div>)}</div></Panel>}
-          <Panel eyebrow="Training mode" title="训练方式"><strong>{trainingModeLabel(run)}</strong><p>{run.headConfig?.head_type === "image_classifier_v2" ? "图片 → 骨干网络 → 分类头；保存完整模型，无离线特征或检索产物。" : "历史任务保留原训练方式与产物。"}</p></Panel>
-          {(run.status === "failed" || run.status === "cancelled") && <Panel eyebrow="Diagnostics" title="运行诊断" className="fv-run-diagnostics"><p role="alert">{run.error || (run.status === "cancelled" ? "任务已取消；未返回失败原因。" : "任务失败；服务尚未返回错误详情，请按任务 ID 查阅日志。")}</p><dl className="fv-definition-list"><div><dt>Job ID</dt><dd><CodeValue>{run.jobId || "未记录"}</CodeValue></dd></div><div><dt>Attempt ID</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id || "未记录"}</CodeValue></dd></div><div><dt>计算节点</dt><dd><CodeValue>{run.runtimeNodeId || "未记录"}</CodeValue></dd></div><div><dt>开始时间</dt><dd>{run.startedAt ? new Date(run.startedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>结束时间</dt><dd>{run.finishedAt ? new Date(run.finishedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>缺失产物</dt><dd>{[["模型", run.modelArtifactId], ["报告", run.reportArtifactId], ["校准", run.calibrationArtifactId]].filter(([, value]) => !value).map(([label]) => label).join("、") || "无"}</dd></div></dl><button type="button" className="secondary-button" onClick={async () => { const details = JSON.stringify({ runId: run.id, jobId: run.jobId, attemptId: attemptId || metrics.attempts.at(-1)?.attempt_id, runtimeNodeId: run.runtimeNodeId, status: run.status, error: run.error }, null, 2); try { await navigator.clipboard.writeText(details); showToast?.("诊断信息已复制"); } catch { showToast?.("复制失败，请手动选择诊断信息"); } }}>复制诊断信息</button></Panel>}
-          <Panel eyebrow="Training parameters" title="训练参数"><dl className="fv-definition-list">{trainingParameterRows(run).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="fv-training-note">以上为任务保存的配置。验证与测试使用确定性预处理，不应用训练集随机增强。</p></Panel>
-          <Panel eyebrow="Run context" title="实验配置"><dl className="fv-definition-list"><div><dt>Dataset Version</dt><dd><CodeValue>{run.datasetVersionId}</CodeValue></dd></div><div><dt>Backbone</dt><dd>{runBackboneLabel(run)}</dd></div><div><dt>Backbone Key</dt><dd><CodeValue>{run.backboneId}</CodeValue></dd></div><div><dt>Pooling</dt><dd>{run.featurePool || "未记录"}</dd></div><div><dt>Input Size</dt><dd>{run.imageSize || "未记录"}</dd></div><div><dt>Head</dt><dd>{run.headConfig?.head_type || "未记录"}</dd></div><div><dt>Attempt</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id}</CodeValue></dd></div></dl></Panel>
-          <Panel eyebrow="Integrity" title="训练产物"><div className="fv-artifact-list">{[...(run.headConfig?.head_type === "image_classifier_v2" ? [] : [["Feature", run.featureArtifactId]]), ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "逻辑归属已登记；加载时校验 SHA/大小" : "尚未生成"}</small></div>)}</div></Panel>
-          {run.modelVersionId && <Link className="primary-button fv-full-button" to={`/models/${run.modelVersionId}`}><Icon name="Boxes" size={15} />打开 Model Version</Link>}
+          {run.trainingProgress?.stages?.length > 0 && <Panel title="阶段进度"><div className="fv-artifact-list">{run.trainingProgress.stages.map(stage => <div key={stage.id}><span>{stage.label}</span><small>{run.status === "succeeded" ? "已完成" : `${stage.percent}% · ${stage.status}`}</small><progress max="100" value={run.status === "succeeded" ? 100 : stage.percent} aria-label={stage.label} /></div>)}</div></Panel>}
+          <Panel title="训练方式"><strong>{trainingModeLabel(run)}</strong><p>{run.headConfig?.head_type === "image_classifier_v2" ? "图片 → 骨干网络 → 分类头；保存完整模型，用于后续发布和推理。" : "历史任务保留原训练方式与产物。"}</p></Panel>
+          {(run.status === "failed" || run.status === "cancelled") && <Panel title="运行诊断" className="fv-run-diagnostics"><p role="alert">{run.error || (run.status === "cancelled" ? "任务已取消；未返回失败原因。" : "任务失败；服务尚未返回错误详情，请按任务 ID 查阅日志。")}</p><dl className="fv-definition-list"><div><dt>Job ID</dt><dd><CodeValue>{run.jobId || "未记录"}</CodeValue></dd></div><div><dt>Attempt ID</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id || "未记录"}</CodeValue></dd></div><div><dt>计算节点</dt><dd><CodeValue>{run.runtimeNodeId || "未记录"}</CodeValue></dd></div><div><dt>开始时间</dt><dd>{run.startedAt ? new Date(run.startedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>结束时间</dt><dd>{run.finishedAt ? new Date(run.finishedAt).toLocaleString("zh-CN") : "未记录"}</dd></div><div><dt>缺失产物</dt><dd>{[["模型", run.modelArtifactId], ["报告", run.reportArtifactId], ["校准", run.calibrationArtifactId]].filter(([, value]) => !value).map(([label]) => label).join("、") || "无"}</dd></div></dl><button type="button" className="secondary-button" onClick={async () => { const details = JSON.stringify({ runId: run.id, jobId: run.jobId, attemptId: attemptId || metrics.attempts.at(-1)?.attempt_id, runtimeNodeId: run.runtimeNodeId, status: run.status, error: run.error }, null, 2); try { await navigator.clipboard.writeText(details); showToast?.("诊断信息已复制"); } catch { showToast?.("复制失败，请手动选择诊断信息"); } }}>复制诊断信息</button></Panel>}
+          <Panel title="训练参数"><dl className="fv-definition-list">{trainingParameterRows(run).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="fv-training-note">以上为任务保存的配置。验证与测试使用确定性预处理，不应用训练集随机增强。</p></Panel>
+          <Panel title="模型配置"><dl className="fv-definition-list"><div><dt>数据集版本</dt><dd><CodeValue>{run.datasetVersionId}</CodeValue></dd></div><div><dt>骨干网络</dt><dd>{runBackboneLabel(run)}</dd></div><div><dt>骨干标识</dt><dd><CodeValue>{run.backboneId}</CodeValue></dd></div><div><dt>池化方式</dt><dd>{run.featurePool || "未记录"}</dd></div><div><dt>输入分辨率</dt><dd>{run.imageSize || "未记录"}</dd></div><div><dt>分类头</dt><dd>{run.headConfig?.head_type || "未记录"}</dd></div><div><dt>执行记录</dt><dd><CodeValue>{attemptId || metrics.attempts.at(-1)?.attempt_id}</CodeValue></dd></div></dl></Panel>
+          <Panel title="训练产物"><div className="fv-artifact-list">{[...(run.headConfig?.head_type === "image_classifier_v2" ? [] : [["Feature", run.featureArtifactId]]), ["Model", run.modelArtifactId], ["Report", run.reportArtifactId], ["Calibration", run.calibrationArtifactId]].map(([label, value]) => <div key={label}><span><Icon name={value ? "ShieldCheck" : "CircleDashed"} size={15} />{label}</span><CodeValue>{value}</CodeValue><small>{value ? "已关联；加载时校验文件大小和 SHA" : "尚未生成"}</small></div>)}</div></Panel>
+          {run.modelVersionId && <Link className="primary-button fv-full-button" to={`/models/${run.modelVersionId}`}><Icon name="Boxes" size={15} />查看模型版本</Link>}
         </aside>
       </div>
     </div>

@@ -49,7 +49,7 @@ function inferenceDecisionCopy(decision) {
   if (decision?.value === "accept")
     return {
       title: "模型接受该结果",
-      body: "置信度、类别间隔和 OOD 距离都满足当前阈值；系统只记录推理事件，不默认进入人工复核。",
+      body: "置信度、前两名分数差和 OOD 距离都满足当前阈值；系统只记录推理事件，不默认进入人工复核。",
     };
   if (decision?.value === "reject_ood")
     return {
@@ -65,7 +65,7 @@ function inferenceDecisionCopy(decision) {
 function reasonLabel(reason) {
   const labels = {
     confidence_below_threshold: "置信度低于阈值",
-    top1_top2_margin_below_threshold: "Top-1 / Top-2 间隔不足",
+    top1_top2_margin_below_threshold: "前两名分数差低于阈值",
     embedding_distance_above_threshold: "Embedding 距离超过 OOD 阈值",
     meets_acceptance_thresholds: "满足自动直出阈值",
   };
@@ -312,9 +312,9 @@ export function InferencePage({ showToast }) {
         <div>
           <div className="inference-eyebrow">
             <Icon name="ScanSearch" size={16} />
-            视觉验证工作台
+            图像分类
           </div>
-          <h2>从一张图片，读懂模型的判断</h2>
+          <h2>模型推理</h2>
           <p>选择已发布模型，上传样本，查看预测结果与判断依据。</p>
         </div>
         <div className="inference-flow" aria-label="推理流程">
@@ -344,7 +344,7 @@ export function InferencePage({ showToast }) {
         >
           <div className="field-grid section-gap-small">
             <div className="field inference-selection">
-              <label>1 · 训练数据集</label>
+              <label>模型对应的数据集版本</label>
               <PaginatedSelect
                 aria-label="推理数据版本"
                 value={form.datasetVersionId}
@@ -372,7 +372,7 @@ export function InferencePage({ showToast }) {
               </span>
             </div>
             <div className="field inference-selection">
-              <label>识别模型</label>
+              <label>推理模型</label>
               <PaginatedSelect
                 aria-label="推理模型版本"
                 value={form.modelVersionId}
@@ -431,7 +431,7 @@ export function InferencePage({ showToast }) {
               ) : (
                 <div className="empty-query-preview">
                   <Icon name="ImageUp" size={32} />
-                  <strong>让模型看看你的图片</strong>
+                  <strong>添加推理图片</strong>
                   <span>支持单张图片或整个文件夹，也可以使用已有样本。</span>
                 </div>
               )}
@@ -614,7 +614,7 @@ export function InferencePage({ showToast }) {
               <div className="inference-empty-icon">
                 <Icon name="ScanSearch" size={30} />
               </div>
-              <strong>每一次预测，都有据可查</strong>
+              <strong>暂无推理结果</strong>
               <p>在上方添加样本并运行推理，结果将在这里展开。</p>
               <div className="inference-result-capabilities">
                 <span>
@@ -784,8 +784,8 @@ export function InferencePage({ showToast }) {
                     <strong>{result.decision.confidence.toFixed(4)}</strong>
                   </div>
                   <div>
-                    <span>margin</span>
-                    <strong>{result.decision.margin.toFixed(4)}</strong>
+                    <span>前两名分数差</span>
+                    <strong>{(result.decision.margin * 100).toFixed(2)} 个百分点</strong>
                   </div>
                   <div>
                     <span>ood score</span>
@@ -871,8 +871,8 @@ export function InferencePage({ showToast }) {
                 </div>
               </details>
               <LLMAssistanceBox
-                title="LLM 推理解释"
-                caption="只解释当前推理证据，不改变 inference event 或复核路由。"
+                title="AI 结果解释"
+                caption="解释当前预测结果，不会修改推理记录或复核状态。"
                 assistance={llm.assistance}
                 status={llm.status}
                 error={llm.error}

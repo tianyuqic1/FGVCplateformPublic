@@ -1,5 +1,5 @@
 export function datasetStatus(dataset) {
-  if (dataset.status === "production") return { label: "生产可推理", tone: "default" };
+  if (dataset.status === "production") return { label: "可用于推理", tone: "default" };
   if (dataset.status === "ready") return { label: "可训练", tone: "default" };
   if (dataset.status === "calibrating") return { label: "待校准", tone: "warn" };
   return { label: "训练中", tone: "info" };

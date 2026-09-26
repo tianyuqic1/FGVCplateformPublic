@@ -176,6 +176,8 @@ func TestRoutesEnforceRoleCSRFAndRevocation(t *testing.T) {
 	router := chi.NewRouter()
 	service.RegisterRoutes(router)
 	router.Get("/api/datasets", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	router.Get("/api/workers", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
+	router.Get("/api/workers/{id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	router.Get("/api/annotation/projects", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	router.Get("/api/review-items", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	router.Post("/api/training-runs", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(201) })
@@ -220,6 +222,14 @@ func TestRoutesEnforceRoleCSRFAndRevocation(t *testing.T) {
 		t.Fatalf("anonymous datasets = %d", got)
 	}
 	aCookie, aCSRF := login(annotator.Email)
+	for _, path := range []string{"/api/workers", "/api/workers/test"} {
+		if got := request("GET", path, nil, ""); got != 401 {
+			t.Fatalf("anonymous workers = %d", got)
+		}
+		if got := request("GET", path, aCookie, ""); got != 403 {
+			t.Fatalf("annotator workers = %d", got)
+		}
+	}
 	if got := request("GET", "/api/review-items", aCookie, ""); got != 200 {
 		t.Fatalf("annotator review = %d", got)
 	}
@@ -233,6 +243,9 @@ func TestRoutesEnforceRoleCSRFAndRevocation(t *testing.T) {
 		t.Fatalf("annotator publish = %d", got)
 	}
 	bCookie, bCSRF := login(business.Email)
+	if got := request("GET", "/api/workers", bCookie, ""); got != 200 {
+		t.Fatalf("business workers = %d", got)
+	}
 	if got := request("GET", "/api/annotation/projects", bCookie, ""); got != 403 {
 		t.Fatalf("business annotation = %d", got)
 	}

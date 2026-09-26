@@ -211,7 +211,7 @@ func isPublic(path string) bool {
 }
 
 func isServicePath(path string) bool {
-	return path == "/api/internal/hardware/samples" || strings.HasPrefix(path, "/api/internal/deployments/") || strings.HasPrefix(path, "/api/annotation/internal/")
+	return path == "/api/internal/hardware/samples" || path == "/api/internal/workers/register" || path == "/api/internal/workers/heartbeat" || strings.HasPrefix(path, "/api/internal/deployments/") || strings.HasPrefix(path, "/api/annotation/internal/")
 }
 
 func allowed(role Role, method, path string) bool {
@@ -223,6 +223,9 @@ func allowed(role Role, method, path string) bool {
 	}
 	if strings.HasPrefix(path, "/api/auth/") || strings.HasPrefix(path, "/swagger") || strings.HasPrefix(path, "/openapi/") {
 		return false
+	}
+	if path == "/api/workers" || strings.HasPrefix(path, "/api/workers/") {
+		return role == Business && method == http.MethodGet
 	}
 	if role == Business {
 		return !strings.HasPrefix(path, "/api/annotation/")

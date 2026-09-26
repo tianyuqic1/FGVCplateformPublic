@@ -477,6 +477,9 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	}
 	datasetKey = resolvedDatasetKey
 	payload["dataset_id"] = datasetKey
+	if user, ok := auth.UserFromContext(ctx); ok {
+		payload["created_by_user_id"] = user.ID.String()
+	}
 	created, err := server.lifecycle.Create(ctx, training.CreateCommand{
 		DatasetID: datasetID, DatasetVersionID: datasetVersionID,
 		BackboneID: backboneID, Payload: payload, MaxAttempts: maxAttempts,

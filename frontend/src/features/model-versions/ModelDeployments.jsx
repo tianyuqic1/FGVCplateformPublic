@@ -37,7 +37,7 @@ export function ModelDeployments({ version }) {
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
-  return <Panel title="推理部署" eyebrow="Deployment variants" className="fv-deployment-panel">
+  return <Panel title="推理部署" className="fv-deployment-panel">
     <div className="fv-deployments">
       <p>同一发布版本可部署到不同硬件，不增加模型版本号。只有构建完成、校验通过的产物可用于推理。</p>
       {version.status === "production" && <div className="fv-deployment-create">

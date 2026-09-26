@@ -8,6 +8,7 @@ FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖
 
 ## 核心能力
 
+- **Worker 状态**：独立实例心跳、分页筛选、共享负载与任务关联；管理员查看完整诊断，业务人员只读查看本人训练任务，标注员仅查看 AI 服务提示。[部署与状态含义](docs/worker-status.md)。
 - **数据资产**：ImageFolder 导入、后台校验、样本预览、不可变版本、数据血缘与训练集扩充。
 - **训练策略**：DINOv3 ViT-S 冻结骨干或 LoRA R8/R16；ImageNet ViT-S、ResNet-50 全量训练；独立学习率、输入尺寸和常用数据增强。
 - **模型注册表**：按数据集及数据版本聚合；语义版本、指标对比、发布门禁和产物完整性校验。
@@ -70,10 +71,12 @@ scripts/demo-up.sh
 | 服务 | 地址 |
 |---|---|
 | Web 工作台 | <http://localhost:5173> |
+| Worker 状态（管理员 / 业务人员） | <http://localhost:5173/workers> |
 | Go API | <http://localhost:8001/api/health> |
 | Swagger API 文档 | <http://localhost:8001/swagger/> |
 | OpenAPI YAML | <http://localhost:8001/openapi/finevision.yaml> |
 | 用户与权限 API | <http://localhost:8001/openapi/auth.yaml> |
+| Worker 状态 API | <http://localhost:8001/openapi/workers.yaml> |
 | MinIO Console | <http://localhost:9001> |
 | RabbitMQ Console | <http://localhost:15672> |
 | 展示文档 | <http://localhost:5180> |
@@ -95,6 +98,14 @@ docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-tr
 ~~~
 
 多后端推理与硬件要求见 [推理部署文档](docs/inference-deployments.md)。
+
+### Worker 状态与升级
+
+已有部署升级时须执行数据库迁移（新增 `20260926_0024`），再更新控制面与各 Worker；运行中的长任务应先完成，避免直接重启。首次启动由现有启动脚本执行迁移。
+
+Worker 使用专用令牌向控制面登记并约每 10 秒发送心跳。页面超过 30 秒标记延迟、超过 90 秒标记失联；状态展示不负责调度、重试或停止任务。远程部署需要显式配置 Worker 可达的控制面 HTTP 地址，不能沿用另一台机器的 `localhost`。
+
+业务视图只展示数据库能核实为本人的训练任务，历史无归属任务不猜测归属；共享负载仍包含全部任务。这是 Worker 视图的数据最小化，不代表训练、数据集等全部接口已实现用户级资源隔离。升级步骤、角色边界和独立部署配置见 [Worker 文档](docs/worker-status.md)。
 
 ### 首次登录与用户管理
 
@@ -129,6 +140,9 @@ docker compose -f docker-compose.yml -f compose.observability.yml \
 | FINEVISION_LLM_API_KEY | 使用远程 VLM 时 | 仅注入 Go LLM Gateway |
 | FINEVISION_*_DEVICE | 否 | CPU/CUDA 计算设备选择 |
 | FINEVISION_DEPLOYMENT_TOKEN | 硬件 Worker 时 | 部署 Worker 与控制面的内部鉴权 |
+| FINEVISION_CONTROL_PLANE_HTTP | Worker 状态上报时 | Worker 可访问的控制面 HTTP 地址；Compose 默认使用容器服务名 |
+| FINEVISION_WORKER_TOKEN | Worker 状态上报时 | 与控制面一致的专用上报令牌；生产必须替换开发默认值 |
+| FINEVISION_WORKER_ID / FINEVISION_NODE_ID | 独立部署建议设置 | 稳定唯一的进程实例 ID / 所属计算节点 ID；同节点的实例共享节点 ID，不共享实例 ID |
 | FINEVISION_TENSORRT_* / FINEVISION_ASCEND_* | 对应后端时 | 硬件目标地址与 profile |
 | FINEVISION_LOG_LEVEL / FINEVISION_LOG_FORMAT | 否 | 结构化日志级别与格式 |
 | FINEVISION_OBSERVABILITY_ENABLED | 否 | 启用 OTLP Trace 导出；默认关闭 |
@@ -205,7 +219,9 @@ go test ./...
 
 ~~~bash
 npm --prefix frontend ci
-npm --prefix frontend run build
+npm --prefix frontend run check
+(cd frontend && npx playwright install chromium)
+npm --prefix frontend run test:e2e
 scripts/smoke-demo.sh --contracts-only
 ~~~
 
@@ -243,6 +259,8 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 - [数据集样本预览](docs/dataset-preview-api.md)
 - [多后端推理部署](docs/inference-deployments.md)
 - [硬件监控](docs/hardware-monitoring.md)
+- [Worker 状态、权限与独立部署](docs/worker-status.md)
+- [用户认证与权限管理](docs/auth.md)
 - [日志、指标、追踪与业务审计](docs/observability.md)
 - [展示文档构建说明](showcase/README.md)
 
@@ -250,5 +268,5 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 
 - .env、数据集、上传文件、运行日志、Qdrant 本地库和训练产物均被 Git 忽略。
 - 公开仓库不包含测评原图、私有真值、DeepSeek/OpenAI Key 或本地数据库。
-- 默认 Compose 密码仅供本机开发；生产环境必须替换并接入 OIDC/RBAC、集中密钥管理、审计、限流与备份。
+- 默认 Compose 密码及服务令牌仅供本机开发；生产环境必须替换并完善 TLS、集中密钥管理、审计、限流与备份。当前已有三角色 RBAC，OIDC/SSO 尚未实现，可按企业统一登录需求接入。
 - TensorRT engine 与 Ascend OM 绑定硬件和运行时 profile，不能跨设备直接复用。

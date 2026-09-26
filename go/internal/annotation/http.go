@@ -77,17 +77,20 @@ func (h *Handler) Register(r chi.Router) {
 			})
 		})
 		r.Get("/status", func(w http.ResponseWriter, r *http.Request) {
-			var raw []byte
-			err := h.Repo.Pool.QueryRow(r.Context(), `SELECT jsonb_build_object('online',heartbeat_at>now()-interval '45 seconds','details',details) FROM annotation_worker_status ORDER BY heartbeat_at DESC LIMIT 1`).Scan(&raw)
-			if errors.Is(err, pgx.ErrNoRows) {
-				response(w, 200, map[string]any{"online": false})
-				return
-			}
+			var state string
+			err := h.Repo.Pool.QueryRow(r.Context(), `WITH registry AS (
+ SELECT count(*) AS total,
+ COALESCE(bool_or(received_at>now()-interval '30 seconds' AND snapshot->>'readiness'='ready'),false) AS ready,
+ COALESCE(bool_or(received_at>now()-interval '30 seconds' AND snapshot->>'readiness'='initializing'),false) AS initializing
+ FROM worker_instances WHERE snapshot->>'kind'='annotation'
+ ) SELECT CASE WHEN total>0 THEN CASE WHEN ready THEN 'ready' WHEN initializing THEN 'initializing' ELSE 'unavailable' END
+ ELSE CASE WHEN EXISTS(SELECT 1 FROM annotation_worker_status WHERE heartbeat_at>now()-interval '45 seconds') THEN 'connected' ELSE 'unavailable' END END FROM registry`).Scan(&state)
 			if err != nil {
 				failure(w, err)
 				return
 			}
-			response(w, 200, json.RawMessage(raw))
+			// Annotation clients need service availability, not instance IDs, active-task IDs or profiles.
+			response(w, 200, map[string]any{"online": state == "ready" || state == "connected", "service_state": state, "manual_available": true})
 		})
 		h.registerPublications(r)
 		h.registerCatalog(r)

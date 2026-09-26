@@ -76,6 +76,11 @@ def main():
     if os.environ.get("PYTHONPATH"):
         python_path += os.pathsep + os.environ["PYTHONPATH"]
     env = {**os.environ, "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2", "PYTHONPATH": python_path}
+    control = json.loads(subprocess.check_output(["docker", "inspect", "finevision-go-control-plane-1"]))[0]
+    control_env = dict(item.split("=", 1) for item in control["Config"]["Env"])
+    env["FINEVISION_WORKER_TOKEN"] = control_env.get("FINEVISION_WORKER_TOKEN", "")
+    env.setdefault("FINEVISION_WORKER_ID", "annotation-local")
+    env.setdefault("FINEVISION_WORKER_NAME", "本地标注实例")
     for source, target in (("FINEVISION_LLM_BASE_URL", "VLM_BASE_URL"), ("FINEVISION_LLM_MODEL", "VLM_MODEL"),
         ("FINEVISION_LLM_API_KEY", "VLM_API_KEY"), ("FINEVISION_LLM_INTERNAL_TOKEN", "ANNOTATION_WORKER_TOKEN")):
         if not config.get(source):

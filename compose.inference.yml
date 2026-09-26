@@ -1,5 +1,6 @@
 # Optional hardware services. See docs/inference-deployments.md before enabling.
 x-deployment-env: &deployment-env
+  FINEVISION_WORKER_TOKEN: ${FINEVISION_WORKER_TOKEN:-finevision-dev-worker-only}
   FINEVISION_CONTROL_PLANE_HTTP: http://go-control-plane:8000
   FINEVISION_DEPLOYMENT_TOKEN: ${FINEVISION_DEPLOYMENT_TOKEN:-}
   FINEVISION_RABBITMQ_URL: amqp://finevision:finevision@rabbitmq:5672/

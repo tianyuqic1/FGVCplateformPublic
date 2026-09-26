@@ -34,6 +34,7 @@ import (
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/observability"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/training"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/workers"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -156,6 +157,7 @@ func main() {
 			Policies:      &postgresadapter.PolicyRepository{Pool: pool},
 			Reviews:       &postgresadapter.ReviewRepository{Pool: pool},
 			Hardware:      hardware.Handler{Store: hardwareStore, Token: os.Getenv("FINEVISION_HARDWARE_TOKEN")},
+			Workers:       workers.Handler{Store: &workers.PostgresStore{Pool: pool}, Token: os.Getenv("FINEVISION_WORKER_TOKEN")},
 			DatasetCards:  cards,
 			DatasetImport: datasetImport,
 			DatasetQueue:  datasetQueue,

@@ -1,0 +1,144 @@
+openapi: 3.0.3
+info:
+  title: Worker 实例状态
+  version: 1.0.0
+  description: 只读实例登记与心跳观察，不参与任务调度、租约续期或容器管理。
+servers:
+  - url: /
+security:
+  - session: []
+paths:
+  /api/workers:
+    get:
+      tags: [Worker 状态]
+      summary: 分页查询实例与筛选范围内的汇总
+      parameters:
+        - {in: query, name: q, schema: {type: string}, description: 名称、实例或节点搜索}
+        - {in: query, name: kind, schema: {type: string, enum: [training, inference, annotation, artifact, deployment]}}
+        - {in: query, name: status, schema: {type: string, enum: [online, delayed, offline]}}
+        - {in: query, name: device, schema: {type: string}}
+        - {in: query, name: limit, schema: {type: integer, default: 6, minimum: 1, maximum: 100}}
+        - {in: query, name: offset, schema: {type: integer, default: 0, minimum: 0}}
+      responses:
+        '200':
+          description: 服务器时间、全部筛选结果汇总、分页实例；不返回凭据或内部连接地址
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Instance'}}
+                  server_time: {type: string, format: date-time}
+                  view: {type: string, enum: [admin, business]}
+                  summary: {type: object, properties: {total: {type: integer}, available: {type: integer}, busy: {type: integer}, abnormal: {type: integer}}}
+                  pagination: {type: object, properties: {total: {type: integer}, limit: {type: integer}, offset: {type: integer}}}
+        '400': {description: 无效筛选或分页}
+        '401': {description: 未登录}
+        '403': {description: 标注员无权查看}
+        '503': {description: 状态服务不可用，不表示 Worker 离线}
+  /api/workers/{id}:
+    get:
+      tags: [Worker 状态]
+      summary: 实例详情（业务角色仅可见已核实归属的本人训练任务）
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 实例与服务器时间
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  worker: {$ref: '#/components/schemas/Instance'}
+                  server_time: {type: string, format: date-time}
+        '401': {description: 未登录}
+        '403': {description: 无权查看}
+        '404': {description: 未登记实例}
+        '503': {description: 状态服务不可用}
+  /api/internal/workers/register:
+    post:
+      tags: [实例上报]
+      summary: 登记启动会话（sequence 必须为 0）
+      security: [{workerToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Snapshot'}
+      responses:
+        '202': {description: 已接受；同一活动会话的重复登记不刷新心跳}
+        '400': {description: 无效上报}
+        '401': {description: 无效服务令牌}
+        '409': {description: 旧会话已被替代，不允许重新登记}
+        '503': {description: 存储不可用}
+  /api/internal/workers/heartbeat:
+    post:
+      tags: [实例上报]
+      summary: 活动会话心跳（sequence 必须递增）
+      security: [{workerToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Snapshot'}
+      responses:
+        '202': {description: 已接受}
+        '400': {description: 无效上报}
+        '401': {description: 无效服务令牌}
+        '409': {description: 会话已失效或序号过期}
+        '503': {description: 存储不可用}
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: fv_session, description: 本地会话；生产环境为 __Host-fv_session}
+    workerToken: {type: http, scheme: bearer, description: FINEVISION_WORKER_TOKEN，仅可写入实例遥测}
+  schemas:
+    Task:
+      type: object
+      required: [id, kind, stage, started_at]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [training, inference, annotation, artifact, deployment]}
+        stage: {type: string, maxLength: 80}
+        started_at: {type: string, format: date-time}
+    Snapshot:
+      type: object
+      additionalProperties: false
+      required: [id, session_id, sequence, name, kind, capacity, readiness]
+      properties:
+        id: {type: string, maxLength: 160}
+        session_id: {type: string, format: uuid}
+        sequence: {type: integer, format: int64, minimum: 0}
+        name: {type: string, maxLength: 120}
+        kind: {type: string, enum: [training, inference, annotation, artifact, deployment]}
+        node_id: {type: string}
+        version: {type: string, maxLength: 80}
+        backend: {type: string, maxLength: 80}
+        device: {type: string, maxLength: 80}
+        capacity: {type: integer, minimum: 1, maximum: 128}
+        readiness: {type: string, enum: [ready, initializing, dependency_error, unknown, stopped]}
+        reason: {type: string, maxLength: 200}
+        tasks: {type: array, maxItems: 128, items: {$ref: '#/components/schemas/Task'}}
+    Instance:
+      type: object
+      description: 查询视图不是原始上报。业务角色无 session_id/sequence，reason 为安全概述，tasks 仅保留本人训练任务；active_count 为共享总负载。
+      properties:
+        id: {type: string}
+        name: {type: string}
+        kind: {type: string, enum: [training, inference, annotation, artifact, deployment]}
+        node_id: {type: string}
+        version: {type: string}
+        backend: {type: string}
+        device: {type: string}
+        session_id: {type: string, format: uuid, description: 仅管理员返回}
+        sequence: {type: integer, description: 仅管理员返回}
+        capacity: {type: integer}
+        readiness: {type: string, enum: [ready, initializing, dependency_error, unknown, stopped]}
+        reason: {type: string}
+        task_visibility: {type: string, enum: [all, own_training_only]}
+        tasks: {type: array, items: {$ref: '#/components/schemas/Task'}}
+        registered_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+        connection: {type: string, enum: [online, delayed, offline]}
+        can_accept: {type: boolean}
+        active_count: {type: integer}

@@ -24,7 +24,7 @@ export function CatalogImport({ value, onChange, disabled }) {
       onChange(validated); setFilename(file.name); setPage(1); setQuery("");
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
-  return <section className="ann-catalog"><div className="ann-catalog-heading"><div><span className="ann-eyebrow">CLASS CATALOG</span><h3>导入类别目录</h3></div><button type="button" className="btn" onClick={template}>下载 JSON 模板</button></div>
+  return <section className="ann-catalog"><div className="ann-catalog-heading"><div><h3>导入类别目录</h3></div><button type="button" className="btn" onClick={template}>下载 JSON 模板</button></div>
     <input ref={input} type="file" accept=".json,application/json" hidden aria-label="导入类别 JSON 文件" onChange={choose} disabled={disabled || loading} />
     <button type="button" className="ann-catalog-upload" disabled={disabled || loading} onClick={() => input.current?.click()}><strong>{loading ? "正在校验目录…" : filename || "选择 JSON 类别文件"}</strong><span>{value ? `${value.classes.length} 类 · 校验通过 · 点击更换` : "仅支持 .json · 最大 512 KiB · 2–1000 类"}</span></button>
     {error && <p role="alert" className="pub-warning">{error}</p>}

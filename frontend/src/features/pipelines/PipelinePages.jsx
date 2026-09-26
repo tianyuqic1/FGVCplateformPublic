@@ -108,15 +108,15 @@ export function PipelinesPage() {
     <>
       <PageHero
         title="任务流水线"
-        description="这里优先展示后台任务状态；流程模板只作为说明，不代表正在运行。"
+        description="查看后台任务状态和处理阶段。下方流程模板仅作参考，不代表实际执行进度。"
         actions={<StatusChip tone="info">任务状态</StatusChip>}
       />
       <div className="grid two section-gap">
         <RecentJobsPanel selectedJobId={selectedJobId} />
-        <Panel title="执行范围" caption="浏览器只查看任务状态，不直接触发模型计算。">
+        <Panel title="功能说明" caption="浏览器只查看任务状态，不直接触发模型计算。">
           <div className="timeline">
             <GateRow title="任务查询" description="展示导入、特征提取、训练和校准任务状态" result="pass" />
-            <GateRow title="后台执行" description="计算任务由后端 worker 执行" result="pass" />
+            <GateRow title="后台执行" description="计算任务由后台计算节点执行" result="pass" />
             <GateRow title="产物追踪" description="训练和评估页展示产物状态" result="pending" />
           </div>
           <TechnicalDetails>
@@ -132,7 +132,7 @@ export function PipelinesPage() {
           </TechnicalDetails>
         </Panel>
       </div>
-      <Panel className="section-gap" title="流程模板说明" caption="只读参考模板；不展示运行进度、假日志或假节点状态。">
+      <Panel className="section-gap" title="流程模板说明" caption="以下为流程参考，实际进度请在任务列表中查看。">
         <div className="pipeline">
           {pipelineNodes.map((node) => (
             <div className="pipeline-node template" key={node.id}>
@@ -153,7 +153,7 @@ export function PipelineRunPage() {
   return (
     <>
       <PageHero
-        title="流水线运行详情"
+        title="流水线任务详情"
         description={`${pipelineRunId || "未选择运行"} · 请先在流水线页通过任务 ID 查看后台任务状态。`}
         actions={
           <>
@@ -170,8 +170,8 @@ export function PipelineRunPage() {
           <div className="timeline">
             <GateRow title="解析运行 ID" description={pipelineRunId || "未选择"} result="pending" />
             <GateRow title="读取任务状态" description="请使用流水线页的任务 ID 查询" result="pending" />
-            <GateRow title="读取产物链接" description="等待产物追踪完善" result="pending" />
-            <GateRow title="失败重试" description="等待编排能力完善" result="pending" />
+            <GateRow title="读取产物链接" description="暂不支持在此查看，请前往训练详情" result="pending" />
+            <GateRow title="失败重试" description="此页面暂不支持重试操作" result="pending" />
           </div>
         </Panel>
         <Panel title="状态入口" caption="任务列表支持查看后台任务状态。">
