@@ -1,4 +1,5 @@
 import { APIError, apiBaseUrl, apiErrorFromResponse, fetchJson, withTimeout } from "./http.js";
+import { getCsrfToken } from "./authState.js";
 
 function firstNumber(...values) {
   const value = values.find((item) => Number.isFinite(Number(item)));
@@ -259,7 +260,7 @@ export async function expandDataset(datasetId, { baseVersionId, requestId, files
   form.append("feedback_ids", JSON.stringify(feedbackIds));
   files.forEach(file => form.append("files", file, file.webkitRelativePath || file.name));
   const path = `/api/datasets/${encodeURIComponent(datasetId)}/versions`;
-  const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", body: form });
+  const response = await fetch(`${apiBaseUrl()}${path}`, { method: "POST", headers: { "X-CSRF-Token": getCsrfToken() }, body: form });
   if (!response.ok) throw await apiErrorFromResponse(response, { method: "POST", path, fallback: "生成版本失败" });
   const payload = await response.json();
   return extractImportedDataset(payload);

@@ -7,6 +7,8 @@ metadata = sa.MetaData()
 
 from .annotation_schema import register as register_annotation
 register_annotation(metadata)
+from .auth_schema import register as register_auth
+register_auth(metadata)
 
 dataset_card_revisions = sa.Table(
     "dataset_card_revisions", metadata,

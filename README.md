@@ -4,7 +4,7 @@
 
 FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖数据集版本管理、可配置训练、模型发布、多后端推理、在线弃权、人工复核与 AI 辅助标注。系统以 **Go 控制面 + Python 计算面** 为核心，通过 PostgreSQL、RabbitMQ 和 MinIO 把业务状态、长任务和二进制产物解耦。
 
-> 当前仓库以本地开发和单机 Docker Compose 为主要运行形态。默认配置仅适用于可信开发环境，公网部署前请完成身份认证、密钥管理、对象权限和备份策略。
+> 当前仓库以本地开发和单机 Docker Compose 为主要运行形态。工作台现有本地账号、三角色授权与会话保护；公网部署前仍需配置 HTTPS、密钥管理、对象权限、备份与网络边界，不能直接使用示例口令。
 
 ## 核心能力
 
@@ -73,11 +73,14 @@ scripts/demo-up.sh
 | Go API | <http://localhost:8001/api/health> |
 | Swagger API 文档 | <http://localhost:8001/swagger/> |
 | OpenAPI YAML | <http://localhost:8001/openapi/finevision.yaml> |
+| 用户与权限 API | <http://localhost:8001/openapi/auth.yaml> |
 | MinIO Console | <http://localhost:9001> |
 | RabbitMQ Console | <http://localhost:15672> |
 | 展示文档 | <http://localhost:5180> |
 | 独立日志与观测控制台 | <http://localhost:9400> |
 | 观测服务健康检查 | <http://localhost:9400/health> |
+
+Swagger 与 OpenAPI 契约现在仅管理员登录后可查看；匿名访问返回 401。工作台与 API 应经同源反向代理提供服务，便于会话 Cookie 与 CSRF 校验正常工作。
 
 启用 NVIDIA GPU：
 
@@ -92,6 +95,16 @@ docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-tr
 ~~~
 
 多后端推理与硬件要求见 [推理部署文档](docs/inference-deployments.md)。
+
+### 首次登录与用户管理
+
+数据库迁移完成后，先创建首位管理员。管理员密码从终端安全读取，不放在命令行或 `.env` 中。使用 Docker Compose 时，先启动服务，再执行：
+
+~~~bash
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/finevision-admin go-control-plane --email admin@example.com --name 平台管理员
+~~~
+
+也可在宿主机配置 `FINEVISION_DATABASE_URL` 后，于 `go/` 目录执行 `go run ./cmd/finevision-admin --email admin@example.com --name 平台管理员`。此命令可重置指定管理员密码并撤销该账号旧会话，应限制为运维人员执行。随后访问工作台登录页。普通用户可自行申请注册，但在管理员审核前不能登录；管理员在**用户管理**页分配角色并启用。权限矩阵、会话机制和操作说明见[用户认证与权限文档](docs/auth.md)。
 
 可选启用集中日志、指标与 Trace：
 
@@ -108,6 +121,7 @@ docker compose -f docker-compose.yml -f compose.observability.yml \
 | 配置 | 是否必需 | 用途 |
 |---|---|---|
 | DATABASE_URL / FINEVISION_DATABASE_URL | 是 | Alembic 与 Go 控制面数据库连接 |
+| FINEVISION_ENVIRONMENT | 本地开发建议设置 `local` | `local` 允许 HTTP 本地会话 Cookie；其他值要求 HTTPS Secure Cookie |
 | FINEVISION_S3_* | 是 | MinIO/S3 endpoint、区域和访问凭据 |
 | FINEVISION_ARTIFACT_BUCKET | 是 | 模型与报告对象桶 |
 | FINEVISION_RABBITMQ_URL | 是 | 训练、发布和部署消息 |

@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 )
 
 type Handler struct {
@@ -175,7 +176,7 @@ func (h *Handler) Register(r chi.Router) {
 			if !decode(w, r, &in) {
 				return
 			}
-			if err := h.Repo.Confirm(r.Context(), chi.URLParam(r, "task"), in.Label, in.Actor); err != nil {
+			if err := h.Repo.Confirm(r.Context(), chi.URLParam(r, "task"), in.Label, auth.Actor(r.Context(), in.Actor)); err != nil {
 				failure(w, err)
 				return
 			}

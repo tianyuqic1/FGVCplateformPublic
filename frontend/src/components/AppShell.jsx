@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { searchEntities } from "../api/search.js";
 import { Icon } from "./icons.jsx";
+import { canAccessPath, useAuth } from "../auth/AuthContext.jsx";
 
 const navItems = [
   { id: "dashboard", label: "工作台", icon: "LayoutDashboard", to: "/" },
@@ -15,6 +16,7 @@ const navItems = [
   { id: "models", label: "模型版本", icon: "Boxes", to: "/models" },
   { id: "pipelines", label: "流水线", icon: "Route", to: "/pipelines" },
   { id: "hardware", label: "硬件监控", icon: "Cpu", to: "/hardware" },
+  { id: "admin", label: "用户管理", icon: "ShieldCheck", to: "/admin/users" },
 ];
 
 const searchItems = [
@@ -33,6 +35,7 @@ const searchItems = [
 ];
 
 function navKey(pathname) {
+  if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/annotation")) return "annotation";
   if (pathname === "/hardware") return "hardware";
   if (pathname.startsWith("/datasets")) return "datasets";
@@ -47,6 +50,7 @@ function navKey(pathname) {
 }
 
 export function AppShell({ title, crumb, children }) {
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,8 +58,10 @@ export function AppShell({ title, crumb, children }) {
   const [entityResults, setEntityResults] = useState([]);
   const [searchState, setSearchState] = useState("idle");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [signoutError, setSignoutError] = useState("");
   const active = navKey(location.pathname);
   useEffect(() => {
+    if (user?.role === "annotator") return undefined;
     const query = searchQuery.trim();
     if (!searchFocused || query.length < 2) { setEntityResults([]); setSearchState("idle"); return undefined; }
     const controller = new AbortController();
@@ -65,13 +71,13 @@ export function AppShell({ title, crumb, children }) {
       setSearchState("ready");
     }).catch(() => { if (!controller.signal.aborted) setSearchState("error"); }), 250);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [searchQuery, searchFocused]);
+  }, [searchQuery, searchFocused, user?.role]);
   const filteredSearchItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return searchItems.slice(0, 5);
-    const pages = searchItems.filter((item) => `${item.label} ${item.hint}`.toLowerCase().includes(query));
-    return [...entityResults, ...pages].slice(0, 10);
-  }, [searchQuery, entityResults]);
+    if (!query) return searchItems.filter(item => canAccessPath(user?.role, item.to)).slice(0, 5);
+    const pages = searchItems.filter((item) => canAccessPath(user?.role, item.to) && `${item.label} ${item.hint}`.toLowerCase().includes(query));
+    return [...entityResults.filter(item => canAccessPath(user?.role, item.to)), ...pages].slice(0, 10);
+  }, [searchQuery, entityResults, user?.role]);
 
   function goSearch(item) {
     navigate(item.to);
@@ -102,7 +108,7 @@ export function AppShell({ title, crumb, children }) {
         <button type="button" className="mobile-menu-button" aria-label={mobileMenuOpen ? "关闭导航菜单" : "打开导航菜单"} aria-expanded={mobileMenuOpen} aria-controls="primary-navigation" onClick={() => setMobileMenuOpen((open) => !open)}><Icon name={mobileMenuOpen ? "X" : "Menu"} size={18} /><span>菜单</span></button>
         <div className="nav-caption">Workspace</div>
         <nav id="primary-navigation" aria-label="主导航" className={`nav-section ${mobileMenuOpen ? "mobile-nav-open" : ""}`}>
-          {navItems.map((item) => (
+          {navItems.filter(item => canAccessPath(user?.role, item.to)).map((item) => (
             <NavLink className={`nav-button ${active === item.id ? "active" : ""}`} key={item.id} to={item.to} onClick={() => setMobileMenuOpen(false)}>
               <Icon name={item.icon} size={18} />
               <span>{item.label}</span>
@@ -123,7 +129,7 @@ export function AppShell({ title, crumb, children }) {
             <h1>{title}</h1>
           </div>
           <div className="topbar-actions">
-            <div className="search-wrap">
+            {user?.role !== "annotator" && <div className="search-wrap">
               <label className="search-box">
                 <Icon name="Search" size={16} />
                 <input
@@ -150,11 +156,14 @@ export function AppShell({ title, crumb, children }) {
                   )}
                 </div>
               )}
-            </div>
-            <button type="button" className="secondary-button" onClick={() => navigate("/inference")}>
+            </div>}
+            {user?.role !== "annotator" && <button type="button" className="secondary-button" onClick={() => navigate("/inference")}>
               <Icon name="ImageUp" size={16} />
               推理
-            </button>
+            </button>}
+            <div className="fv-topbar-user"><strong>{user?.display_name}</strong><small>{({ admin: "管理员", annotator: "标注员", business: "业务人员" })[user?.role]}</small></div>
+            {signoutError && <span className="fv-signout-error" role="alert">{signoutError}</span>}
+            <button type="button" className="secondary-button fv-signout" onClick={async () => { setSignoutError(""); try { await logout(); } catch { setSignoutError("退出失败，请稍后重试"); } }}>退出</button>
           </div>
         </header>
         <section className="page">{children}</section>

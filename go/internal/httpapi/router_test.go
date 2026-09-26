@@ -57,6 +57,7 @@ func TestSwaggerUIAndEmbeddedSpecifications(t *testing.T) {
 		!strings.Contains(page.Body.String(), "FineVision API") ||
 		!strings.Contains(page.Body.String(), "/openapi/finevision.yaml") ||
 		!strings.Contains(page.Body.String(), "/openapi/hardware.yaml") ||
+		!strings.Contains(page.Body.String(), "/openapi/auth.yaml") ||
 		!strings.Contains(page.Body.String(), `defaultModelsExpandDepth: -1`) ||
 		!strings.Contains(page.Body.String(), `docExpansion: "list"`) {
 		t.Fatalf("swagger page = %d %q", page.Code, page.Body.String())
@@ -74,6 +75,7 @@ func TestSwaggerUIAndEmbeddedSpecifications(t *testing.T) {
 	}{
 		{path: "/openapi/finevision.yaml", title: "FineVision Control Plane API"},
 		{path: "/openapi/hardware.yaml", title: "FineVision Hardware Monitoring"},
+		{path: "/openapi/auth.yaml", title: "FineVision 用户与权限"},
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, specification.path, nil))

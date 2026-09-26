@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell.jsx";
 import { Icon } from "./components/icons.jsx";
+import { AdminUsersPage } from "./auth/AdminUsersPage.jsx";
+import { AuthPage } from "./auth/AuthPage.jsx";
+import { canAccessPath, homeForRole, useAuth } from "./auth/AuthContext.jsx";
 
 function lazyNamed(loader, name) {
   return lazy(() => loader().then((module) => ({ default: module[name] })));
@@ -51,6 +54,7 @@ const legacyAliases = {
 };
 
 function titleForPath(pathname) {
+  if (pathname === "/admin/users") return "用户管理";
   if (pathname === "/annotation") return "AI 标注";
   if (pathname.startsWith("/datasets/")) return "数据集详情";
   if (pathname === "/hardware") return "硬件监控";
@@ -71,6 +75,7 @@ function titleForPath(pathname) {
 }
 
 function crumbForPath(pathname) {
+  if (pathname === "/admin/users") return "系统 / 用户与角色";
   if (pathname === "/annotation") return "数据资产 / AI 标注工作区";
   if (pathname.startsWith("/datasets/")) return "数据集 / 版本详情";
   if (pathname === "/hardware") return "系统 / 计算资源";
@@ -167,6 +172,7 @@ function DatasetTitleRoute({ showToast }) {
 
 export default function App() {
   const location = useLocation();
+  const { user, status } = useAuth();
   const [toast, setToast] = useState("");
   const title = titleForPath(location.pathname);
   const crumb = crumbForPath(location.pathname);
@@ -175,6 +181,18 @@ export default function App() {
     setToast(message);
     window.clearTimeout(showToast.timer);
     showToast.timer = window.setTimeout(() => setToast(""), 2200);
+  }
+
+  if (status === "loading") return <div className="route-fallback" role="status">正在验证登录状态…</div>;
+  if (location.pathname === "/login" || location.pathname === "/register") {
+    const requested = location.state?.from;
+    const destination = typeof requested === "string" && requested.startsWith("/") && canAccessPath(user?.role, requested) ? requested : homeForRole(user?.role);
+    return user ? <Navigate to={destination} replace /> : <AuthPage mode={location.pathname === "/register" ? "register" : "login"} />;
+  }
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  if (location.pathname === "/" && user.role === "annotator") return <Navigate to="/annotation" replace />;
+  if (!canAccessPath(user.role, location.pathname)) {
+    return <main className="fv-forbidden"><h1>此页面不在你的工作权限内</h1><p>如需访问，请联系平台管理员调整账号角色。</p><button type="button" onClick={() => window.location.assign(homeForRole(user.role))}>返回工作区</button></main>;
   }
 
   return (
@@ -192,6 +210,7 @@ export default function App() {
             <Route path="/training/:runId" element={<TrainingDetailPage showToast={showToast} />} />
             <Route path="/inference" element={<InferencePage showToast={showToast} />} />
             <Route path="/hardware" element={<HardwarePage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
             <Route path="/weights" element={<WeightManagementPage showToast={showToast} />} />
             <Route path="/review" element={<ReviewPage />} />
             <Route path="/review/:reviewItemId" element={<ReviewDetailPage showToast={showToast} />} />

@@ -20,6 +20,7 @@ func TestEveryOperationHasABusinessTag(t *testing.T) {
 	}{
 		{name: "finevision.yaml", minimumGroups: 6},
 		{name: "hardware.yaml", minimumGroups: 2},
+		{name: "auth.yaml", minimumGroups: 2},
 	} {
 		specification := specification
 		t.Run(specification.name, func(t *testing.T) {

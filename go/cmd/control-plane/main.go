@@ -23,6 +23,7 @@ import (
 	postgresadapter "github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/postgres"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/adapters/s3artifact"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/annotation"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/config"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
@@ -81,6 +82,8 @@ func main() {
 		options.UsePathStyle = true
 	})
 	artifactVerifier := s3artifact.New(s3Client, configuration.ArtifactBucket, "")
+	authService := auth.New(&auth.PostgresStore{Pool: pool})
+	authService.CookieSecure = os.Getenv("FINEVISION_ENVIRONMENT") != "local"
 	lifecycle := training.NewServiceWithVerifier(repository, artifactVerifier, time.Now, configuration.LeaseTTL)
 	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second, Transport: observability.TraceHTTPTransport(nil)})
 	llmApplication := llm.NewApplication(llmGateway)
@@ -146,6 +149,7 @@ func main() {
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: observability.TracePublicHTTPHandler(httpapi.NewRouter(httpapi.Dependencies{
+			Auth:        authService,
 			Annotation:  &annotation.Handler{Repo: annotationRepo, Store: artifactVerifier, Token: configuration.LLMInternalToken, Publisher: annotationPublisher},
 			Deployments: deployments, DeploymentToken: os.Getenv("FINEVISION_DEPLOYMENT_TOKEN"),
 			Inference:     &postgresadapter.InferenceService{LegacyUploadRoot: os.Getenv("FINEVISION_UPLOAD_DIR"), Pool: pool, Store: artifactVerifier, Preview: &dataset.PreviewService{Repository: postgresadapter.DatasetRepository{Pool: pool}, Store: artifactVerifier}, Client: computev1.NewInferenceRuntimeClient(inferenceConnection), Deployments: deployments, RuntimeClients: runtimeClients},

@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/annotation"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/hardware"
@@ -21,6 +22,7 @@ import (
 )
 
 type Dependencies struct {
+	Auth            *auth.Service
 	Annotation      *annotation.Handler
 	Deployments     DeploymentApplication
 	DeploymentToken string
@@ -97,6 +99,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		})
 	})
 	registerSwagger(router)
+	if dependencies.Auth != nil {
+		dependencies.Auth.RegisterRoutes(router)
+	}
 	registerSearch(router, dependencies.ReadModels)
 	registerTrainingSummary(router, dependencies.ReadModels)
 	dependencies.Hardware.Register(router)
@@ -121,5 +126,9 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	})
 	registerDatasetPreviews(router, dependencies.DatasetImport)
 	router.Handle("/metrics", observability.MetricsHandler())
-	return openapi.HandlerFromMux(strict, router)
+	handler := openapi.HandlerFromMux(strict, router)
+	if dependencies.Auth != nil {
+		return dependencies.Auth.Protect(handler)
+	}
+	return handler
 }

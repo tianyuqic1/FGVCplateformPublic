@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: FineVision 用户与权限
+  version: 1.0.0
+  description: 本地账号、可撤销会话及固定三角色权限的接口。非公开接口使用浏览器会话 Cookie；写操作需要 X-CSRF-Token。
+servers:
+  - url: /
+tags:
+  - name: 账号
+  - name: 用户管理
+paths:
+  /api/auth/register:
+    post:
+      tags: [账号]
+      summary: 注册待审核账号
+      operationId: registerAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, display_name, password]
+              properties:
+                email: {type: string, format: email}
+                display_name: {type: string, maxLength: 80}
+                password: {type: string, minLength: 12, maxLength: 1024, writeOnly: true}
+      responses:
+        '201':
+          description: 新账号为 pending，不能立即登录。
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: {$ref: '#/components/schemas/User'}
+                  message: {type: string}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/auth/login:
+    post:
+      tags: [账号]
+      summary: 登录已启用账号
+      operationId: loginAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string, format: email}
+                password: {type: string, writeOnly: true}
+      responses:
+        '200':
+          description: 响应设置 HttpOnly 会话 Cookie。取出 csrf_token 用于后续写请求。
+          headers:
+            Set-Cookie:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/auth/me:
+    get:
+      tags: [账号]
+      summary: 读取当前用户与 CSRF 令牌
+      operationId: currentAccount
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: 当前会话
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionResponse'}
+        '401': {$ref: '#/components/responses/Error'}
+  /api/auth/logout:
+    post:
+      tags: [账号]
+      summary: 撤销当前会话
+      operationId: logoutAccount
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/CSRFToken'}]
+      responses:
+        '204': {description: 已退出}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/auth/users:
+    get:
+      tags: [用户管理]
+      summary: 分页查看注册账号，仅管理员
+      operationId: listAccounts
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, minimum: 1, default: 1}
+        - in: query
+          name: q
+          description: 按邮箱或显示名称检索，最多 100 字符。
+          schema: {type: string, maxLength: 100}
+        - in: query
+          name: status
+          schema: {type: string, enum: [pending, active, disabled]}
+      responses:
+        '200':
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/User'}}
+                  total: {type: integer}
+                  page: {type: integer}
+                  page_size: {type: integer}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/auth/users/{user_id}:
+    patch:
+      tags: [用户管理]
+      summary: 审核、改角色或停用账号，仅管理员
+      operationId: updateAccountAccess
+      description: 必须填写变更原因；更改后撤销目标用户的所有会话。不能更改自己或移除最后一个有效管理员。
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: {type: string, format: uuid}
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, status, reason]
+              properties:
+                role: {type: string, enum: [admin, annotator, business]}
+                status: {type: string, enum: [pending, active, disabled]}
+                reason: {type: string, minLength: 1, maxLength: 500}
+      responses:
+        '200':
+          description: 更新后的用户
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: {$ref: '#/components/schemas/User'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: fv_session
+      description: 本地 HTTP 名称；HTTPS 环境使用 __Host-fv_session。
+  parameters:
+    CSRFToken:
+      in: header
+      name: X-CSRF-Token
+      required: true
+      schema: {type: string}
+  responses:
+    Error:
+      description: 操作失败
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: {type: string}
+  schemas:
+    User:
+      type: object
+      required: [id, email, display_name, role, status, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string, format: email}
+        display_name: {type: string}
+        role: {type: string, enum: [admin, annotator, business]}
+        status: {type: string, enum: [pending, active, disabled]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    SessionResponse:
+      type: object
+      required: [user, csrf_token]
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        csrf_token: {type: string}

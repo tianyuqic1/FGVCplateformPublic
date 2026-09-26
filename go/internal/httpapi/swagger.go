@@ -16,6 +16,7 @@ const swaggerBasePath = "/swagger/"
 func registerSwagger(router chi.Router) {
 	registerSpecification(router, "/openapi/finevision.yaml", "finevision.yaml")
 	registerSpecification(router, "/openapi/hardware.yaml", "hardware.yaml")
+	registerSpecification(router, "/openapi/auth.yaml", "auth.yaml")
 
 	router.Get("/swagger", func(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, swaggerBasePath, http.StatusPermanentRedirect)
@@ -35,7 +36,8 @@ func registerSwagger(router chi.Router) {
 			"persistAuthorization":     "true",
 			"urls": `[
 				{url: "/openapi/finevision.yaml", name: "FineVision Control Plane"},
-				{url: "/openapi/hardware.yaml", name: "Hardware Monitoring"}
+				{url: "/openapi/hardware.yaml", name: "Hardware Monitoring"},
+				{url: "/openapi/auth.yaml", name: "用户与权限"}
 			]`,
 		},
 	})

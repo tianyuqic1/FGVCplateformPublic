@@ -1,3 +1,5 @@
+import { getCsrfToken } from "./authState.js";
+
 const DEFAULT_TIMEOUT_MS = 2500;
 
 export class APIError extends Error {
@@ -40,6 +42,7 @@ export async function fetchJson(path, { method = "GET", body, signal } = {}) {
     headers: {
       Accept: "application/json",
       ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(!["GET", "HEAD", "OPTIONS"].includes(method) && getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
     signal,
@@ -55,7 +58,7 @@ export async function fetchJson(path, { method = "GET", body, signal } = {}) {
 export async function fetchForm(path, formData, { method = "POST", signal, fallback = "" } = {}) {
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     method,
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...(getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() } : {}) },
     body: formData,
     signal,
   });
@@ -80,6 +83,9 @@ export async function apiErrorFromResponse(response, { method = "GET", path = ""
     // Preserve the status fallback when the response is not JSON.
   }
   const requestId = bodyRequestId || response.headers.get("X-Request-ID") || "";
+  if (response.status === 401 && !path.startsWith("/api/auth/") && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("finevision:session-expired"));
+  }
   return new APIError(detail, { status: response.status, code, requestId, method, path, payload });
 }
 

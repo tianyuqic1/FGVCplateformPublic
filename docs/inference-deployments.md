@@ -52,7 +52,7 @@ CPU session 最多缓存 2 个，硬件 engine 最多 1 个；执行与缓存淘
 - `POST /api/internal/deployments/{id}/{claim|heartbeat|complete}`：仅内部 builder，Bearer token 校验。
 - 图片、上传、文件夹推理接口均支持 `deployment_id`。省略时为兼容旧客户端按稳定顺序优先 ONNX FP32，不任意选择最后一个文件。
 
-模型详情有“推理部署”区域：精度/目标、构建状态、重试、SHA/存储位置、硬件指纹。推理页面只提供 ready 部署，并展示实际后端与耗时。网页初版创建 actor 为 `workbench-user`，不是身份认证；整个管理 API 仍应置于可信网络/认证网关内，不能直接暴露公网。
+模型详情有“推理部署”区域：精度/目标、构建状态、重试、SHA/存储位置、硬件指纹。推理页面只提供 ready 部署，并展示实际后端与耗时。工作台使用已登录用户会话；权限由 Go 控制面校验。部署 Worker 的服务令牌与用户会话分离，不能代替 HTTPS、网络隔离和密钥管理。
 
 ## 配置和启动
 

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/datasetcard"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
@@ -137,9 +138,9 @@ func (server *Server) PromoteModelVersion(ctx context.Context, request openapi.P
 		if request.Body.Precision != nil {
 			precision = string(*request.Body.Precision)
 		}
-		version, err = server.registry.PublishPrecision(ctx, request.ModelVersionId.String(), request.Body.Actor, request.Body.Reason, precision)
+		version, err = server.registry.PublishPrecision(ctx, request.ModelVersionId.String(), auth.Actor(ctx, request.Body.Actor), request.Body.Reason, precision)
 	} else {
-		version, err = server.registry.Promote(ctx, request.ModelVersionId.String(), modelregistry.Status(request.Body.TargetStatus), request.Body.Actor, request.Body.Reason)
+		version, err = server.registry.Promote(ctx, request.ModelVersionId.String(), modelregistry.Status(request.Body.TargetStatus), auth.Actor(ctx, request.Body.Actor), request.Body.Reason)
 	}
 	if err != nil {
 		if response := promoteError(ctx, err); response != nil {
@@ -170,7 +171,7 @@ func (server *Server) ArchiveModelVersion(ctx context.Context, request openapi.A
 	if request.Body == nil {
 		return openapi.ArchiveModelVersion422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
 	}
-	version, err := server.registry.Archive(ctx, request.ModelVersionId.String(), request.Body.Actor, request.Body.Reason)
+	version, err := server.registry.Archive(ctx, request.ModelVersionId.String(), auth.Actor(ctx, request.Body.Actor), request.Body.Reason)
 	if errors.Is(err, modelregistry.ErrNotFound) {
 		return openapi.ArchiveModelVersion404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", err.Error()))}, nil
 	}
@@ -190,7 +191,7 @@ func (server *Server) SetModelAlias(ctx context.Context, request openapi.SetMode
 	if request.Body == nil {
 		return openapi.SetModelAlias422JSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "request body is required")), nil
 	}
-	result, err := server.registry.SetAlias(ctx, request.Body.DatasetId, request.Alias, request.Body.ModelVersionId.String(), request.Body.Actor, request.Body.Reason)
+	result, err := server.registry.SetAlias(ctx, request.Body.DatasetId, request.Alias, request.Body.ModelVersionId.String(), auth.Actor(ctx, request.Body.Actor), request.Body.Reason)
 	if errors.Is(err, modelregistry.ErrNotFound) {
 		return openapi.SetModelAlias404JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "NOT_FOUND", err.Error()))}, nil
 	}

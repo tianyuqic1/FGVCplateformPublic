@@ -70,6 +70,9 @@ FineVision demo is starting:
   RabbitMQ  http://localhost:15672
   postgres  localhost:5432
 
+First login (run once; password is prompted securely):
+  docker compose run --rm --no-deps --entrypoint /usr/local/bin/finevision-admin go-control-plane --email admin@example.com --name 平台管理员
+
 Useful checks:
   docker compose ps
   docker compose logs migrate

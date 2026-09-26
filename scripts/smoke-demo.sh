@@ -78,14 +78,37 @@ wait_for_url() {
   echo "${name} OK: ${url}"
 }
 
+wait_for_anonymous_denial() {
+  local name="$1"
+  local url="$2"
+  local deadline=$((SECONDS + WAIT_SECONDS))
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is not installed; skipping ${name} authorization probe (${url})."
+    return 0
+  fi
+  local status=""
+  while (( SECONDS < deadline )); do
+    status="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
+    if [[ "$status" == "401" ]]; then
+      echo "${name} protected: anonymous request returned 401"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Expected 401 for anonymous ${name}, got ${status:-no response}: ${url}" >&2
+  return 1
+}
+
 echo "Validating compose configuration..."
 docker compose -f docker-compose.yml config >/dev/null
 
 if [[ "$contracts_only" -eq 0 ]]; then
   wait_for_url "api health" "${API_URL%/}/api/health"
-  wait_for_url "swagger ui" "${API_URL%/}/swagger/"
-  wait_for_url "control-plane openapi" "${API_URL%/}/openapi/finevision.yaml"
-  wait_for_url "hardware openapi" "${API_URL%/}/openapi/hardware.yaml"
+  wait_for_anonymous_denial "swagger ui" "${API_URL%/}/swagger/"
+  wait_for_anonymous_denial "control-plane openapi" "${API_URL%/}/openapi/finevision.yaml"
+  wait_for_anonymous_denial "hardware openapi" "${API_URL%/}/openapi/hardware.yaml"
+  wait_for_anonymous_denial "auth openapi" "${API_URL%/}/openapi/auth.yaml"
+  wait_for_anonymous_denial "business API" "${API_URL%/}/api/datasets"
   wait_for_url "frontend" "$FRONTEND_URL"
 else
   echo "Skipping HTTP probes in contracts-only mode."

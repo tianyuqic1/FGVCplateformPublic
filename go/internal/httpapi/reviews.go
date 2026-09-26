@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/go-chi/chi/v5"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/llm"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelregistry"
@@ -144,6 +145,7 @@ func registerReviews(router chi.Router, repo review.Repository, assistant *llm.A
 			reviewError(w, err)
 			return
 		}
+		input.Reviewer = auth.Actor(r.Context(), input.Reviewer)
 		item, err := repo.Submit(r.Context(), chi.URLParam(r, "review_id"), input)
 		if err != nil {
 			reviewError(w, err)

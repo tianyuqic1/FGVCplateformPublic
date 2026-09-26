@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/go-chi/chi/v5"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/auth"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/review"
 	"io"
 	"net/http"
@@ -72,6 +73,11 @@ func registerPolicies(router chi.Router, repo PolicyRepository) {
 			if decoder.Decode(new(any)) != io.EOF {
 				reviewError(w, review.ErrInvalid)
 				return
+			}
+			if actor, ok := auth.UserFromContext(r.Context()); ok {
+				input["created_by"] = actor.ID.String()
+				input["activated_by"] = actor.ID.String()
+				input["deactivated_by"] = actor.ID.String()
 			}
 			row, err := repo.PolicyAction(r.Context(), chi.URLParam(r, "policy_id"), action, input)
 			if err != nil {

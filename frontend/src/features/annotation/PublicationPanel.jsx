@@ -11,11 +11,14 @@ import {
 import { PaginatedSelect } from "../../design-system/components/PaginatedSelect.jsx";
 import "./publication.css";
 import { selectAllCandidates } from "./selectAllCandidates.js";
+import { useAuth } from "../../auth/AuthContext.jsx";
 
 const statuses = { preview: "待发布", queued: "排队中", building: "构建中", registering: "注册中", published: "已发布", failed: "发布失败", cancelled: "已取消" };
 const sum = counts => Object.values(counts || {}).reduce((a, b) => a + Number(b), 0);
 
 export function PublicationPanel({ projects, projectId, historyOnly = false }) {
+  const { user } = useAuth();
+  const canPublish = user?.role === "admin";
   const [params] = useSearchParams();
   const [source, setSource] = useState(params.get("source") === "feedback" ? "feedback" : "annotation");
   const [mode, setMode] = useState(params.get("source") === "feedback" ? "append" : "new");
@@ -110,22 +113,22 @@ export function PublicationPanel({ projects, projectId, historyOnly = false }) {
       <label>发布说明<textarea rows={3} maxLength={2000} value={notes} onChange={e => { invalidate(); setNotes(e.target.value); }} placeholder="记录本次标注范围、来源或采集批次" /></label>
       <button type="button" className="btn primary" disabled={!ready || busy} onClick={check}>{busy ? "正在处理…" : "检查发布清单"}</button>
     </section></div></fieldset>}
-    {preview && <ReleasePreview job={preview} busy={busy} onPublish={() => transition(preview.id, "publish")} />}
+    {preview && <ReleasePreview job={preview} busy={busy} canPublish={canPublish} onPublish={() => transition(preview.id, "publish")} />}
     <section className="pub-card pub-history"><h3>发布批次 <small>共 {history.total} 批</small></h3>{history.items.map(j => <article key={j.id}><div><strong>{j.plan.request.name || targets.find(t => t.dataset_id === j.plan.request.dataset_id)?.name || "已有数据集"}</strong><small>{j.plan.request.source === "feedback" ? "推理回流" : "标注成果"} · {j.plan.request.ids.length} 张 · {new Date(j.created_at).toLocaleString()}</small>{j.error && <p className="pub-warning">{j.error}</p>}{j.result?.version && <small>已注册 v{j.result.version.version_number} · 新增 {j.result.upload?.added_count || 0} 张</small>}</div><span className={`pub-state ${j.status}`}>{statuses[j.status]}</span><div className="pub-history-actions">
       {j.status === "preview" && <button className="btn" disabled={busy} onClick={() => setPreview(j)}>查看清单</button>}
-      {j.status === "failed" && <button className="btn" disabled={busy} onClick={() => transition(j.id, "retry")}>重试原批次</button>}
-      {["preview", "failed"].includes(j.status) && <button className="btn" disabled={busy} onClick={() => transition(j.id, "cancel")}>取消批次</button>}
-      {j.result?.version && <><Link className="btn" to={`/datasets/${encodeURIComponent(j.result.version.dataset_id)}`}>查看数据集</Link>{j.result.version.readiness?.ready ? <Link className="btn primary" to={`/training?create=1&dataset_version_id=${encodeURIComponent(j.result.version.dataset_version_id)}`}>创建训练</Link> : <small>样本不足，暂不可训练</small>}</>}
+      {canPublish && j.status === "failed" && <button className="btn" disabled={busy} onClick={() => transition(j.id, "retry")}>重试原批次</button>}
+      {canPublish && ["preview", "failed"].includes(j.status) && <button className="btn" disabled={busy} onClick={() => transition(j.id, "cancel")}>取消批次</button>}
+      {canPublish && j.result?.version && <><Link className="btn" to={`/datasets/${encodeURIComponent(j.result.version.dataset_id)}`}>查看数据集</Link>{j.result.version.readiness?.ready ? <Link className="btn primary" to={`/training?create=1&dataset_version_id=${encodeURIComponent(j.result.version.dataset_version_id)}`}>创建训练</Link> : <small>样本不足，暂不可训练</small>}</>}
     </div></article>)}{!history.items.length && <p className="ann-empty">暂无发布记录</p>}<Pager page={historyPage} total={history.total} onChange={setHistoryPage} prefix="发布记录" /></section>
   </div>;
 }
-function ReleasePreview({ job, busy, onPublish }) {
+function ReleasePreview({ job, busy, canPublish, onPublish }) {
   const summary = job.preview.changes;
   return <section className="pub-card pub-preview" aria-label="发布检查结果"><h3><span>03</span>检查完成 · 确认发布</h3><p>{job.preview.new_dataset ? `新建「${job.plan.request.name}」· 首版 v1` : `追加到「${job.preview.base_name}」· 基于 v${job.preview.base_number}`}</p><div className="pub-totals"><span>所选<strong>{job.preview.selected_count}</strong></span><span>新增<strong>{summary.added_count ?? "后台确认"}</strong></span><span>去重<strong>{summary.duplicate_count ?? "后台确认"}</strong></span></div>
     {summary.existing_class_additions && <p>已有类别补充：{Object.entries(summary.existing_class_additions).map(([label, count]) => `${label} +${count} 张`).join("；") || "无"}</p>}
     {summary.new_class_additions && <p>新增类别：{Object.entries(summary.new_class_additions).map(([label, count]) => `${label}（${count} 张）`).join("；") || "无"}</p>}
     {summary.split_counts && <div className="pub-table-wrap"><table><thead><tr><th>合并后的类别</th><th>训练集</th><th>验证集</th><th>测试集</th></tr></thead><tbody>{[...new Set(Object.values(summary.split_counts).flatMap(c => Object.keys(c)))].sort().map(label => <tr key={label}><td>{label}</td>{["train", "val", "test"].map(s => <td key={s}>{summary.split_counts[s]?.[label] || 0}</td>)}</tr>)}</tbody><tfoot><tr><th>合计</th>{["train", "val", "test"].map(s => <th key={s}>{sum(summary.split_counts[s])}</th>)}</tr></tfoot></table></div>}
-    {summary.warnings?.map((warning, i) => <p key={i} className="pub-warning">{warning}</p>)}{job.plan.request.notes && <p>说明：{job.plan.request.notes}</p>}<p>本批样本与标签已锁定快照。后台注册成功后才能创建训练；不会修改原版本或自动启动训练。</p><button type="button" className="btn primary" disabled={busy || job.status !== "preview"} onClick={onPublish}>确认发布数据集版本</button>
+    {summary.warnings?.map((warning, i) => <p key={i} className="pub-warning">{warning}</p>)}{job.plan.request.notes && <p>说明：{job.plan.request.notes}</p>}<p>本批样本与标签已锁定快照。后台注册成功后才能创建训练；不会修改原版本或自动启动训练。</p>{canPublish ? <button type="button" className="btn primary" disabled={busy || job.status !== "preview"} onClick={onPublish}>确认发布数据集版本</button> : <p className="pub-info">清单已保存，请联系平台管理员确认发布数据集版本。</p>}
   </section>;
 }
 function Pager({ page, total, onChange, prefix }) { const pages = Math.max(1, Math.ceil(total / 12)); return <footer className="ann-pagination"><button className="btn" aria-label={`${prefix}上一页`} disabled={page <= 1} onClick={() => onChange(page - 1)}>‹</button><span>{page} / {pages} · 每页 12 条</span><button className="btn" aria-label={`${prefix}下一页`} disabled={page >= pages} onClick={() => onChange(page + 1)}>›</button></footer>; }
