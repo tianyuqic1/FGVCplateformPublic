@@ -648,7 +648,7 @@ export interface components {
              * @default dinov3_vits16_lvd1689m
              * @enum {string}
              */
-            backbone_key: "dinov3_vits16_lvd1689m" | "imagenet_vits16_augreg_in21k_ft_in1k" | "imagenet_resnet50_a1_in1k";
+            backbone_key: "dinov3_vits16_lvd1689m" | "imagenet_vits16_augreg_in21k_ft_in1k" | "imagenet_resnet50_a1_in1k" | "inat2021_mobilenetv3_large_kd";
             /** @deprecated */
             backbone_id?: string;
             /** @default 3 */
@@ -657,7 +657,7 @@ export interface components {
              * @deprecated
              * @enum {string}
              */
-            extractor?: "color_stats" | "dinov3_vits" | "imagenet_vits" | "imagenet_resnet50";
+            extractor?: "color_stats" | "dinov3_vits" | "imagenet_vits" | "imagenet_resnet50" | "inat_mobilenetv3";
             /** @default 8 */
             feature_batch_size: number;
             /** @description Managed image training supports 128–512; ViT-S requires multiples of 16. UI presets: 224, 256, 320, 384, 448, 512. Saved preprocessing is reused by publication and inference. */
@@ -672,7 +672,7 @@ export interface components {
             /** @default 1 */
             review_cost_per_item: number;
             extractor_config?: components["schemas"]["FreeFormObject"];
-            /** @description Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate only to ImageNet; lora_learning_rate only to enabled DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features. */
+            /** @description Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. iNat distilled MobileNetV3 defaults to a frozen backbone and new head; train_backbone=true enables full fine-tuning and LoRA is unsupported. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate applies to full training; lora_learning_rate applies only to DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features. */
             head_config?: components["schemas"]["FreeFormObject"];
         };
         ClaimTrainingJob: {

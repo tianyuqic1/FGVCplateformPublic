@@ -39,6 +39,19 @@
       "sha256": "773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb",
       "size_bytes": 102469840,
       "format": "safetensors"
+    },
+    {
+      "preset": "inat2021_mobilenetv3_large_kd",
+      "model_id": "Tianyuqi/inat2021-mini-mobilenetv3-large",
+      "architecture": "mobilenet_v3_large",
+      "upstream": "https://modelscope.cn/models/Tianyuqi/inat2021-mini-mobilenetv3-large",
+      "revision": "checkpoint-epoch-18",
+      "license": "DINOv3 License",
+      "license_url": "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
+      "lfs_path": "weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors",
+      "sha256": "ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9",
+      "size_bytes": 12015440,
+      "format": "safetensors"
     }
   ]
 }

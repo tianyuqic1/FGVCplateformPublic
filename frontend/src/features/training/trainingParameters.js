@@ -10,11 +10,14 @@ export const augmentationOptions = [
 
 export function trainingHeadConfig(form) {
   const dino = form.backboneKey.startsWith("dinov3_");
+  const distilled = form.backboneKey === "inat2021_mobilenetv3_large_kd";
+  const full = !dino && (!distilled || form.trainBackbone);
   return {
     head_type: "image_classifier_v2", epochs: Number(form.epochs), batch_size: Number(form.batchSize),
     lora_enabled: dino && form.loraEnabled, lora_rank: Number(form.loraRank),
+    ...(distilled ? { train_backbone: Boolean(form.trainBackbone) } : {}),
     head_learning_rate: Number(form.headLearningRate),
-    ...(!dino ? { backbone_learning_rate: Number(form.backboneLearningRate) } : form.loraEnabled ? { lora_learning_rate: Number(form.loraLearningRate) } : {}),
+    ...(full ? { backbone_learning_rate: Number(form.backboneLearningRate) } : dino && form.loraEnabled ? { lora_learning_rate: Number(form.loraLearningRate) } : {}),
     augmentations: { ...form.augmentations },
   };
 }

@@ -28,10 +28,13 @@ def test_only_approved_phase_two_weights_are_manifested_and_integrity_checked() 
         assert runtime_descriptor.uri.endswith(weight["sha256"])
     assert (ROOT / "weights" / "pretrained" / "dinov3" / "LICENSE.md").is_file()
     assert (ROOT / "weights" / "pretrained" / "imagenet" / "LICENSE").is_file()
+    assert (ROOT / "weights" / "pretrained" / "inat2021-mini" / "LICENSE.md").is_file()
+    assert (ROOT / "weights" / "pretrained" / "inat2021-mini" / "LICENSE-BSD-3-Clause-torchvision.txt").is_file()
 
 
 def test_git_attributes_scopes_lfs_to_approved_pretrained_weight_files() -> None:
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
     assert "weights/pretrained/dinov3/*.safetensors filter=lfs" in attributes
     assert "weights/pretrained/imagenet/*.safetensors filter=lfs" in attributes
+    assert "weights/pretrained/inat2021-mini/*.safetensors filter=lfs" in attributes
     assert "*.npz filter=lfs" not in attributes

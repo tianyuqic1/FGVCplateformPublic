@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/modelcatalog"
 )
 
 func normalizeImageTrainingConfig(key string, input map[string]any) (map[string]any, error) {
@@ -28,11 +30,31 @@ func normalizeImageTrainingConfig(key string, input map[string]any) (map[string]
 		}
 	}
 	mode := "frozen"
-	if strings.HasPrefix(key, "imagenet_") {
+	trainBackbone := false
+	if value, exists := config["train_backbone"]; exists {
+		var ok bool
+		trainBackbone, ok = value.(bool)
+		if !ok {
+			return nil, fmt.Errorf("train_backbone must be boolean")
+		}
+	}
+	if key == modelcatalog.INatMobileNetKey {
+		if enabled {
+			return nil, fmt.Errorf("distilled MobileNetV3 does not support LoRA")
+		}
+		if trainBackbone {
+			mode = "full"
+		}
+	} else if strings.HasPrefix(key, "imagenet_") {
+		if trainBackbone {
+			return nil, fmt.Errorf("train_backbone is only supported for distilled MobileNetV3")
+		}
 		if enabled {
 			return nil, fmt.Errorf("ImageNet uses full-parameter training; LoRA is not supported")
 		}
 		mode = "full"
+	} else if trainBackbone {
+		return nil, fmt.Errorf("train_backbone is only supported for distilled MobileNetV3")
 	} else if enabled {
 		mode = "lora"
 	}
@@ -66,6 +88,9 @@ func normalizeImageTrainingConfig(key string, input map[string]any) (map[string]
 	}
 	config["head_type"], config["training_mode"] = "image_classifier_v2", mode
 	config["lora_enabled"], config["lora_rank"] = enabled, rank
+	if key == modelcatalog.INatMobileNetKey {
+		config["train_backbone"] = trainBackbone
+	}
 	for _, name := range []string{"head_learning_rate", "backbone_learning_rate", "lora_learning_rate"} {
 		applicable := name == "head_learning_rate" || (name == "backbone_learning_rate" && mode == "full") || (name == "lora_learning_rate" && mode == "lora")
 		value, exists := config[name]

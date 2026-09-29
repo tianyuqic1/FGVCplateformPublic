@@ -113,7 +113,7 @@ func TestLLMAssistanceIsServedByGoApplication(t *testing.T) {
 	}
 }
 
-func TestModelWeightCatalogExposesOnlyApprovedPhaseTwoBackbonesAndPreservesCanonicalObject(t *testing.T) {
+func TestModelWeightCatalogExposesApprovedBackbonesAndPreservesCanonicalObject(t *testing.T) {
 	server := httptest.NewServer(NewRouter(Dependencies{}))
 	t.Cleanup(server.Close)
 	response, err := http.Get(server.URL + "/api/model-weights")
@@ -125,9 +125,10 @@ func TestModelWeightCatalogExposesOnlyApprovedPhaseTwoBackbonesAndPreservesCanon
 	if err := json.NewDecoder(response.Body).Decode(&catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog["weights"]) != 3 || catalog["weights"][0]["backbone_key"] != "dinov3_vits16_lvd1689m" ||
+	if len(catalog["weights"]) != 4 || catalog["weights"][0]["backbone_key"] != "dinov3_vits16_lvd1689m" ||
 		catalog["weights"][1]["backbone_key"] != "imagenet_vits16_augreg_in21k_ft_in1k" ||
-		catalog["weights"][2]["backbone_key"] != "imagenet_resnet50_a1_in1k" {
+		catalog["weights"][2]["backbone_key"] != "imagenet_resnet50_a1_in1k" ||
+		catalog["weights"][3]["backbone_key"] != "inat2021_mobilenetv3_large_kd" {
 		t.Fatalf("catalog = %#v", catalog)
 	}
 	request, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/model-weights/dinov3_vits", nil)

@@ -12,10 +12,12 @@ import (
 func TestTrainingParametersHTTPAndDetails(t *testing.T) {
 	server := httptest.NewServer(NewRouter(Dependencies{}))
 	defer server.Close()
-	for _, key := range []string{"dinov3_vits16_lvd1689m", "imagenet_vits16_augreg_in21k_ft_in1k", "imagenet_resnet50_a1_in1k"} {
+	for _, key := range []string{"dinov3_vits16_lvd1689m", "imagenet_vits16_augreg_in21k_ft_in1k", "imagenet_resnet50_a1_in1k", "inat2021_mobilenetv3_large_kd"} {
 		for _, size := range []int{224, 256, 320, 384, 448, 512} {
 			config := map[string]any{"head_learning_rate": 0.001, "augmentations": map[string]bool{"horizontal_flip": true, "random_erasing": true}}
-			if key != "dinov3_vits16_lvd1689m" {
+			if key == "inat2021_mobilenetv3_large_kd" {
+				config["train_backbone"] = false
+			} else if key != "dinov3_vits16_lvd1689m" {
 				config["backbone_learning_rate"] = 0.00001
 			} else {
 				config["lora_enabled"] = true

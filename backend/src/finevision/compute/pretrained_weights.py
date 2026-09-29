@@ -50,12 +50,22 @@ MANAGED_WEIGHTS = {
         architecture="resnet50.a1_in1k",
         environment_key="FINEVISION_IMAGENET_RESNET50_WEIGHT",
     ),
+    "inat2021_mobilenetv3_large_kd": ManagedWeight(
+        artifact_id="pretrained-inat2021-mini-mobilenetv3-kd",
+        backbone_key="inat2021_mobilenetv3_large_kd",
+        category="inat2021-mini/mobilenetv3-large",
+        sha256="ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9",
+        size_bytes=12_015_440,
+        architecture="mobilenet_v3_large",
+        environment_key="FINEVISION_INAT_MOBILENETV3_WEIGHT",
+    ),
 }
 
 WEIGHT_ALIASES = {
     "dinov3_vits": "dinov3_vits16_lvd1689m",
     "imagenet_vits": "imagenet_vits16_augreg_in21k_ft_in1k",
     "imagenet_resnet50": "imagenet_resnet50_a1_in1k",
+    "inat_mobilenetv3": "inat2021_mobilenetv3_large_kd",
 }
 
 

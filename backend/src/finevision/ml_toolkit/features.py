@@ -54,6 +54,19 @@ BACKBONE_SPECS: dict[str, dict[str, Any]] = {
         "feature_pool": "model",
         "weight_env": "FINEVISION_IMAGENET_RESNET50_WEIGHT",
     },
+    "inat2021_mobilenetv3_large_kd": {
+        "legacy_extractor": "inat_mobilenetv3",
+        "backbone_id": "inat2021_mobilenetv3_large_kd",
+        "model_name": "torchvision.mobilenet_v3_large",
+        "repo_id": "Tianyuqi/inat2021-mini-mobilenetv3-large",
+        "architecture": "mobilenet_v3_large",
+        "pretraining_method": "DINOv3 ViT-B logit distillation",
+        "pretraining_dataset": "ImageNet-1K → iNat2021 mini",
+        "image_size": 224,
+        "feature_dim": 960,
+        "feature_pool": "model",
+        "weight_env": "FINEVISION_INAT_MOBILENETV3_WEIGHT",
+    },
 }
 
 BACKBONE_ALIASES = {
@@ -170,11 +183,20 @@ class TimmFeatureExtractor:
             raise RuntimeError("Managed timm extraction requested cuda, but torch.cuda.is_available() is false.")
 
         if self._model is None or self._transform is None:
-            model = timm.create_model(
-                self.model_name,
-                pretrained=self.pretrained if self.checkpoint_path is None else False,
-                num_classes=0,
-            )
+            if self.model_name == "torchvision.mobilenet_v3_large":
+                from finevision.ml_toolkit.distilled_mobilenet import DistilledMobileNetBackbone, preprocessing
+
+                if self.checkpoint_path is None:
+                    raise RuntimeError("Verified iNat distilled MobileNetV3 weight is required")
+                model = DistilledMobileNetBackbone()
+                data_config = preprocessing()
+            else:
+                model = timm.create_model(
+                    self.model_name,
+                    pretrained=self.pretrained if self.checkpoint_path is None else False,
+                    num_classes=0,
+                )
+                data_config = resolve_model_data_config(model)
             if self.checkpoint_path is not None:
                 from safetensors.torch import load_file
 
@@ -189,7 +211,6 @@ class TimmFeatureExtractor:
                         f"missing={incompatible.missing_keys}, unexpected={unsupported}"
                     )
             model.eval().to(self.device)
-            data_config = resolve_model_data_config(model)
             if self.image_size is not None:
                 data_config["input_size"] = (3, int(self.image_size), int(self.image_size))
             self._model = model

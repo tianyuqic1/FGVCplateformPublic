@@ -12,6 +12,7 @@ func TestImageTrainingModes(t *testing.T) {
 		{"dinov3_vits16_lvd1689m", false, 8, "frozen"}, {"dinov3_vits16_lvd1689m", true, 8, "lora"},
 		{"dinov3_vits16_lvd1689m", true, 16, "lora"}, {"imagenet_vits16_augreg_in21k_ft_in1k", false, 8, "full"},
 		{"imagenet_resnet50_a1_in1k", false, 8, "full"},
+		{"inat2021_mobilenetv3_large_kd", false, 8, "frozen"},
 	} {
 		cfg, err := normalizeImageTrainingConfig(tc.key, map[string]any{"lora_enabled": tc.lora, "lora_rank": tc.rank})
 		if err != nil || cfg["training_mode"] != tc.mode || cfg["head_type"] != "image_classifier_v2" {
@@ -25,6 +26,16 @@ func TestImageTrainingModes(t *testing.T) {
 	}
 	if _, err := normalizeImageTrainingConfig("imagenet_vits16_augreg_in21k_ft_in1k", map[string]any{"lora_enabled": true}); err == nil {
 		t.Fatal("ImageNet LoRA accepted")
+	}
+	if _, err := normalizeImageTrainingConfig("inat2021_mobilenetv3_large_kd", map[string]any{"lora_enabled": true}); err == nil {
+		t.Fatal("distilled MobileNet LoRA accepted")
+	}
+	full, err := normalizeImageTrainingConfig("inat2021_mobilenetv3_large_kd", map[string]any{"train_backbone": true, "backbone_learning_rate": 0.00001})
+	if err != nil || full["training_mode"] != "full" {
+		t.Fatalf("distilled full mode: %v %v", full, err)
+	}
+	if _, err := normalizeImageTrainingConfig("inat2021_mobilenetv3_large_kd", map[string]any{"train_backbone": "true"}); err == nil {
+		t.Fatal("invalid train_backbone accepted")
 	}
 }
 

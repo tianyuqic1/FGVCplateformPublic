@@ -49,6 +49,12 @@ const backbones = [
     pretraining: "ImageNet-1K · supervised",
     feature: "2048-dim · global pooling",
   },
+  {
+    key: "inat2021_mobilenetv3_large_kd",
+    name: "MobileNetV3-Large",
+    pretraining: "iNat2021 mini · DINOv3 ViT-B 蒸馏",
+    feature: "960-dim · global pooling · 生物领域",
+  },
 ];
 
 function runBackboneLabel(run) {
@@ -58,7 +64,8 @@ function runBackboneLabel(run) {
 function trainingModeLabel(run) {
   const config = run.headConfig ?? {};
   if (config.head_type !== "image_classifier_v2") return "旧版 · 特征 + 分类头";
-  if (config.training_mode === "full") return "ImageNet · 全参数更新";
+  if (config.training_mode === "full") return "全参数更新";
+  if (run.backboneId === "inat2021_mobilenetv3_large_kd") return "iNat 蒸馏 · 冻结骨干，仅训练分类头";
   return config.lora_enabled ? `DINOv3 · 冻结骨干 + LoRA r=${config.lora_rank}` : "DINOv3 · 冻结骨干，仅训练分类头";
 }
 
@@ -74,8 +81,9 @@ export function TrainingPage({ showToast }) {
   const [page, setPage] = useState(1);
   const { trainingRuns, pagination, loading, error, refresh } = useTrainingRunPage({ query: queueQuery, status: statusFilter, datasetId: queueDataset, backboneId: queueBackbone, limit: 6, offset: (page - 1) * 6 });
   const { counts } = useTrainingRunSummary();
-  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", epochs: "30", batchSize: "8", imageSize: "224", headLearningRate: "0.001", backboneLearningRate: "0.00001", loraLearningRate: "0.0001", augmentations: {} });
+  const [form, setForm] = useState({ name: "", datasetVersionId: searchParams.get("dataset_version_id") ?? "", backboneKey: backbones[0].key, loraEnabled: false, loraRank: "8", trainBackbone: false, epochs: "30", batchSize: "8", imageSize: "224", headLearningRate: "0.001", backboneLearningRate: "0.00001", loraLearningRate: "0.0001", augmentations: {} });
   const isDino = form.backboneKey.startsWith("dinov3_");
+  const isDistilled = form.backboneKey === "inat2021_mobilenetv3_large_kd";
   const [submitting, setSubmitting] = useState(false);
   const weightByKey = Object.fromEntries(weights.map((weight) => [weight.backboneKey, weight]));
 
@@ -137,8 +145,8 @@ export function TrainingPage({ showToast }) {
             <section className={`fv-adaptation-card ${isDino && form.loraEnabled ? "is-active" : ""}`} aria-label="训练策略">
               <div className="fv-adaptation-heading">
                 <span className="fv-adaptation-icon"><Icon name="SlidersHorizontal" size={17} /></span>
-                <div><span className="fv-adaptation-eyebrow">训练策略</span><strong>{isDino ? "DINOv3" : "ImageNet"}</strong></div>
-                <span className="fv-adaptation-badge">{isDino ? "骨干冻结" : "全参数更新"}</span>
+                <div><span className="fv-adaptation-eyebrow">训练策略</span><strong>{isDino ? "DINOv3" : isDistilled ? "iNat 蒸馏" : "ImageNet"}</strong></div>
+                <span className="fv-adaptation-badge">{isDino || (isDistilled && !form.trainBackbone) ? "骨干冻结" : "全参数更新"}</span>
               </div>
               {isDino ? <>
                 <div className="fv-adaptation-toggle-row">
@@ -152,6 +160,12 @@ export function TrainingPage({ showToast }) {
                   </button>)}
                 </div>}
                 <div className="fv-adaptation-footer"><span className="fv-adaptation-dot" /><span>{form.loraEnabled ? `更新 A/B 矩阵与分类头 · α = ${Number(form.loraRank) * 2}` : "仅训练分类头，保留原始骨干权重"}</span></div>
+              </> : isDistilled ? <>
+                <div className="fv-adaptation-toggle-row">
+                  <div><strong>全量微调骨干</strong><p>默认冻结蒸馏骨干，只训练新分类头；需要时可解冻全部参数。</p></div>
+                  <button type="button" role="switch" aria-label="全量微调骨干" aria-checked={form.trainBackbone} className="fv-lora-switch" onClick={() => setForm(current => ({ ...current, trainBackbone: !current.trainBackbone }))}><span /></button>
+                </div>
+                <div className="fv-adaptation-footer"><span className="fv-adaptation-dot" /><span>{form.trainBackbone ? "更新骨干与分类头" : "只训练新分类头，保留蒸馏骨干权重"}</span></div>
               </> : <div className="fv-adaptation-full"><strong>骨干与分类头共同训练</strong><p>从预训练权重初始化，更新全部参数，不使用 LoRA。</p></div>}
             </section>
             <label><span>训练轮数</span><input type="number" required min="1" max="1000" step="1" value={form.epochs} onChange={event => setForm({ ...form, epochs: event.target.value })} /></label>

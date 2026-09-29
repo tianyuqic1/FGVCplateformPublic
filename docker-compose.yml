@@ -357,8 +357,7 @@ services:
       - -c
       - |
         # 预训练权重缺失 / 损坏 / 仍为 Git LFS 指针时【不阻塞启动】。
-        # 托管权重不可用时，运行时回退到 timm 自带预训练下载
-        # （见 backend/src/finevision/ml_toolkit/features.py:175）。
+        # 托管权重不可用时，选用该骨干的任务会明确失败。
         # 因此这里逐项告警并汇总，最终始终以 0 退出，避免拖垮整个栈。
         skipped=0
         mc alias set finevision http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" \
@@ -405,8 +404,9 @@ services:
         promote /weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors pretrained/dinov3/2a/2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 86362376
         promote /weights/pretrained/imagenet/vit_small_patch16_224.augreg_in21k_ft_in1k.safetensors pretrained/imagenet/vit-small/79/79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 88216496
         promote /weights/pretrained/imagenet/resnet50.a1_in1k.safetensors pretrained/imagenet/resnet-50/77/773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 102469840
+        promote /weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors pretrained/inat2021-mini/mobilenetv3-large/ae/ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9 ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9 12015440
         if [ "$${skipped}" -gt 0 ]; then
-          echo "WARN $${skipped}/3 个预训练权重未登记；使用对应骨干时将回退到 timm 自带预训练下载。" >&2
+          echo "WARN $${skipped}/4 个预训练权重未登记；使用缺失权重的骨干时任务将报告不可用。" >&2
         fi
         exit 0
     environment:

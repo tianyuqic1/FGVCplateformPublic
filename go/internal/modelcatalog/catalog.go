@@ -3,7 +3,7 @@ package modelcatalog
 import "strings"
 
 // Backbone is an immutable training choice exposed by the control plane.
-// Key is the public contract; ModelName is the exact timm architecture name.
+// Key is the public contract; ModelName names the backend loader architecture.
 type Backbone struct {
 	Key                string
 	LegacyExtractor    string
@@ -26,9 +26,10 @@ type Backbone struct {
 }
 
 const (
-	DINOv3ViTSKey   = "dinov3_vits16_lvd1689m"
-	ImageNetViTSKey = "imagenet_vits16_augreg_in21k_ft_in1k"
-	ResNet50Key     = "imagenet_resnet50_a1_in1k"
+	DINOv3ViTSKey    = "dinov3_vits16_lvd1689m"
+	ImageNetViTSKey  = "imagenet_vits16_augreg_in21k_ft_in1k"
+	ResNet50Key      = "imagenet_resnet50_a1_in1k"
+	INatMobileNetKey = "inat2021_mobilenetv3_large_kd"
 )
 
 var approved = []Backbone{
@@ -58,6 +59,15 @@ var approved = []Backbone{
 		SHA256: "773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb", SizeBytes: 102_469_840,
 		License: "Apache-2.0", LicenseURL: "https://github.com/huggingface/pytorch-image-models/blob/main/LICENSE",
 		LFSPath: "weights/pretrained/imagenet/resnet50.a1_in1k.safetensors",
+	},
+	{
+		Key: INatMobileNetKey, LegacyExtractor: "inat_mobilenetv3", DisplayName: "MobileNetV3-Large · iNat2021 mini 蒸馏",
+		Architecture: "mobilenet_v3_large", ModelName: "torchvision.mobilenet_v3_large", ModelID: "Tianyuqi/inat2021-mini-mobilenetv3-large",
+		Revision: "checkpoint-epoch-18", PretrainingMethod: "DINOv3 ViT-B logit distillation", PretrainingDataset: "ImageNet-1K → iNat2021 mini",
+		InputSize: 224, FeatureDim: 960, ParameterCount: 2_971_952, Pooling: "model",
+		SHA256: "ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9", SizeBytes: 12_015_440,
+		License: "DINOv3 License", LicenseURL: "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
+		LFSPath: "weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors",
 	},
 }
 

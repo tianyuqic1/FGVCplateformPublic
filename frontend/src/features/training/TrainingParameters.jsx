@@ -4,13 +4,15 @@ import "./training-parameters.css";
 
 export function TrainingParameters({ form, setForm }) {
   const isDino = form.backboneKey.startsWith("dinov3_");
+  const isDistilled = form.backboneKey === "inat2021_mobilenetv3_large_kd";
+  const full = !isDino && (!isDistilled || form.trainBackbone);
   const selectedCount = augmentationOptions.filter(([key]) => form.augmentations[key]).length;
   const update = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  const rates = [["headLearningRate", "分类头学习率"], ...(!isDino ? [["backboneLearningRate", "骨干学习率"]] : form.loraEnabled ? [["loraLearningRate", "LoRA 学习率"]] : [])];
+  const rates = [["headLearningRate", "分类头学习率"], ...(full ? [["backboneLearningRate", "骨干学习率"]] : isDino && form.loraEnabled ? [["loraLearningRate", "LoRA 学习率"]] : [])];
   return <>
     <section className="fv-parameter-section"><header><strong>优化器参数</strong><small>AdamW · 独立参数组</small></header>
       <div className="fv-parameter-grid">{rates.map(([key, label]) => <label key={key}><span>{label}</span><input aria-label={label} type="number" required min="0.000000001" max="1" step="any" value={form[key]} onChange={e => update(key, e.target.value)} /></label>)}</div>
-      <p>{isDino ? form.loraEnabled ? "骨干保持冻结，仅更新分类头与 LoRA A/B 矩阵。" : "骨干保持冻结，仅更新分类头。" : "骨干与分类头分别使用自己的学习率，全量更新。"} 支持科学计数法，如 1e-4。</p>
+      <p>{isDino ? form.loraEnabled ? "骨干保持冻结，仅更新分类头与 LoRA A/B 矩阵。" : "骨干保持冻结，仅更新分类头。" : full ? "骨干与分类头分别使用自己的学习率，全量更新。" : "蒸馏骨干保持冻结，仅更新分类头。"} 支持科学计数法，如 1e-4。</p>
     </section>
     <section className="fv-parameter-section"><header><strong>输入分辨率</strong><small>正方形图像 · RGB</small></header>
       <select aria-label="输入图片分辨率" value={form.imageSize} onChange={e => update("imageSize", e.target.value)}>{resolutions.map(size => <option key={size} value={size}>{size} × {size}{size === 224 ? " · 标准" : size >= 384 ? " · 高分辨率" : ""}</option>)}</select>

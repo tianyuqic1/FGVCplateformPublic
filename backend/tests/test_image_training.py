@@ -55,6 +55,32 @@ def test_invalid_modes_rejected(key, config):
         training_mode(key, config)
 
 
+def test_inat_distilled_weight_trains_new_head_and_reloads(tmp_path, monkeypatch):
+    from finevision.compute.pretrained_weights import MANAGED_WEIGHTS
+    from finevision.ml_toolkit.datasets import scan_imagefolder
+    from finevision.ml_toolkit.image_training import load_classifier, train_images
+
+    key = "inat2021_mobilenetv3_large_kd"
+    root = Path(__file__).resolve().parents[2]
+    weight = root / "weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors"
+    monkeypatch.setenv(MANAGED_WEIGHTS[key].environment_key, str(weight))
+    monkeypatch.setenv("FINEVISION_COMPUTE_DEVICE", "cpu")
+    manifest = scan_imagefolder(root / "data/examples/toy-shapes-imagefolder", "toy", "v1")
+    config = {"epochs": 1, "batch_size": 4, "head_learning_rate": 1e-3}
+    _, artifact, report, logits = train_images(
+        manifest, {"backbone_id": key, "training_run_id": "inat-smoke", "head_config": config}, tmp_path,
+        progress=lambda *_: None, check_control=lambda: None,
+    )
+    loaded, checkpoint = load_classifier(Path(artifact.model_path))
+    assert checkpoint["backbone_key"] == key
+    assert checkpoint["training_config"]["training_mode"] == "frozen"
+    assert checkpoint["training_config"]["trainable_parameters"] == len(manifest.classes) * 961
+    assert loaded.backbone.num_features == 960
+    assert logits.shape == (len(manifest.samples), len(manifest.classes))
+    assert np.isfinite(logits).all()
+    assert report.evaluation.run_config["evaluation_split"] == "test"
+
+
 @pytest.mark.parametrize("key,rank", [("dinov3_vits16_lvd1689m", 0), ("dinov3_vits16_lvd1689m", 8), ("dinov3_vits16_lvd1689m", 16), ("imagenet_vits16_augreg_in21k_ft_in1k", 0)])
 @pytest.mark.parametrize("precision", ["FP32", "FP16"])
 @pytest.mark.parametrize("image_size", [224, 320])

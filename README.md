@@ -11,7 +11,7 @@ FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖
 
 - **Worker 状态**：独立实例心跳、分页筛选、共享负载与任务关联；管理员查看完整诊断，业务人员只读查看本人训练任务，标注员仅查看 AI 服务提示。[部署与状态含义](docs/worker-status.md)。
 - **数据资产**：ImageFolder 导入、后台校验、样本预览、不可变版本、数据血缘与训练集扩充。
-- **训练策略**：DINOv3 ViT-S 冻结骨干或 LoRA R8/R16；ImageNet ViT-S、ResNet-50 全量训练；独立学习率、输入尺寸和常用数据增强。
+- **训练策略**：DINOv3 ViT-S 冻结骨干或 LoRA R8/R16；ImageNet ViT-S、ResNet-50 全量训练；iNat 蒸馏 MobileNetV3-Large 默认冻结骨干，也可全量微调；独立学习率、输入尺寸和常用数据增强。
 - **模型注册表**：按数据集及数据版本聚合；语义版本、指标对比、发布门禁和产物完整性校验。
 - **多后端推理**：完整 PT、ONNX FP32/FP16、TensorRT，以及面向华为 Ascend 的独立 Worker 接口。
 - **选择性推理**：置信度、margin、能量分数与类别阈值组合；低置信样本进入人工复核。
@@ -62,7 +62,7 @@ cp .env.example .env
 
 > ⚠️ **`git lfs install --local` 不能省。** 用 conda 安装的 git-lfs 不会自动注册 filter（Homebrew、官方安装器与 apt 会）。缺少该配置时 `git lfs pull` 会**下载完整对象却跳过检出、且退出码为 0** —— 看似成功，工作区里留下的仍是 133 字节的指针文件，直到训练或 `docker compose up` 才暴露。
 
-权重缺失不影响启动：运行时会回退到 timm 自带预训练下载。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。
+权重缺失不影响启动，但选择该骨干的任务会明确报错。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。
 
 .env.example 提供可启动的本地开发默认值。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
 
@@ -181,21 +181,22 @@ dataset/
 
 ## 预训练权重
 
-仓库只用 Git LFS 保存允许再分发且身份固定的预训练权重：
+仓库只用 Git LFS 保存允许再分发且身份固定的预训练与蒸馏初始化权重：
 
 - DINOv3 ViT-S
 - ImageNet ViT-S
 - ImageNet ResNet-50
+- iNat2021-mini DINOv3 ViT-B → MobileNetV3-Large 骨干
 
 权重来源、revision、许可证、SHA-256 和大小统一登记在
-[权重清单](weights/manifest.json)。训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
+[权重清单](weights/manifest.json)。除上述固定蒸馏骨干外，训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
 
 `pretrained/` 是独立的对外发布包，内含上述权重的发布副本、DINOv3 ViT-B/L 家族，以及蒸馏产物的 model card 与许可证。该目录的权重二进制同样被 Git 忽略，只把文本纳入版本管理；平台运行时不读取它。详见
 [对外发布包说明](pretrained/README.md)。
 
 ## 蒸馏权重
 
-平台产出的蒸馏权重不进入 Git，作为独立模型对外发布。当前已发布一份：
+平台将蒸馏骨干的固定版本作为托管初始化权重纳入 Git LFS；完整分类器、评估报告和对外发布包另行分发。当前已发布一份：
 
 **iNat2021-mini · DINOv3 ViT-B/16 → MobileNetV3-Large** —— 冻结的 DINOv3 ViT-B/16 作教师（配 10,000 类线性探针头），蒸馏进 MobileNetV3-Large；训练数据为 iNaturalist 2021 mini，50 万图 / 10,000 类。
 
@@ -209,6 +210,8 @@ dataset/
 
 发布地址：[ModelScope](https://modelscope.cn/models/Tianyuqi/inat2021-mini-mobilenetv3-large)。模型卡、蒸馏配置与完整对照表见
 [pretrained/inat2021-mini-mobilenetv3-large](pretrained/inat2021-mini-mobilenetv3-large/README.md)。
+
+工作台可直接选择该骨干训练新数据集的分类头，默认冻结 960 维骨干；也可选择全量微调。输入预处理固定为 224 像素短边缩放、中心裁剪和 ImageNet 均值/方差。该选择加载的是蒸馏后的骨干，不会附带 iNat 的 10,000 类分类头。
 
 域外迁移（Stanford Cars）降至 12.13%，低于原始 ImageNet 初始化权重的 23.02% —— 生物域特化的预期代价，非生物域任务不宜直接采用。
 

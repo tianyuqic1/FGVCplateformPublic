@@ -309,10 +309,14 @@ func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 		category = "dinov3"
 	} else if backbone.Key == modelcatalog.ResNet50Key {
 		category = "imagenet/resnet-50"
+	} else if backbone.Key == modelcatalog.INatMobileNetKey {
+		category = "inat2021-mini/mobilenetv3-large"
 	}
 	trainingStrategy := "ImageNet 预训练初始化，骨干与分类头全参数更新。"
 	if backbone.Key == modelcatalog.DINOv3ViTSKey {
 		trainingStrategy = "DINOv3 骨干冻结；可训练分类头，或启用 LoRA r=8/16 训练低秩增量。"
+	} else if backbone.Key == modelcatalog.INatMobileNetKey {
+		trainingStrategy = "iNat 蒸馏骨干默认冻结，仅训练新分类头；可选全量微调。适用于生物细粒度任务，跨域效果需验证。"
 	}
 	return map[string]any{
 		"preset": backbone.Key, "extractor": backbone.LegacyExtractor, "backbone_key": backbone.Key,

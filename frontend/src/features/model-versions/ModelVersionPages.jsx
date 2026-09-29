@@ -30,6 +30,7 @@ function backboneLabel(version) {
   if (version.backboneKey === "dinov3_vits16_lvd1689m") return "ViT-S/16 · DINOv3";
   if (version.backboneKey === "imagenet_vits16_augreg_in21k_ft_in1k") return "ViT-S/16 · ImageNet";
   if (version.backboneKey === "imagenet_resnet50_a1_in1k") return "ResNet-50 · ImageNet";
+  if (version.backboneKey === "inat2021_mobilenetv3_large_kd") return "MobileNetV3-Large · iNat 蒸馏";
   return version.architecture || version.backboneKey || "未记录";
 }
 
