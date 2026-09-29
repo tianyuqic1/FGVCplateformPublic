@@ -46,7 +46,7 @@ Python Compute Services
 ### 环境要求
 
 - Docker Engine 与 Docker Compose v2
-- Git LFS
+- Git LFS（安装后还需执行一次 `git lfs install`，见下节）
 - 可选：NVIDIA Container Toolkit（GPU 训练或 TensorRT）
 - 可选：Python 3.11+、uv、Go 1.26、Node.js 22+（宿主机开发）
 
@@ -62,7 +62,7 @@ cp .env.example .env
 
 > ⚠️ **`git lfs install --local` 不能省。** 用 conda 安装的 git-lfs 不会自动注册 filter（Homebrew、官方安装器与 apt 会）。缺少该配置时 `git lfs pull` 会**下载完整对象却跳过检出、且退出码为 0** —— 看似成功，工作区里留下的仍是 133 字节的指针文件，直到训练或 `docker compose up` 才暴露。
 
-权重缺失不影响启动：运行时会回退到 timm 自带预训练下载。可用 `scripts/check-weights.sh` 自查（`--strict` 供 CI 使用），`scripts/demo-up.sh` 启动前也会自动跑一次。
+权重缺失不影响启动：运行时会回退到 timm 自带预训练下载。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。
 
 .env.example 提供可启动的本地开发默认值。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
 
@@ -190,6 +190,9 @@ dataset/
 权重来源、revision、许可证、SHA-256 和大小统一登记在
 [权重清单](weights/manifest.json)。训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
 
+`pretrained/` 是独立的对外发布包，内含上述权重的发布副本、DINOv3 ViT-B/L 家族，以及蒸馏产物的 model card 与许可证。该目录的权重二进制同样被 Git 忽略，只把文本纳入版本管理；平台运行时不读取它。详见
+[对外发布包说明](pretrained/README.md)。
+
 ## 蒸馏权重
 
 平台产出的蒸馏权重不进入 Git，作为独立模型对外发布。当前已发布一份：
@@ -252,6 +255,12 @@ npm --prefix frontend run test:e2e
 scripts/smoke-demo.sh --contracts-only
 ~~~
 
+权重完整性（对照 `weights/manifest.json` 校验存在性、Git LFS 指针、大小与 SHA-256）：
+
+~~~bash
+scripts/check-weights.sh --strict
+~~~
+
 展示文档：
 
 ~~~bash
@@ -260,7 +269,7 @@ python3 showcase/check.py
 python3 -m http.server 5180 --directory showcase/site
 ~~~
 
-GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约测试和展示文档完整性检查。
+GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约测试和展示文档完整性检查；其中 Python 测试包含权重清单的存在性、大小与 SHA-256 校验。
 
 ## 目录结构
 
@@ -291,10 +300,11 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 - [用户认证与权限管理](docs/auth.md)
 - [日志、指标、追踪与业务审计](docs/observability.md)
 - [展示文档构建说明](showcase/README.md)
+- [对外发布包与蒸馏权重](pretrained/README.md)
 
 ## 安全与发布边界
 
-- .env、数据集、上传文件、运行日志、Qdrant 本地库和训练产物均被 Git 忽略。
+- .env、数据集、上传文件、运行日志、Qdrant 本地库和训练产物均被 Git 忽略。`pretrained/` 下的权重二进制与 ModelScope CLI 上传缓存同样被忽略，该目录只把许可证、model card 等文本纳入版本管理。
 - 公开仓库不包含测评原图、私有真值、DeepSeek/OpenAI Key 或本地数据库。
 - 默认 Compose 密码及服务令牌仅供本机开发；生产环境必须替换并完善 TLS、集中密钥管理、审计、限流与备份。当前已有三角色 RBAC，OIDC/SSO 尚未实现，可按企业统一登录需求接入。
 - TensorRT engine 与 Ascend OM 绑定硬件和运行时 profile，不能跨设备直接复用。
