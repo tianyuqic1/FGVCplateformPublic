@@ -354,24 +354,61 @@ services:
         condition: service_completed_successfully
     entrypoint:
       - /bin/sh
-      - -ec
+      - -c
       - |
-        mc alias set finevision http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        # 预训练权重缺失 / 损坏 / 仍为 Git LFS 指针时【不阻塞启动】。
+        # 托管权重不可用时，运行时回退到 timm 自带预训练下载
+        # （见 backend/src/finevision/ml_toolkit/features.py:175）。
+        # 因此这里逐项告警并汇总，最终始终以 0 退出，避免拖垮整个栈。
+        skipped=0
+        mc alias set finevision http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" \
+          || echo "WARN 无法连接对象存储，将跳过全部预训练权重登记" >&2
         promote() {
           source="$${1}"
           object="$${2}"
           expected="$${3}"
           expected_size="$${4}"
-          actual="$$(sha256sum "$${source}")"
-          test "$${actual%% *}" = "$${expected}"
-          test "$$(wc -c < "$${source}" | tr -d ' ')" = "$${expected_size}"
-          mc cp --attr "sha256=$${expected}" "$${source}" "finevision/finevision-artifacts/$${object}"
-          actual="$$(mc cat "finevision/finevision-artifacts/$${object}" | sha256sum)"
-          test "$${actual%% *}" = "$${expected}"
+          if [ ! -f "$${source}" ]; then
+            echo "WARN 预训练权重缺失：$${source} —— 跳过（不影响启动）" >&2
+            skipped=$$((skipped + 1))
+            return 0
+          fi
+          size="$$(wc -c < "$${source}" | tr -d ' ')"
+          if [ "$${size}" != "$${expected_size}" ]; then
+            echo "WARN 预训练权重大小不符：$${source}（实际 $${size}，期望 $${expected_size}）—— 跳过（不影响启动）" >&2
+            if head -c 64 "$${source}" | grep -q '^version https://git-lfs.github.com/spec/v1'; then
+              echo "WARN 该文件是 Git LFS 指针而非真实权重。请在宿主机执行：" >&2
+              echo "WARN     git lfs install --local && git lfs pull" >&2
+            fi
+            skipped=$$((skipped + 1))
+            return 0
+          fi
+          digest="$$(sha256sum "$${source}")"
+          if [ "$${digest%% *}" != "$${expected}" ]; then
+            echo "WARN 预训练权重 SHA-256 不匹配：$${source} —— 跳过（不影响启动）" >&2
+            skipped=$$((skipped + 1))
+            return 0
+          fi
+          if ! mc cp --attr "sha256=$${expected}" "$${source}" "finevision/finevision-artifacts/$${object}"; then
+            echo "WARN 预训练权重写入对象存储失败：$${object} —— 跳过（不影响启动）" >&2
+            skipped=$$((skipped + 1))
+            return 0
+          fi
+          stored="$$(mc cat "finevision/finevision-artifacts/$${object}" | sha256sum)"
+          if [ "$${stored%% *}" != "$${expected}" ]; then
+            echo "WARN 对象存储中的权重校验失败：$${object} —— 跳过（不影响启动）" >&2
+            skipped=$$((skipped + 1))
+            return 0
+          fi
+          echo "OK 已登记预训练权重 $${object}"
         }
         promote /weights/pretrained/dinov3/vit_small_patch16_dinov3.lvd1689m.safetensors pretrained/dinov3/2a/2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 2a1ec16ae28ffa07bc0ead0241ee7df9fc26451fe6f9f839b7b3afa0a906b040 86362376
         promote /weights/pretrained/imagenet/vit_small_patch16_224.augreg_in21k_ft_in1k.safetensors pretrained/imagenet/vit-small/79/79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 88216496
         promote /weights/pretrained/imagenet/resnet50.a1_in1k.safetensors pretrained/imagenet/resnet-50/77/773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 102469840
+        if [ "$${skipped}" -gt 0 ]; then
+          echo "WARN $${skipped}/3 个预训练权重未登记；使用对应骨干时将回退到 timm 自带预训练下载。" >&2
+        fi
+        exit 0
     environment:
       MINIO_ROOT_USER: ${FINEVISION_S3_ACCESS_KEY:-finevision}
       MINIO_ROOT_PASSWORD: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}

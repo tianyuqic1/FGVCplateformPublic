@@ -55,9 +55,14 @@ Python Compute Services
 ~~~bash
 git clone git@github.com:tianyuqic1/FGVCplateformPublic.git
 cd FGVCplateformPublic
+git lfs install --local   # 必须先注册 LFS filter，这步不能省
 git lfs pull
 cp .env.example .env
 ~~~
+
+> ⚠️ **`git lfs install --local` 不能省。** 用 conda 安装的 git-lfs 不会自动注册 filter（Homebrew、官方安装器与 apt 会）。缺少该配置时 `git lfs pull` 会**下载完整对象却跳过检出、且退出码为 0** —— 看似成功，工作区里留下的仍是 133 字节的指针文件，直到训练或 `docker compose up` 才暴露。
+
+权重缺失不影响启动：运行时会回退到 timm 自带预训练下载。可用 `scripts/check-weights.sh` 自查（`--strict` 供 CI 使用），`scripts/demo-up.sh` 启动前也会自动跑一次。
 
 .env.example 提供可启动的本地开发默认值。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
 

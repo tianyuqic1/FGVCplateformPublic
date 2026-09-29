@@ -44,6 +44,10 @@ done
 echo "Validating compose configuration..."
 "${compose[@]}" config >/dev/null
 
+# 预训练权重预检：只提示、不阻断（缺失时运行时会回退到 timm 自带预训练）。
+# 需要严格门禁请另行调用 scripts/check-weights.sh --strict。
+scripts/check-weights.sh || true
+
 if [[ "${#build_flag[@]}" -gt 0 ]]; then
   # The inference image extends the local compute image. Build that base first
   # so a clean machine never races Docker Compose's parallel image builds.
