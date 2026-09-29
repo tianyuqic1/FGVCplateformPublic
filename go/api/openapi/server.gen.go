@@ -59,6 +59,7 @@ const (
 	Dinov3Vits16Lvd1689m            CreateTrainingRunBackboneKey = "dinov3_vits16_lvd1689m"
 	ImagenetResnet50A1In1k          CreateTrainingRunBackboneKey = "imagenet_resnet50_a1_in1k"
 	ImagenetVits16AugregIn21kFtIn1k CreateTrainingRunBackboneKey = "imagenet_vits16_augreg_in21k_ft_in1k"
+	Inat2021Mobilenetv3LargeKd      CreateTrainingRunBackboneKey = "inat2021_mobilenetv3_large_kd"
 )
 
 // Valid indicates whether the value is a known member of the CreateTrainingRunBackboneKey enum.
@@ -69,6 +70,8 @@ func (e CreateTrainingRunBackboneKey) Valid() bool {
 	case ImagenetResnet50A1In1k:
 		return true
 	case ImagenetVits16AugregIn21kFtIn1k:
+		return true
+	case Inat2021Mobilenetv3LargeKd:
 		return true
 	default:
 		return false
@@ -81,6 +84,7 @@ const (
 	Dinov3Vits       CreateTrainingRunExtractor = "dinov3_vits"
 	ImagenetResnet50 CreateTrainingRunExtractor = "imagenet_resnet50"
 	ImagenetVits     CreateTrainingRunExtractor = "imagenet_vits"
+	InatMobilenetv3  CreateTrainingRunExtractor = "inat_mobilenetv3"
 )
 
 // Valid indicates whether the value is a known member of the CreateTrainingRunExtractor enum.
@@ -93,6 +97,8 @@ func (e CreateTrainingRunExtractor) Valid() bool {
 	case ImagenetResnet50:
 		return true
 	case ImagenetVits:
+		return true
+	case InatMobilenetv3:
 		return true
 	default:
 		return false
@@ -376,7 +382,7 @@ type CreateTrainingRun struct {
 	FeatureBatchSize *int                          `json:"feature_batch_size,omitempty"`
 	FeaturePool      *CreateTrainingRunFeaturePool `json:"feature_pool,omitempty"`
 
-	// HeadConfig Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate only to ImageNet; lora_learning_rate only to enabled DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features.
+	// HeadConfig Managed backbones use image_classifier_v2. DINOv3 freezes original weights; lora_enabled optionally trains attention QKV A/B with lora_rank 8 or 16, alpha=2r. ImageNet updates all backbone/head parameters and rejects LoRA. iNat distilled MobileNetV3 defaults to a frozen backbone and new head; train_backbone=true enables full fine-tuning and LoRA is unsupported. epochs 1–1000, batch_size 1–128. head_learning_rate applies to all models; backbone_learning_rate applies to full training; lora_learning_rate applies only to DINO LoRA. Rates must be finite numbers in (0,1]; missing group rates fall back to legacy learning_rate. augmentations is a boolean object with random_resized_crop, horizontal_flip, vertical_flip, color_jitter, random_rotation and random_erasing, all disabled by default and applied only to train samples. New image tasks do not produce offline features.
 	HeadConfig *FreeFormObject `json:"head_config,omitempty"`
 
 	// ImageSize Managed image training supports 128–512; ViT-S requires multiples of 16. UI presets: 224, 256, 320, 384, 448, 512. Saved preprocessing is reused by publication and inference.

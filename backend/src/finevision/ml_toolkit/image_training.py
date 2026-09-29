@@ -26,6 +26,15 @@ def training_mode(backbone_key, config):
     rank = config.get("lora_rank", 8)
     if isinstance(rank, bool) or rank not in (8, 16):
         raise ValueError("LoRA rank must be 8 or 16")
+    train_backbone = config.get("train_backbone", False)
+    if not isinstance(train_backbone, bool):
+        raise ValueError("train_backbone must be boolean")
+    if key == "inat2021_mobilenetv3_large_kd":
+        if enabled:
+            raise ValueError("distilled MobileNetV3 does not support attention LoRA")
+        return ("full" if train_backbone else "frozen"), 0
+    if train_backbone:
+        raise ValueError("train_backbone is only supported for distilled MobileNetV3")
     if key.startswith("imagenet_"):
         if enabled:
             raise ValueError("ImageNet requires full-parameter training, not LoRA")
@@ -87,7 +96,14 @@ def build_classifier(key, classes, mode, rank, *, checkpoint_path=None, image_si
     from timm.data import resolve_model_data_config
     key = WEIGHT_ALIASES.get(key, key)
     spec = MANAGED_WEIGHTS[key]
-    backbone = timm.create_model(spec.architecture, pretrained=False, num_classes=0)
+    if key == "inat2021_mobilenetv3_large_kd":
+        from finevision.ml_toolkit.distilled_mobilenet import DistilledMobileNetBackbone, preprocessing as mobile_preprocessing
+
+        backbone = DistilledMobileNetBackbone()
+        data_config = mobile_preprocessing()
+    else:
+        backbone = timm.create_model(spec.architecture, pretrained=False, num_classes=0)
+        data_config = resolve_model_data_config(backbone)
     # Explicit attention is portable across PyTorch and ONNX runtimes.
     for module in backbone.modules():
         if hasattr(module, "fused_attn"):
@@ -98,7 +114,6 @@ def build_classifier(key, classes, mode, rank, *, checkpoint_path=None, image_si
         unexpected = [name for name in incompatible.unexpected_keys if not name.startswith(("head.", "fc.", "classifier."))]
         if incompatible.missing_keys or unexpected:
             raise ValueError("pretrained checkpoint does not match approved backbone")
-    data_config = resolve_model_data_config(backbone)
     preprocessing = {name: data_config[name] for name in ("input_size", "mean", "std", "interpolation", "crop_pct")}
     size = image_size if image_size is not None else preprocessing["input_size"][-1]
     if isinstance(size, bool) or not isinstance(size, (int, float)) or not float(size).is_integer() or not 128 <= size <= 512 or ("vits" in key and size % 16):

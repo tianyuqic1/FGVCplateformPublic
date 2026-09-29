@@ -4,8 +4,7 @@
 # 对照 weights/manifest.json，检查每个权重是否存在、是否为真实文件（而非
 # Git LFS 指针）、大小与 SHA-256 是否与清单一致。
 #
-# 默认【只告警、不阻断】：权重缺失不影响栈启动，运行时会回退到 timm 自带
-# 预训练下载（见 backend/src/finevision/ml_toolkit/features.py）。
+# 默认【只告警、不阻断】：权重缺失不影响栈启动；选用缺失权重的任务会明确失败。
 # 传 --strict 时发现问题以非零退出，可用作 CI 或发布前的完整性门禁。
 set -uo pipefail
 
@@ -86,7 +85,7 @@ if any("Git LFS 指针" in reason for _, _, reason in problems):
 
 print("", file=sys.stderr)
 print(f"  共 {len(problems)}/{len(weights)} 个权重不可用。", file=sys.stderr)
-print("  这【不影响】docker compose 启动：运行时将回退到 timm 自带预训练下载。", file=sys.stderr)
+print("  这【不影响】docker compose 启动；选用缺失权重的任务会明确失败。", file=sys.stderr)
 sys.exit(1)
 PY
 status=$?

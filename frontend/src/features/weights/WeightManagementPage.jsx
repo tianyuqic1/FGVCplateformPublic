@@ -8,6 +8,7 @@ function extractorLabel(extractor) {
   if (["dinov3_vits", "dinov3_vits16_lvd1689m"].includes(extractor)) return "ViT-S · DINOv3";
   if (["imagenet_vits", "imagenet_vits16_augreg_in21k_ft_in1k"].includes(extractor)) return "ViT-S · ImageNet";
   if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor)) return "ResNet-50 · ImageNet";
+  if (["inat_mobilenetv3", "inat2021_mobilenetv3_large_kd"].includes(extractor)) return "MobileNetV3-Large · iNat 蒸馏";
   return extractor;
 }
 
@@ -17,6 +18,8 @@ function usageLabel(extractor) {
     return "ImageNet-21K 预训练并在 ImageNet-1K 微调的 ViT-S。";
   if (["imagenet_resnet50", "imagenet_resnet50_a1_in1k"].includes(extractor))
     return "ImageNet-1K 监督预训练 ResNet-50 对照基线。";
+  if (["inat_mobilenetv3", "inat2021_mobilenetv3_large_kd"].includes(extractor))
+    return "ImageNet 初始化后在 iNat2021 mini 上接受 DINOv3 ViT-B 蒸馏；默认冻结骨干训练新分类头。";
   return "仅支持 manifest 已登记的预训练权重。";
 }
 
@@ -49,7 +52,7 @@ export function WeightManagementPage() {
     <>
       <PageHero
         title="预训练权重"
-        description="查看 DINOv3 ViT-S、ImageNet ViT-S 与 ImageNet ResNet-50 权重登记信息及已上报的缓存状态。"
+        description="查看 DINOv3、ImageNet 与 iNat 蒸馏权重的登记信息及已上报的缓存状态。"
         actions={
           <button type="button" className="ghost-button" onClick={() => refresh()} disabled={loading}>
             <Icon name="RefreshCw" size={16} />
@@ -144,7 +147,7 @@ export function WeightManagementPage() {
             />
             <GateRow
               title="当前训练策略"
-              description="DINOv3 冻结骨干，可选 LoRA r=8/16；ImageNet ViT-S / ResNet-50 更新全部参数。训练过程直接读取图片。"
+              description="DINOv3 冻结骨干，可选 LoRA；ImageNet 骨干全量更新；iNat 蒸馏 MobileNetV3 默认冻结骨干，也可选择全量微调。"
               result="pending"
             />
             <GateRow

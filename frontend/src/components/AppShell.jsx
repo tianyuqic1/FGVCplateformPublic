@@ -28,7 +28,7 @@ const searchItems = [
   { label: "数据集", hint: "导入 ImageFolder、查看类别和样本", to: "/datasets" },
   { label: "训练任务", hint: "查看成功、失败、运行中训练", to: "/training" },
   { label: "模型推理", hint: "选择已发布模型进行图片分类", to: "/inference" },
-  { label: "预训练权重", hint: "DINOv3 / ImageNet ViT-S 与 ResNet-50", to: "/weights" },
+  { label: "预训练权重", hint: "DINOv3、ImageNet 与 iNat 蒸馏 MobileNetV3", to: "/weights" },
   { label: "人工复核", hint: "待复核、历史、人工提交", to: "/review?status=pending" },
   { label: "复核历史", hint: "已进入反馈池的复核记录", to: "/review?status=feedbacked" },
   { label: "反馈池", hint: "训练候选、OOD、坏图、争议", to: "/feedback" },

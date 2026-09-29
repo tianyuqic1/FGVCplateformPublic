@@ -357,8 +357,7 @@ services:
       - -c
       - |
         # 预训练权重缺失 / 损坏 / 仍为 Git LFS 指针时【不阻塞启动】。
-        # 托管权重不可用时，运行时回退到 timm 自带预训练下载
-        # （见 backend/src/finevision/ml_toolkit/features.py:175）。
+        # 托管权重不可用时，选用该骨干的任务会明确失败。
         # 因此这里逐项告警并汇总，最终始终以 0 退出，避免拖垮整个栈。
         skipped=0
         mc alias set finevision http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" \

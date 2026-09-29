@@ -12,6 +12,13 @@ config = trainingHeadConfig({ ...form, backboneKey: "imagenet_vits16_augreg_in21
 assert.equal(config.lora_enabled, false);
 assert.equal(config.lora_learning_rate, undefined);
 assert.equal(config.backbone_learning_rate, .00001);
+config = trainingHeadConfig({ ...form, backboneKey: "inat2021_mobilenetv3_large_kd", trainBackbone: false });
+assert.equal(config.train_backbone, false);
+assert.equal(config.backbone_learning_rate, undefined);
+assert.equal(config.lora_enabled, false);
+config = trainingHeadConfig({ ...form, backboneKey: "inat2021_mobilenetv3_large_kd", trainBackbone: true });
+assert.equal(config.train_backbone, true);
+assert.equal(config.backbone_learning_rate, .00001);
 const run = normalizeTrainingRun({ head_config: config, backbone_id: "imagenet_vits16_augreg_in21k_ft_in1k", extractor_config: { image_size: 320 } });
 const rows = Object.fromEntries(trainingParameterRows(run));
 assert.equal(rows["输入分辨率"], "320 × 320");
