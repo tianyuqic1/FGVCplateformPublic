@@ -155,9 +155,11 @@ EOF
 
 > 若日后增补 HuggingFace，需在两侧互相标注发布地址，避免被误认为无关模型。
 
-## 把新权重接入平台（可选，目前未做）
+## 为什么 ViT-B / ViT-L 不接入平台运行时权重
 
-ViT-B / ViT-L 目前**只在本发布包里**，平台运行时读不到。若要让平台也能用（例如在平台内跑蒸馏），需要改 5 处：
+ViT-B 与 ViT-L **只存在于本发布包**，平台运行时读不到。这是**有意的取舍，不是待办事项**：蒸馏实际只用到 ViT-B，而把 ViT-L（1.13 GiB）放进 Git LFS 会把可克隆次数显著压低（见下）。若将来确需在平台内跑蒸馏，按下面 5 处改即可。
+
+### 接入步骤（5 处，其中 2 与 3 必须同步）
 
 1. `weights/pretrained/dinov3/` — 放入文件；现有 `.gitattributes` 规则 `weights/pretrained/dinov3/*.safetensors` 会自动覆盖，无需改
 2. `weights/manifest.json` — 新增条目（`preset`、`sha256`、`size_bytes`、`lfs_path`）
@@ -167,9 +169,9 @@ ViT-B / ViT-L 目前**只在本发布包里**，平台运行时读不到。若�
 
 > ⚠️ `backend/tests/test_pretrained_weights_manifest.py:16` 断言 `manifest["weights"]` 的 preset 列表等于 `list(MANAGED_WEIGHTS)`，所以 **2 与 3 必须同步修改**，否则测试失败。
 
-### ⚠️ 接入 LFS 前请先算清带宽
+### ⚠️ 接入前请先算清 LFS 带宽
 
-平台运行时权重走 Git LFS，而 GitHub Free 的 LFS 带宽是 **10 GiB/月**，按**仓库 owner** 计（不是克隆者）。
+平台运行时权重走 Git LFS，而 GitHub Free 的 LFS 带宽是 **10 GiB/月**，按**仓库 owner** 计（不是克隆者，任何人克隆都扣你的额度）。
 
 | 场景 | 单次完整克隆 | 10 GiB/月可支撑 |
 |---|---:|---:|
@@ -177,7 +179,7 @@ ViT-B / ViT-L 目前**只在本发布包里**，平台运行时读不到。若�
 | 加入 ViT-B | 590.9 MiB | 约 **17** 次 |
 | 加入 ViT-B + ViT-L | **1,747.1 MiB** | 约 **6** 次 |
 
-超额后 **LFS 支持会在该账号上被停用到下月**，影响你名下所有仓库。因此若要接入平台，建议：
+超额后 **LFS 支持会在该账号上被停用到下月**，影响你名下所有仓库。因此若要接入：
 
 - 只接 ViT-B（蒸馏实际用到），ViT-L 留在发布包里不进 LFS；
 - 或按前文「多源拉取」思路，让运行时从模型平台而非 LFS 取权重。
