@@ -25,3 +25,18 @@ annotation/models/*
 !annotation/models/README.md
 .drawio-tmp/
 showcase.zip
+
+# 对外发布包（pretrained/）：权重为二进制大文件，不纳入版本管理。
+# 注意：本目录不在 LFS 规则覆盖范围内（LFS 只覆盖 weights/pretrained/**），
+# 一旦被 git add 就会以普通 Git blob 永久写入历史，因此在此硬性排除。
+# 文本文件（README.md、MODEL_CARD.md、LICENSES/**）仍正常纳入版本管理。
+pretrained/**/*.safetensors
+pretrained/**/*.bin
+pretrained/**/*.pth
+pretrained/**/*.pt
+pretrained/**/*.ckpt
+pretrained/**/*.onnx
+pretrained/**/*.engine
+
+# ModelScope CLI 上传缓存（本地状态，含 mtime，不入库）
+.ms_upload_cache

@@ -185,6 +185,27 @@ dataset/
 权重来源、revision、许可证、SHA-256 和大小统一登记在
 [权重清单](weights/manifest.json)。训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
 
+## 蒸馏权重
+
+平台产出的蒸馏权重不进入 Git，作为独立模型对外发布。当前已发布一份：
+
+**iNat2021-mini · DINOv3 ViT-B/16 → MobileNetV3-Large** —— 冻结的 DINOv3 ViT-B/16 作教师（配 10,000 类线性探针头），蒸馏进 MobileNetV3-Large；训练数据为 iNaturalist 2021 mini，50 万图 / 10,000 类。
+
+| 指标 | 结果 |
+|---|---:|
+| iNat 官方 val top-1 · 仅标签 | 51.78% |
+| iNat 官方 val top-1 · 蒸馏 | **58.40%** |
+| 教师线性探针（参考上界） | 71.38% |
+| 骨干参数量 | 2.97M |
+| 冻结特征线性探针 · CUB-200 / NABirds / Flowers-102 | 68.73% / 53.82% / 89.46% |
+
+发布地址：[ModelScope](https://modelscope.cn/models/Tianyuqi/inat2021-mini-mobilenetv3-large)。模型卡、蒸馏配置与完整对照表见
+[pretrained/inat2021-mini-mobilenetv3-large](pretrained/inat2021-mini-mobilenetv3-large/README.md)。
+
+域外迁移（Stanford Cars）降至 12.13%，低于原始 ImageNet 初始化权重的 23.02% —— 生物域特化的预期代价，非生物域任务不宜直接采用。
+
+该权重是 DINOv3 的衍生作品，适用 DINOv3 License，**不是** MIT 或 Apache-2.0，再分发须随附协议副本；学生权重以 torchvision MobileNetV3-Large 初始化为起点，另附 BSD-3-Clause 署名。详见 [第三方资源与许可证边界](THIRD_PARTY_NOTICES.md)。
+
 ## AI 标注测评
 
 冻结测评矩阵包含 ImageNet-100、Stanford Cars、CUB-200-2011 和 CUB 鲁棒性集，每个集合三轮、每轮 200 张，比较 Direct VLM、受限工作流、图像检索和图文 RRF 四种方法，共完成 48/48 个实验单元、9,600 个样本-方法案例。
@@ -249,6 +270,7 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 ├── reports/        选择性推理的离线评估产物
 ├── showcase/       单页项目展示文档
 ├── scripts/        启动、契约检查与维护脚本
+├── pretrained/     对外发布的模型包（权重、许可证与 model card）
 └── weights/        Git LFS 预训练权重及身份清单
 ~~~
 
@@ -276,6 +298,6 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 
 本项目由 Kaiwen Chen 原创的平台代码及配套原创文档采用 [MIT License](LICENSE)，版权署名为 `Copyright (c) 2026 Kaiwen Chen`。允许使用、修改、分发及商业使用；分发时须保留版权与许可声明，软件按原样提供，不附带担保。
 
-**MIT 不覆盖第三方资源。** 模型权重、外部数据集、截图中的第三方图片、依赖库和容器镜像继续遵循各自的许可证。DINOv3 权重保留 DINOv3 License；仓库登记的两份 timm ImageNet 权重保留 Apache-2.0。训练、LoRA 合并或格式转换不会自动移除上游许可要求。
+**MIT 不覆盖第三方资源。** 模型权重、外部数据集、截图中的第三方图片、依赖库和容器镜像继续遵循各自的许可证。DINOv3 权重保留 DINOv3 License；仓库登记的两份 timm ImageNet 权重保留 Apache-2.0。训练、LoRA 合并或格式转换不会自动移除上游许可要求 —— 由 DINOv3 蒸馏得到的权重同样适用 DINOv3 License，不因学生架构换成 MobileNetV3 而改变。
 
 详见 [第三方资源与许可证边界](THIRD_PARTY_NOTICES.md) 和 [权重身份清单](weights/manifest.json)。

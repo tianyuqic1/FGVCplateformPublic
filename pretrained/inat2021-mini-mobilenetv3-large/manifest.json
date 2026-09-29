@@ -1,0 +1,54 @@
+{
+  "name": "iNat2021-mini DINOv3 ViT-B to MobileNetV3-Large",
+  "teacher": "vit_base_patch16_dinov3.lvd1689m; frozen plus 10000-class linear probe",
+  "student": "torchvision mobilenet_v3_large IMAGENET1K_V2 initialization",
+  "training": {
+    "arm": "kd",
+    "run_id": "mini_kd_e20",
+    "epochs": 20,
+    "train_n": 500000,
+    "val_n": 100000,
+    "classes": 10000,
+    "batch_size": 128,
+    "accum": 2,
+    "teacher_cache_fingerprint": "7ea96083801a772d",
+    "loss": "0.5 CE(label_smoothing=0.1) + 0.3 * 3^2 * KL",
+    "views": "alternating deterministic view 0 and 1"
+  },
+  "checkpoint_epoch": 18,
+  "validation": {
+    "top1": 0.58397,
+    "top5": 0.79073,
+    "n": 100000
+  },
+  "input": {
+    "size": [
+      224,
+      224
+    ],
+    "color": "RGB",
+    "resize": "short side 224 bicubic",
+    "crop": "center 224",
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "backbone_file": "inat2021-mini-mobilenetv3-large-backbone.safetensors",
+  "classifier_file": "inat2021-mini-mobilenetv3-large-classifier.safetensors",
+  "class_map_file": "class_map.json",
+  "loader_file": "load_model.py",
+  "sha256": {
+    "inat2021-mini-mobilenetv3-large-backbone.safetensors": "ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9",
+    "inat2021-mini-mobilenetv3-large-classifier.safetensors": "e83caa8274f80e4aded84753204469a28bfdd2451c50ce0523852d2c940f3bc1",
+    "class_map.json": "499df6d97f2a72d2c9b713da13e30bd295462719c231dcd54e36445ab5844c40",
+    "load_model.py": "37790af5981bae1cd9002b39ee7fbf1be739284645079e4cc0788063f0f12e3e"
+  },
+  "note": "Backbone contains torchvision features.* keys; classifier contains stem.*, rest.*, proj.*, norm.*, head.*."
+}

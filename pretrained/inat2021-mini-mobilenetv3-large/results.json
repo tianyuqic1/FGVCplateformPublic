@@ -1,0 +1,122 @@
+{
+  "teacher_probe": {
+    "n_train": 500000,
+    "n_val": 100000,
+    "classes": 10000,
+    "epochs": 15,
+    "best_val_top1": 0.7138499617576599,
+    "final_val_top1": 0.7137799859046936,
+    "final_val_top5": 0.8776299953460693,
+    "resolution": 224,
+    "view": "RRC(0.7-1.0)+flip+jitter",
+    "teacher": "vit_base_patch16_dinov3.lvd1689m"
+  },
+  "inat_validation": {
+    "ce_best_top1": 0.51778,
+    "kd_best_top1": 0.58397,
+    "gain_percentage_points": 6.618999999999997,
+    "ce_best_epoch": 20,
+    "kd_best_epoch": 18,
+    "validation_n": 100000
+  },
+  "nabirds": {
+    "per_seed": {
+      "imagenet": [
+        0.292128445581131,
+        0.3018308772784476,
+        0.29748711078634354
+      ],
+      "ce": [
+        0.4377461129379288,
+        0.4341736694677871,
+        0.43137254901960786
+      ],
+      "kd": [
+        0.4381114764746478,
+        0.43336175049730036,
+        0.43486380059270086
+      ]
+    },
+    "mean_top1": {
+      "imagenet": 0.2971488112153074,
+      "ce": 0.4344307771417746,
+      "kd": 0.43544567585488303
+    },
+    "standard_deviation": {
+      "imagenet": 0.0048600545429136836,
+      "ce": 0.003194551223919895,
+      "kd": 0.002427737286142591
+    },
+    "kd_minus_baseline_points": {
+      "imagenet": [
+        14.598303089351683,
+        13.153087321885277,
+        13.737668980635732
+      ],
+      "ce": [
+        0.036536353671901,
+        -0.08119189704867691,
+        0.34912515730929905
+      ]
+    },
+    "paired_mean_gain_points": {
+      "imagenet": 13.829686463957565,
+      "ce": 0.10148987131084104
+    }
+  },
+  "inference": {
+    "device": "NVIDIA GeForce RTX 3090",
+    "resolution": 224,
+    "precision": "bfloat16 autocast",
+    "scope": "backbone forward only; input already on GPU; includes Python dispatch and GPU sync",
+    "vit_weights": "random initialization; architecture and operations match deployed ViT-S, accuracy not measured here",
+    "models": {
+      "mobilenetv3_large_distilled": {
+        "1": {
+          "batch": 1,
+          "repeats": 200,
+          "p50_ms": 1.6235550865530968,
+          "p95_ms": 1.6563960816711187,
+          "mean_ms": 1.6292006720323116,
+          "throughput_images_per_s": 613.7979299705121,
+          "peak_allocated_mib": 146.2880859375
+        },
+        "32": {
+          "batch": 32,
+          "repeats": 100,
+          "p50_ms": 4.47291205637157,
+          "p95_ms": 4.481607116758823,
+          "mean_ms": 4.474356311839074,
+          "throughput_images_per_s": 7151.866719985737,
+          "peak_allocated_mib": 200.2646484375
+        }
+      },
+      "dinov3_vits16_architecture": {
+        "1": {
+          "batch": 1,
+          "repeats": 200,
+          "p50_ms": 2.8712081257253885,
+          "p95_ms": 2.9196329414844513,
+          "mean_ms": 2.8722176456358284,
+          "throughput_images_per_s": 348.1630305835086,
+          "peak_allocated_mib": 136.7607421875
+        },
+        "32": {
+          "batch": 32,
+          "repeats": 100,
+          "p50_ms": 13.629995984956622,
+          "p95_ms": 14.007436111569405,
+          "mean_ms": 13.66138243349269,
+          "throughput_images_per_s": 2342.3690944737596,
+          "peak_allocated_mib": 219.47216796875
+        }
+      }
+    }
+  },
+  "files": {
+    "inat2021-mini-mobilenetv3-large-backbone.safetensors": "ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9",
+    "inat2021-mini-mobilenetv3-large-classifier.safetensors": "e83caa8274f80e4aded84753204469a28bfdd2451c50ce0523852d2c940f3bc1",
+    "class_map.json": "499df6d97f2a72d2c9b713da13e30bd295462719c231dcd54e36445ab5844c40",
+    "load_model.py": "37790af5981bae1cd9002b39ee7fbf1be739284645079e4cc0788063f0f12e3e"
+  }
+}
