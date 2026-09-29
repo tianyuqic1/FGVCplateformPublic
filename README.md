@@ -62,7 +62,7 @@ cp .env.example .env
 
 > ⚠️ **`git lfs install --local` 不能省。** 用 conda 安装的 git-lfs 不会自动注册 filter（Homebrew、官方安装器与 apt 会）。缺少该配置时 `git lfs pull` 会**下载完整对象却跳过检出、且退出码为 0** —— 看似成功，工作区里留下的仍是 133 字节的指针文件，直到训练或 `docker compose up` 才暴露。
 
-权重缺失不影响启动，但选择该骨干的任务会明确报错。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。
+仓库托管权重缺失不影响启动，但选择该骨干的任务会明确报错。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。外部发布的 iNat 蒸馏权重在首次使用时单独下载并验证。
 
 .env.example 提供可启动的本地开发默认值。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
 
@@ -181,22 +181,21 @@ dataset/
 
 ## 预训练权重
 
-仓库只用 Git LFS 保存允许再分发且身份固定的预训练与蒸馏初始化权重：
+仓库只用 Git LFS 保存允许再分发且身份固定的预训练权重：
 
 - DINOv3 ViT-S
 - ImageNet ViT-S
 - ImageNet ResNet-50
-- iNat2021-mini DINOv3 ViT-B → MobileNetV3-Large 骨干
 
 权重来源、revision、许可证、SHA-256 和大小统一登记在
-[权重清单](weights/manifest.json)。除上述固定蒸馏骨干外，训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
+[权重清单](weights/manifest.json)。训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
 
 `pretrained/` 是独立的对外发布包，内含上述权重的发布副本、DINOv3 ViT-B/L 家族，以及蒸馏产物的 model card 与许可证。该目录的权重二进制同样被 Git 忽略，只把文本纳入版本管理；平台运行时不读取它。详见
 [对外发布包说明](pretrained/README.md)。
 
 ## 蒸馏权重
 
-平台将蒸馏骨干的固定版本作为托管初始化权重纳入 Git LFS；完整分类器、评估报告和对外发布包另行分发。当前已发布一份：
+平台产出的蒸馏权重不进入 Git，作为独立模型对外发布。当前已发布一份：
 
 **iNat2021-mini · DINOv3 ViT-B/16 → MobileNetV3-Large** —— 冻结的 DINOv3 ViT-B/16 作教师（配 10,000 类线性探针头），蒸馏进 MobileNetV3-Large；训练数据为 iNaturalist 2021 mini，50 万图 / 10,000 类。
 
@@ -208,10 +207,12 @@ dataset/
 | 骨干参数量 | 2.97M |
 | 冻结特征线性探针 · CUB-200 / NABirds / Flowers-102 | 68.73% / 53.82% / 89.46% |
 
+冻结探针的 5-shot 数字指分类头每类使用 5 张；ridge 正则系数另用训练池中的少量标注图选择，详见模型卡的测评协议说明。
+
 发布地址：[ModelScope](https://modelscope.cn/models/Tianyuqi/inat2021-mini-mobilenetv3-large)。模型卡、蒸馏配置与完整对照表见
 [pretrained/inat2021-mini-mobilenetv3-large](pretrained/inat2021-mini-mobilenetv3-large/README.md)。
 
-工作台可直接选择该骨干训练新数据集的分类头，默认冻结 960 维骨干；也可选择全量微调。输入预处理固定为 224 像素短边缩放、中心裁剪和 ImageNet 均值/方差。该选择加载的是蒸馏后的骨干，不会附带 iNat 的 10,000 类分类头。
+平台选择该骨干时，从 ModelScope 下载发布包中的 **backbone** 文件，以固定 SHA-256 和大小校验后缓存在计算节点；离线部署可把文件挂载到计算容器，并在容器内设置 `FINEVISION_INAT_MOBILENETV3_WEIGHT` 指向它。该蒸馏产物不纳入 Git LFS，运行时不读取 `pretrained/` 发布目录。训练新数据集时创建新的分类头，默认冻结 960 维骨干；需要时可选择全量微调。
 
 域外迁移（Stanford Cars）降至 12.13%，低于原始 ImageNet 初始化权重的 23.02% —— 生物域特化的预期代价，非生物域任务不宜直接采用。
 

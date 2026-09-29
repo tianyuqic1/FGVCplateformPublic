@@ -23,6 +23,7 @@ type Backbone struct {
 	License            string
 	LicenseURL         string
 	LFSPath            string
+	SourceURL          string
 }
 
 const (
@@ -67,7 +68,7 @@ var approved = []Backbone{
 		InputSize: 224, FeatureDim: 960, ParameterCount: 2_971_952, Pooling: "model",
 		SHA256: "ae3990c5d4655d71fd988f0246dfe5e372ed88e5b9ac78cf18b681d56a7986b9", SizeBytes: 12_015_440,
 		License: "DINOv3 License", LicenseURL: "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
-		LFSPath: "weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors",
+		SourceURL: "https://www.modelscope.cn/models/Tianyuqi/inat2021-mini-mobilenetv3-large/resolve/master/inat2021-mini-mobilenetv3-large-backbone.safetensors",
 	},
 }
 

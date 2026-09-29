@@ -131,6 +131,9 @@ func TestModelWeightCatalogExposesApprovedBackbonesAndPreservesCanonicalObject(t
 		catalog["weights"][3]["backbone_key"] != "inat2021_mobilenetv3_large_kd" {
 		t.Fatalf("catalog = %#v", catalog)
 	}
+	if distilled := catalog["weights"][3]; distilled["cached"] != false || distilled["cache_status"] != "unreported" || distilled["source_url"] == "" {
+		t.Fatalf("distilled external source must not claim to be locally cached: %#v", distilled)
+	}
 	request, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/model-weights/dinov3_vits", nil)
 	eviction, err := http.DefaultClient.Do(request)
 	if err != nil {

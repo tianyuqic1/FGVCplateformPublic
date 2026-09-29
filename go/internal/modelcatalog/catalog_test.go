@@ -16,4 +16,7 @@ func TestCatalogContainsApprovedBackbones(t *testing.T) {
 	if _, exists := Resolve("dinov3_vitb"); exists {
 		t.Fatal("unapproved ViT-B must not resolve")
 	}
+	if items[3].LFSPath != "" || items[3].SourceURL == "" {
+		t.Fatal("distilled weight must remain an external published artifact")
+	}
 }

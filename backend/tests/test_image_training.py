@@ -55,14 +55,17 @@ def test_invalid_modes_rejected(key, config):
         training_mode(key, config)
 
 
-def test_inat_distilled_weight_trains_new_head_and_reloads(tmp_path, monkeypatch):
+def test_inat_backbone_contract_trains_new_head_and_reloads(tmp_path, monkeypatch):
+    from safetensors.torch import save_file
     from finevision.compute.pretrained_weights import MANAGED_WEIGHTS
     from finevision.ml_toolkit.datasets import scan_imagefolder
+    from finevision.ml_toolkit.distilled_mobilenet import DistilledMobileNetBackbone
     from finevision.ml_toolkit.image_training import load_classifier, train_images
 
     key = "inat2021_mobilenetv3_large_kd"
     root = Path(__file__).resolve().parents[2]
-    weight = root / "weights/pretrained/inat2021-mini/mobilenetv3_large_dinov3_vitb_kd.safetensors"
+    weight = tmp_path / "mobilenet-backbone.safetensors"
+    save_file(DistilledMobileNetBackbone().state_dict(), str(weight))
     monkeypatch.setenv(MANAGED_WEIGHTS[key].environment_key, str(weight))
     monkeypatch.setenv("FINEVISION_COMPUTE_DEVICE", "cpu")
     manifest = scan_imagefolder(root / "data/examples/toy-shapes-imagefolder", "toy", "v1")

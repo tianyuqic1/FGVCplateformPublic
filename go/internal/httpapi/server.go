@@ -318,6 +318,16 @@ func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 	} else if backbone.Key == modelcatalog.INatMobileNetKey {
 		trainingStrategy = "iNat 蒸馏骨干默认冻结，仅训练新分类头；可选全量微调。适用于生物细粒度任务，跨域效果需验证。"
 	}
+	cacheDir := "s3://finevision-artifacts/pretrained/" + category + "/" + backbone.SHA256[:2] + "/" + backbone.SHA256
+	downloadHint := "Git LFS release weight is verified and mirrored into the S3-compatible ArtifactStore."
+	cached, cacheBytes, completeFileCount := true, backbone.SizeBytes, 1
+	cacheStatus := "managed"
+	if backbone.SourceURL != "" {
+		cacheDir = "sha256/" + backbone.SHA256
+		downloadHint = "Published ModelScope weight is downloaded on demand and verified by size and SHA-256; it is not stored in Git LFS."
+		cached, cacheBytes, completeFileCount = false, 0, 0
+		cacheStatus = "unreported"
+	}
 	return map[string]any{
 		"preset": backbone.Key, "extractor": backbone.LegacyExtractor, "backbone_key": backbone.Key,
 		"backbone_id": backbone.Key, "display_name": backbone.DisplayName, "architecture": backbone.Architecture,
@@ -325,11 +335,12 @@ func managedWeight(backbone modelcatalog.Backbone) map[string]any {
 		"pretraining_method": backbone.PretrainingMethod, "pretraining_dataset": backbone.PretrainingDataset,
 		"input_size": backbone.InputSize, "feature_dim": backbone.FeatureDim, "parameter_count": backbone.ParameterCount,
 		"pooling": backbone.Pooling, "license": backbone.License, "license_url": backbone.LicenseURL,
-		"state": "managed", "cache_status": "managed", "cached": true, "cache_bytes": backbone.SizeBytes,
-		"complete_size_bytes": backbone.SizeBytes, "complete_file_count": 1, "partial_bytes": 0,
+		"state": "managed", "cache_status": cacheStatus, "cached": cached, "cache_bytes": cacheBytes,
+		"complete_size_bytes": cacheBytes, "complete_file_count": completeFileCount, "partial_bytes": 0,
 		"incomplete_file_count": 0, "sha256": backbone.SHA256, "size_bytes": backbone.SizeBytes,
-		"cache_dir":         "s3://finevision-artifacts/pretrained/" + category + "/" + backbone.SHA256[:2] + "/" + backbone.SHA256,
-		"download_hint":     "Git LFS release weight is verified and mirrored into the S3-compatible ArtifactStore.",
+		"cache_dir":         cacheDir,
+		"download_hint":     downloadHint,
+		"source_url":        backbone.SourceURL,
 		"description":       backbone.DisplayName + "。" + trainingStrategy,
 		"training_strategy": trainingStrategy,
 	}

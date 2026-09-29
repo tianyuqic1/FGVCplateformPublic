@@ -72,17 +72,19 @@ def test_imagenet_resnet50_one_batch_feature_smoke(tmp_path: Path) -> None:
     assert features.dtype.name == "float32"
 
 
-def test_inat_distilled_mobilenet_weight_loads_for_features_and_training() -> None:
+def test_inat_distilled_mobilenet_contract_loads_for_features_and_training(tmp_path: Path) -> None:
     import importlib.util
     torch = pytest.importorskip("torch")
     pytest.importorskip("timm")
     pytest.importorskip("torchvision")
+    from safetensors.torch import save_file
     from PIL import Image
+    from finevision.ml_toolkit.distilled_mobilenet import DistilledMobileNetBackbone
     from finevision.ml_toolkit.image_training import build_classifier, image_transform, training_mode
 
     key = "inat2021_mobilenetv3_large_kd"
-    weight = _weight(key)
-    assert weight.stat().st_size == 12_015_440
+    weight = tmp_path / "mobilenet-backbone.safetensors"
+    save_file(DistilledMobileNetBackbone().state_dict(), str(weight))
     frozen, rank = training_mode(key, {})
     model, preprocessing = build_classifier(key, 2, frozen, rank, checkpoint_path=weight)
     assert preprocessing["crop_pct"] == 1.0

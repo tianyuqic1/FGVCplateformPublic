@@ -8,14 +8,16 @@
 
 | 目录 | 用途 | 是否纳入 Git | 谁读它 |
 |---|---|---|---|
-| `weights/pretrained/` | 平台**运行时**读取的固定预训练及蒸馏初始化权重，供 `pretrained-weight-init` 校验并推入 ArtifactStore | ✅ 是（Git LFS 管理） | `docker-compose.yml`、`go/internal/modelcatalog`、`backend/src/finevision/compute/pretrained_weights.py` |
+| `weights/pretrained/` | 平台**运行时**读取的上游预训练权重，供 `pretrained-weight-init` 校验并推入 ArtifactStore | ✅ 是（Git LFS 管理） | `docker-compose.yml`、`go/internal/modelcatalog`、`backend/src/finevision/compute/pretrained_weights.py` |
 | **`pretrained/`（本目录）** | **只用于对外发布**的打包目录，含权重、许可证与 model card | ⚠️ 仅文本文件纳入 Git，**权重被 `.gitignore` 排除** | 无。平台运行时不读这里 |
 
 **平台运行时不读取本目录**，修改这里不会影响任何服务。
 
+平台可按模型卡的固定 SHA-256 从 ModelScope 获取已发布的蒸馏骨干并缓存在计算节点；此路径不从本目录读取二进制，也不把蒸馏训练产物加入 Git LFS。
+
 ### 为什么本目录的权重不进 Git
 
-`.gitattributes` 里的 LFS 规则只覆盖 `weights/pretrained/**` 的指定路径，**不覆盖本目录**。若本目录的权重被 `git add`，会以普通 Git blob 形式**永久写入历史**，且无法在不重写历史的前提下清除。因此 `.gitignore` 已硬性排除 `pretrained/**` 下的全部二进制权重格式。
+`.gitattributes` 里的 LFS 规则只覆盖 `weights/pretrained/**` 两个精确路径，**不覆盖本目录**。若本目录的权重被 `git add`，会以普通 Git blob 形式**永久写入历史**，且无法在不重写历史的前提下清除。因此 `.gitignore` 已硬性排除 `pretrained/**` 下的全部二进制权重格式。
 
 上游三个权重通过 APFS clone（`cp -c`）从 `weights/pretrained/` 拷入，是独立副本，但实测**不额外占用磁盘**（`df` 前后差值为 0；`du` 会报 264M 是因为它按分配区间计数，即使块为共享）。
 
@@ -48,8 +50,6 @@ pretrained/
 ```
 
 `inat2021-mini-mobilenetv3-large/` 是**自包含**的：许可证已复制进它的 `LICENSES/`，整目录可直接作为 ModelScope / HuggingFace 仓库上传，无需依赖外层文件。
-
-平台另将该包的**骨干权重**以相同 SHA-256 放在 `weights/pretrained/inat2021-mini/`，作为训练新数据集分类头的初始化；运行时仍不读取本发布目录，完整 10,000 类分类器也不纳入运行时清单。
 
 ## 一、上游预训练权重
 
@@ -177,9 +177,9 @@ ViT-B 与 ViT-L **只存在于本发布包**，平台运行时读不到。这是
 
 | 场景 | 单次完整克隆 | 10 GiB/月可支撑 |
 |---|---:|---:|
-| 现状（含蒸馏骨干，共 4 个权重） | 275.7 MiB | 约 **37** 次 |
-| 加入 ViT-B | 602.4 MiB | 约 **17** 次 |
-| 加入 ViT-B + ViT-L | **1,758.6 MiB** | 约 **5** 次 |
+| 现状（3 个权重） | 264.2 MiB | 约 **38** 次 |
+| 加入 ViT-B | 590.9 MiB | 约 **17** 次 |
+| 加入 ViT-B + ViT-L | **1,747.1 MiB** | 约 **6** 次 |
 
 超额后 **LFS 支持会在该账号上被停用到下月**，影响你名下所有仓库。因此若要接入：
 
