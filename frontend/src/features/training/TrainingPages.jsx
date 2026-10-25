@@ -240,7 +240,7 @@ export function TrainingDetailPage({ showToast }) {
       <PageHeading
         title={run.name}
         description={<><CodeValue>{run.id}</CodeValue> · <CodeValue>{run.datasetVersionId}</CodeValue></>}
-        actions={<>{run.runtimeNodeId && <Link className="secondary-button" to={`/hardware?node=${encodeURIComponent(run.runtimeNodeId)}`}><Icon name="Cpu" size={16} />查看运行节点</Link>}<StatusBadge status={run.status} />{run.status === "running" && <button className="secondary-button" onClick={() => action("pause")}>暂停</button>}{run.status === "paused" && <button className="primary-button" onClick={() => action("resume")}>恢复</button>}{["queued", "paused", "running"].includes(run.status) && <button className="danger-button" onClick={() => action("cancel")}>取消</button>}</>}
+        actions={<>{run.status === "succeeded" && <Link className="secondary-button" to="/agent" state={{ agentPrompt: `请分析训练 ${run.id} 最终测试集上的分类错误：易混类别、错分样本、可能原因和改进建议。请区分证据与推测。` }}><Icon name="Sparkles" size={16} />分析测试集错分</Link>}{run.runtimeNodeId && <Link className="secondary-button" to={`/hardware?node=${encodeURIComponent(run.runtimeNodeId)}`}><Icon name="Cpu" size={16} />查看运行节点</Link>}<StatusBadge status={run.status} />{run.status === "running" && <button className="secondary-button" onClick={() => action("pause")}>暂停</button>}{run.status === "paused" && <button className="primary-button" onClick={() => action("resume")}>恢复</button>}{["queued", "paused", "running"].includes(run.status) && <button className="danger-button" onClick={() => action("cancel")}>取消</button>}</>}
       />
       <div className="fv-metric-grid">
         <MetricTile label="当前 Epoch" value={currentEpoch || "—"} caption={metrics.runStatus === "running" ? "每 2 秒增量更新" : "当前 attempt"} tone="running" />

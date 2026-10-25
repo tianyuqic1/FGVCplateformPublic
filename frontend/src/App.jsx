@@ -10,6 +10,9 @@ function lazyNamed(loader, name) {
   return lazy(() => loader().then((module) => ({ default: module[name] })));
 }
 
+const AgentPage = lazyNamed(() => import("./features/agent/AgentPage.jsx"), "AgentPage");
+const AgentLauncher = lazyNamed(() => import("./features/agent/AgentPage.jsx"), "AgentLauncher");
+
 const DashboardPage = lazyNamed(() => import("./features/dashboard/DashboardPage.jsx"), "DashboardPage");
 const DatasetsPage = lazyNamed(() => import("./features/datasets/DatasetsPage.jsx"), "DatasetsPage");
 const DatasetDetailPage = lazyNamed(() => import("./features/datasets/DatasetDetailPage.jsx"), "DatasetDetailPage");
@@ -55,6 +58,7 @@ const legacyAliases = {
 };
 
 function titleForPath(pathname) {
+  if (pathname === "/agent") return "实验助手";
   if (pathname.startsWith("/workers")) return "Worker 状态";
   if (pathname === "/admin/users") return "用户管理";
   if (pathname === "/annotation") return "AI 辅助标注";
@@ -77,6 +81,7 @@ function titleForPath(pathname) {
 }
 
 function crumbForPath(pathname) {
+  if (pathname === "/agent") return "AI / 实验助手";
   if (pathname.startsWith("/workers")) return "系统 / Worker 状态";
   if (pathname === "/admin/users") return "系统 / 用户与角色";
   if (pathname === "/annotation") return "数据资产 / AI 辅助标注工作区";
@@ -204,6 +209,7 @@ export default function App() {
       <AppShell title={title} crumb={crumb}>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
+            <Route path="/agent" element={<AgentPage />} />
             <Route path="/" element={<DashboardPage />} />
             <Route path="/dashboard" element={<Navigate to="/" replace />} />
             <Route path="/datasets" element={<DatasetsPage showToast={showToast} />} />
@@ -229,6 +235,7 @@ export default function App() {
           </Routes>
         </Suspense>
       </AppShell>
+      {user.role !== "annotator" && <Suspense fallback={null}><AgentLauncher /></Suspense>}
       <Toast message={toast} />
       <DiagnosticToast />
     </>

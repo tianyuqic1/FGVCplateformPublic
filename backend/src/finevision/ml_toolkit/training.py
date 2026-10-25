@@ -6,6 +6,8 @@ from typing import Callable
 import numpy as np
 
 from finevision.ml_toolkit.artifacts import write_json, write_model_artifact
+from dataclasses import replace
+from finevision.ml_toolkit.error_analysis import build_test_error_evidence
 from finevision.ml_toolkit.metrics import classification_report
 from finevision.schemas.artifacts import FeatureArtifact, ModelArtifact, TrainingRunReport
 
@@ -260,6 +262,12 @@ def train_linear_head(
         classes=classes,
         run_config=run_config,
     )
+
+    # Preserve the historical val+test headline metric; the new evidence is test-only.
+    report = replace(report, error_analysis=build_test_error_evidence(
+        sample_ids=feature_artifact.sample_ids, labels=feature_artifact.labels,
+        splits=feature_artifact.splits, logits=logits, classes=classes,
+    ))
 
     artifact_id = artifact_id or f"{feature_artifact.dataset_version_id}-linear-head"
     artifact_dir = Path(artifact_root) / artifact_id

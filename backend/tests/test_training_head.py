@@ -54,3 +54,6 @@ def test_train_linear_head_uses_torch_adam(tmp_path) -> None:
     assert training_report.run_config["learning_rate"] == 0.05
     assert training_report.evaluation.accuracy == 1.0
     assert logits.shape == (8, 2)
+    assert training_report.evaluation.error_analysis["evaluation_split"] == "test"
+    assert training_report.evaluation.error_analysis["sample_count"] == 0
+    assert training_report.evaluation.error_analysis["accuracy"] is None

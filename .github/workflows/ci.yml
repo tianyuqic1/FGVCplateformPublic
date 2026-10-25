@@ -33,6 +33,41 @@ jobs:
       - name: 静态检查
         run: go vet ./...
 
+  agent:
+    name: Agent 服务与并发
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent_test
+          POSTGRES_PASSWORD: agent_test_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_test -d agent_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: agent
+    env:
+      FINEVISION_AGENT_TEST_DATABASE_URL: postgres://agent_test:agent_test_ci@localhost:5432/agent_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: 格式检查
+        run: test -z "$(gofmt -l .)"
+      - name: 单元与 PostgreSQL 并发测试
+        run: go test -race ./...
+      - name: 静态检查
+        run: go vet ./...
+
   python:
     name: Python 计算面
     runs-on: ubuntu-latest

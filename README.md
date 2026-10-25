@@ -9,6 +9,8 @@ FineVision 是一个面向细粒度图像分类的全流程工程平台，覆盖
 
 ## 核心能力
 
+- **实验助手 Agent**：对话查询与诊断、15 个受控工具、规范方案确认执行、持久任务与 SSE、训练跟踪；独立 Docker 和数据库。[运行与验收](agent/docs/runtime.md)。
+
 - **Worker 状态**：独立实例心跳、分页筛选、共享负载与任务关联；管理员查看完整诊断，业务人员只读查看本人训练任务，标注员仅查看 AI 服务提示。[部署与状态含义](docs/worker-status.md)。
 - **数据资产**：ImageFolder 导入、后台校验、样本预览、不可变版本、数据血缘与训练集扩充。
 - **训练策略**：DINOv3 ViT-S 冻结骨干或 LoRA R8/R16；ImageNet ViT-S、ResNet-50 全量训练；iNat 蒸馏 MobileNetV3-Large 默认冻结骨干，也可全量微调；独立学习率、输入尺寸和常用数据增强。
@@ -26,6 +28,7 @@ React / Vite
       │ HTTP / JSON / multipart
       ▼
 Go Control Plane ───── Go LLM Gateway / Eino ───── Multimodal Provider
+      ├── Agent Service（对话 API + Runner + Watch）── Agent PostgreSQL
       │
       ├── PostgreSQL：状态、血缘、事件、策略与 Outbox
       ├── RabbitMQ：训练与部署任务
@@ -64,7 +67,7 @@ cp .env.example .env
 
 仓库托管权重缺失不影响启动，但选择该骨干的任务会明确报错。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。外部发布的 iNat 蒸馏权重在首次使用时单独下载并验证。
 
-.env.example 提供可启动的本地开发默认值。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
+.env.example 提供本地开发默认值；首次启动先执行 `python3 agent/deploy/init_local.py` 生成 Agent 所需的随机签名密钥与独立数据库密码，`scripts/demo-up.sh` 会自动执行这一步。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
 
 ### 启动 CPU 开发栈
 
@@ -77,6 +80,7 @@ scripts/demo-up.sh
 | 服务 | 地址 |
 |---|---|
 | Web 工作台 | <http://localhost:5173> |
+| 实验助手（需登录） | <http://localhost:5173/agent> |
 | Worker 状态（管理员 / 业务人员） | <http://localhost:5173/workers> |
 | Go API | <http://localhost:8001/api/health> |
 | Swagger API 文档 | <http://localhost:8001/swagger/> |
@@ -104,6 +108,16 @@ docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-tr
 ~~~
 
 多后端推理与硬件要求见 [推理部署文档](docs/inference-deployments.md)。
+
+### 实验助手 Agent
+
+登录后打开侧边栏「实验助手」，可查询数据与训练、比较模型、生成实验方案，并在确认后提交或取消训练、执行单样本推理。页面抽屉与完整工作区共用会话历史，支持停止分析、断线恢复与训练跟踪。
+
+已完成训练的详情页提供「分析测试集错分」：带入训练 ID 并新建对话，发送后分析独立测试集的易混类别、错分样本和指标，区分统计事实与待验证的原因假设。该工具不读取原图；缺乏独立测试证据的旧训练会明确提示不可用，不自动重训。[工具与证据范围](agent/docs/test-error-analysis.md)。
+
+Agent 单独运行在 `agent-service` 容器，拥有独立 PostgreSQL 容器、数据库、账号与 volume，经平台 API 使用现有业务服务。默认 4 个 Runner，数据库约束全局最多 8 个运行任务、每用户 2 个、同会话串行；每轮最多并行 4 个只读工具，写动作逐项确认。
+
+已有部署升级需先应用平台迁移 `20261024_0025`，再更新控制面、Gateway、Agent 和前端。Agent 自己的两份迁移在启动时执行；更新实际训练 Worker 后，新训练才会保存完整测试错分证据。启动步骤、身份委托、故障恢复与当前边界见 [Agent 运行说明](agent/docs/runtime.md)，组件设计见 [Agent 文档目录](agent/README.md)。
 
 ### Worker 状态与升级
 
@@ -144,6 +158,9 @@ docker compose -f docker-compose.yml -f compose.observability.yml \
 | FINEVISION_RABBITMQ_URL | 是 | 训练、发布和部署消息 |
 | FINEVISION_LLM_INTERNAL_TOKEN | 使用 LLM 时 | 控制面到 LLM Gateway 的内部鉴权 |
 | FINEVISION_LLM_API_KEY | 使用远程 VLM 时 | 仅注入 Go LLM Gateway |
+| FINEVISION_AGENT_DELEGATION_KEY | 使用 Agent 时 | 控制面与 Agent 共享的随机身份签名密钥，至少 32 字节 |
+| FINEVISION_AGENT_TOOLS_SIGNING_KEY | Agent 写操作时 | 仅控制面持有的写操作确认密钥，至少 32 字节 |
+| FINEVISION_AGENT_DB_PASSWORD | 使用 Agent 时 | Agent 独立 PostgreSQL 密码；以上三项由初始化脚本补齐 |
 | FINEVISION_*_DEVICE | 否 | CPU/CUDA 计算设备选择 |
 | FINEVISION_DEPLOYMENT_TOKEN | 硬件 Worker 时 | 部署 Worker 与控制面的内部鉴权 |
 | FINEVISION_CONTROL_PLANE_HTTP | Worker 状态上报时 | Worker 可访问的控制面 HTTP 地址；Compose 默认使用容器服务名 |

@@ -389,12 +389,27 @@ func (server *Server) ListTrainingRuns(ctx context.Context, request openapi.List
 }
 
 func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.CreateTrainingRunRequestObject) (openapi.CreateTrainingRunResponseObject, error) {
+	command, err := server.prepareTrainingRun(ctx, request.Body)
+	if err != nil {
+		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error()))}, nil
+	}
+	model, err := server.createPreparedTraining(ctx, command)
+	if err != nil {
+		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.ErrorCode(err)), err.Error()))}, nil
+	}
+	return openapi.CreateTrainingRun202JSONResponse{TrainingRunResponseJSONResponse: openapi.TrainingRunResponseJSONResponse(openapi.TrainingRunEnvelope{TrainingRun: openapi.FreeFormObject(model)})}, nil
+}
+
+// prepareTrainingRun is shared by normal creation, Agent previews and Agent
+// execution. It resolves the dataset but has no task-creation side effects.
+func (server *Server) prepareTrainingRun(ctx context.Context, body *openapi.CreateTrainingRun) (training.CreateCommand, error) {
+	request := openapi.CreateTrainingRunRequestObject{Body: body}
 	if request.Body == nil {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "request body is required"))}, nil
+		return training.CreateCommand{}, fmt.Errorf("%s", "request body is required")
 	}
 	backbone, colorStats, err := resolveTrainingBackbone(request.Body)
 	if err != nil {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), err.Error()))}, nil
+		return training.CreateCommand{}, fmt.Errorf("%s", err.Error())
 	}
 	extractor := backbone.LegacyExtractor
 	backboneID := backbone.Key
@@ -424,7 +439,7 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 		imageSize = backbone.InputSize
 	}
 	if !colorStats && backbone.Architecture == "vit_small_patch16" && imageSize%16 != 0 {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "image_size must be divisible by 16 for ViT-S/16 backbones"))}, nil
+		return training.CreateCommand{}, fmt.Errorf("%s", "image_size must be divisible by 16 for ViT-S/16 backbones")
 	}
 	extractorConfig := map[string]any{"type": extractor, "backbone_id": backboneID}
 	if !colorStats {
@@ -440,7 +455,7 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 		for key, value := range map[string]any(*request.Body.ExtractorConfig) {
 			if !colorStats && immutableExtractorField(key) {
 				if current, exists := extractorConfig[key]; !exists || current != value {
-					return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "extractor_config cannot override managed backbone identity: "+key))}, nil
+					return training.CreateCommand{}, fmt.Errorf("%s", "extractor_config cannot override managed backbone identity: "+key)
 				}
 			}
 			extractorConfig[key] = value
@@ -458,7 +473,7 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	if request.Body.Name != nil {
 		name := strings.TrimSpace(*request.Body.Name)
 		if name == "" || utf8.RuneCountInString(name) > 80 || strings.ContainsAny(name, "\n\r\x00") {
-			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "训练任务名须为 1–80 个字符，不能包含换行"))}, nil
+			return training.CreateCommand{}, fmt.Errorf("%s", "训练任务名须为 1–80 个字符，不能包含换行")
 		}
 		payload["name"] = name
 	}
@@ -467,17 +482,17 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	}
 	if !colorStats {
 		if featurePool != backbone.Pooling {
-			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training uses the approved backbone pooling"))}, nil
+			return training.CreateCommand{}, fmt.Errorf("%s", "image training uses the approved backbone pooling")
 		}
 		config, _ := payload["head_config"].(map[string]any)
 		config, err := normalizeImageTrainingConfig(backbone.Key, config)
 		if err != nil {
-			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", err.Error()))}, nil
+			return training.CreateCommand{}, fmt.Errorf("%s", err.Error())
 		}
 		payload["head_config"] = config
 		extractorConfig["image_size"] = imageSize // Persist the actual training/export resolution.
 		if imageSize < 128 || imageSize > 512 {
-			return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, "VALIDATION_FAILED", "image training input size must be in [128,512]"))}, nil
+			return training.CreateCommand{}, fmt.Errorf("%s", "image training input size must be in [128,512]")
 		}
 	}
 	if request.Body.TargetSelectiveRisk != nil {
@@ -488,29 +503,30 @@ func (server *Server) CreateTrainingRun(ctx context.Context, request openapi.Cre
 	}
 	datasetID, datasetVersionID, resolvedDatasetKey, err := server.reads.ResolveDatasetScope(ctx, datasetKey, request.Body.DatasetVersionId)
 	if err != nil {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.CodeValidationFailed), "dataset version is not ready or does not exist"))}, nil
+		return training.CreateCommand{}, fmt.Errorf("%s", "dataset version is not ready or does not exist")
 	}
 	datasetKey = resolvedDatasetKey
 	payload["dataset_id"] = datasetKey
 	if user, ok := auth.UserFromContext(ctx); ok {
 		payload["created_by_user_id"] = user.ID.String()
 	}
-	created, err := server.lifecycle.Create(ctx, training.CreateCommand{
-		DatasetID: datasetID, DatasetVersionID: datasetVersionID,
-		BackboneID: backboneID, Payload: payload, MaxAttempts: maxAttempts,
-	})
+	return training.CreateCommand{DatasetID: datasetID, DatasetVersionID: datasetVersionID, BackboneID: backboneID, Payload: payload, MaxAttempts: maxAttempts}, nil
+}
+
+func (server *Server) createPreparedTraining(ctx context.Context, command training.CreateCommand) (map[string]any, error) {
+	created, err := server.lifecycle.Create(ctx, command)
 	if err != nil {
-		return openapi.CreateTrainingRun422JSONResponse{ErrorResponseJSONResponse: openapi.ErrorResponseJSONResponse(errorEnvelope(ctx, string(training.ErrorCode(err)), err.Error()))}, nil
+		return nil, err
 	}
-	readModel := map[string]any{
-		"name": payload["name"],
-		"id":   created.TrainingRunID, "run_id": created.TrainingRunID, "job_id": created.JobID,
-		"dataset_id": datasetKey, "dataset_version_id": request.Body.DatasetVersionId,
-		"backbone_id": backboneID, "status": created.Status, "extractor_config": payload["extractor_config"],
-		"head_config": payload["head_config"],
+	payload := command.Payload
+	model := map[string]any{
+		"name": payload["name"], "id": created.TrainingRunID, "run_id": created.TrainingRunID, "job_id": created.JobID,
+		"dataset_id": payload["dataset_id"], "dataset_version_id": command.DatasetVersionID,
+		"backbone_id": command.BackboneID, "status": created.Status,
+		"extractor_config": payload["extractor_config"], "head_config": payload["head_config"],
 	}
-	server.created.Store(created.TrainingRunID, readModel)
-	return openapi.CreateTrainingRun202JSONResponse{TrainingRunResponseJSONResponse: openapi.TrainingRunResponseJSONResponse(openapi.TrainingRunEnvelope{TrainingRun: openapi.FreeFormObject(readModel)})}, nil
+	server.created.Store(created.TrainingRunID, model)
+	return model, nil
 }
 
 func resolveTrainingBackbone(request *openapi.CreateTrainingRun) (modelcatalog.Backbone, bool, error) {

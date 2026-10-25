@@ -5,6 +5,7 @@ import { Icon } from "./icons.jsx";
 import { canAccessPath, useAuth } from "../auth/AuthContext.jsx";
 
 const navItems = [
+  { id: "agent", label: "实验助手", icon: "Sparkles", to: "/agent" },
   { id: "dashboard", label: "工作台", icon: "LayoutDashboard", to: "/" },
   { id: "datasets", label: "数据集", icon: "Database", to: "/datasets" },
   { id: "annotation", label: "AI 辅助标注", icon: "ScanSearch", to: "/annotation" },
@@ -37,6 +38,7 @@ const searchItems = [
 ];
 
 function navKey(pathname) {
+  if (pathname === "/agent") return "agent";
   if (pathname.startsWith("/workers")) return "workers";
   if (pathname.startsWith("/admin")) return "admin";
   if (pathname.startsWith("/annotation")) return "annotation";

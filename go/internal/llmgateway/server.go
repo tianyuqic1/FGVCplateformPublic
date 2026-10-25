@@ -19,6 +19,7 @@ func NewRouter(provider llm.Gateway, internalToken string) http.Handler {
 	router.Get("/health", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	registerAgent(router, provider, internalToken)
 	router.Post("/internal/v1/generate", func(writer http.ResponseWriter, request *http.Request) {
 		if !authorized(request.Header.Get("Authorization"), internalToken) {
 			writeJSON(writer, http.StatusUnauthorized, map[string]any{"error": map[string]string{"code": "UNAUTHORIZED", "message": "internal credential is required"}})

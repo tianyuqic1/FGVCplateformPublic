@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader, Dataset
 
 from finevision.compute.pretrained_weights import MANAGED_WEIGHTS, WEIGHT_ALIASES
 from finevision.ml_toolkit.artifacts import write_json
+from dataclasses import replace
+from finevision.ml_toolkit.error_analysis import build_test_error_evidence
 from finevision.ml_toolkit.metrics import classification_report
 from finevision.schemas.artifacts import FeatureArtifact, ModelArtifact, TrainingRunReport
 
@@ -317,6 +319,10 @@ def train_images(manifest, payload, artifact_root, *, progress, check_control):
     labels = np.array([manifest.classes.index(s.label) for s in manifest.samples])
     report = TrainingRunReport(run_id, manifest.dataset_id, manifest.dataset_version_id, "", artifact_id,
                                {**config, "optimizer_history": history}, classification_report(labels[mask], logits[mask].argmax(1), manifest.classes, config))
+    report = replace(report, evaluation=replace(report.evaluation, error_analysis=build_test_error_evidence(
+        sample_ids=[s.sample_id for s in manifest.samples], labels=[s.label for s in manifest.samples],
+        splits=[s.split for s in manifest.samples], logits=logits, classes=manifest.classes,
+    )))
     write_json(directory / "training_report.json", report)
     # Label/split context only: no feature matrix or feature artifact is created.
     context = FeatureArtifact("", manifest.dataset_id, manifest.dataset_version_id, key, {"pipeline": "image_classifier_v2"}, 0, "",

@@ -77,6 +77,7 @@ type Store interface {
 type Service struct {
 	Store        Store
 	Now          func() time.Time
+	AgentKey     []byte
 	CookieSecure bool
 }
 

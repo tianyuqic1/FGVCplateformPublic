@@ -23,6 +23,8 @@ import (
 )
 
 type Dependencies struct {
+	AgentURL        string
+	AgentTools      AgentToolOptions
 	Auth            *auth.Service
 	Annotation      *annotation.Handler
 	Deployments     DeploymentApplication
@@ -79,6 +81,12 @@ func NewRouter(dependencies Dependencies) http.Handler {
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			timeout := 30 * time.Second
+			if strings.HasPrefix(r.URL.Path, "/api/agent/") {
+				timeout = 125 * time.Second
+			}
+			if r.URL.Path == "/api/agent-tools/invoke/inference.run" {
+				timeout = 120 * time.Second
+			}
 			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/review-items/") && strings.HasSuffix(r.URL.Path, "/assist") {
 				timeout = 115 * time.Second
 			}
@@ -100,6 +108,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 			middleware.Timeout(timeout)(next).ServeHTTP(w, r)
 		})
 	})
+	registerAgentProxy(router, dependencies.Auth, dependencies.AgentURL)
 	registerSwagger(router)
 	if dependencies.Auth != nil {
 		dependencies.Auth.RegisterRoutes(router)
@@ -128,10 +137,13 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	registerDatasetPreviews(router, dependencies.DatasetImport)
+	var toolTarget http.Handler
+	registerAgentTools(router, application, dependencies.AgentTools, func() http.Handler { return toolTarget })
 	router.Handle("/metrics", observability.MetricsHandler())
 	handler := openapi.HandlerFromMux(strict, router)
 	if dependencies.Auth != nil {
-		return dependencies.Auth.Protect(handler)
+		handler = dependencies.Auth.Protect(handler)
 	}
+	toolTarget = handler
 	return handler
 }
