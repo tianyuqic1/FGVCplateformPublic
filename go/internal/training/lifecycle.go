@@ -3,7 +3,9 @@ package training
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -159,6 +161,8 @@ type Repository interface {
 }
 
 type CreateCommand struct {
+	// OperationKey is server-supplied and namespaced by actor, never model input.
+	OperationKey     string
 	DatasetID        string
 	DatasetVersionID string
 	BackboneID       string
@@ -276,6 +280,25 @@ func (service *Service) Create(ctx context.Context, command CreateCommand) (Crea
 	}
 	now := service.clock().UTC()
 	jobID, runID := newID("job"), newID("run")
+	if command.OperationKey != "" {
+		sum := sha256.Sum256([]byte("agent-training:" + command.OperationKey))
+		jobID = stableUUID(sum[:16])
+		runSum := sha256.Sum256([]byte("agent-training-run:" + command.OperationKey))
+		runID = stableUUID(runSum[:16])
+		encoded, err := json.Marshal(command)
+		if err != nil {
+			return CreatedJob{}, err
+		}
+		digest := sha256.Sum256(encoded)
+		command.Payload = cloneMap(command.Payload)
+		command.Payload["agent_operation_digest"] = hex.EncodeToString(digest[:])
+		command.Payload["agent_operation_key"] = command.OperationKey
+		if existing, err := service.repository.Get(ctx, jobID); err == nil {
+			return idempotentCreated(existing, command.Payload["agent_operation_digest"])
+		} else if ErrorCode(err) != CodeNotFound {
+			return CreatedJob{}, err
+		}
+	}
 	aggregate := &Aggregate{
 		Job: Job{ID: jobID, Status: StatusQueued, Payload: cloneMap(command.Payload), MaxAttempts: command.MaxAttempts,
 			DispatchGeneration: 1, AvailableAt: now, CreatedAt: now, UpdatedAt: now},
@@ -286,9 +309,29 @@ func (service *Service) Create(ctx context.Context, command CreateCommand) (Crea
 		Outbox:   []OutboxEvent{readyEvent(jobID, 1, now)},
 	}
 	if err := service.repository.Create(ctx, aggregate); err != nil {
+		if command.OperationKey != "" {
+			if existing, lookupErr := service.repository.Get(ctx, jobID); lookupErr == nil {
+				return idempotentCreated(existing, command.Payload["agent_operation_digest"])
+			}
+		}
 		return CreatedJob{}, err
 	}
 	return CreatedJob{JobID: jobID, TrainingRunID: runID, Status: StatusQueued}, nil
+}
+
+func stableUUID(raw []byte) string {
+	b := append([]byte(nil), raw...)
+	b[6] = (b[6] & 0x0f) | 0x50
+	b[8] = (b[8] & 0x3f) | 0x80
+	h := hex.EncodeToString(b)
+	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
+func idempotentCreated(existing *Aggregate, digest any) (CreatedJob, error) {
+	if existing.Job.Payload["agent_operation_digest"] != digest {
+		return CreatedJob{}, domainError(CodeIdempotencyConflict, "operation key already used for different training parameters")
+	}
+	return CreatedJob{JobID: existing.Job.ID, TrainingRunID: existing.Run.ID, Status: existing.Job.Status}, nil
 }
 
 func (service *Service) Claim(ctx context.Context, command ClaimCommand) (result ClaimResult, err error) {
@@ -402,9 +445,30 @@ func (service *Service) Cancel(ctx context.Context, jobID string) error {
 	return service.transitionControl(ctx, jobID, StatusCancelled)
 }
 
-func (service *Service) transitionControl(ctx context.Context, jobID string, target Status) error {
+func (service *Service) CancelOperation(ctx context.Context, jobID, key string) error {
+	if key == "" {
+		return domainError(CodeValidationFailed, "operation key required")
+	}
+	return service.transitionControl(ctx, jobID, StatusCancelled, key)
+}
+
+func (service *Service) transitionControl(ctx context.Context, jobID string, target Status, operationKeys ...string) error {
 	now := service.clock().UTC()
 	return service.repository.Update(ctx, jobID, func(aggregate *Aggregate) error {
+		payload := map[string]any{}
+		if len(operationKeys) > 0 {
+			key := operationKeys[0]
+			payload["agent_operation_key"] = key
+			for _, e := range aggregate.Events {
+				if e.Payload["agent_operation_key"] == key {
+					return nil
+				}
+			}
+			if aggregate.Job.Status == StatusCancelled {
+				aggregate.Events = append(aggregate.Events, AuditEvent{EventType: "cancelled", Message: "confirmed already-cancelled training", Payload: payload, CreatedAt: now})
+				return nil
+			}
+		}
 		if terminal(aggregate.Job.Status) {
 			return domainError(CodeInvalidState, fmt.Sprintf("training job cannot transition from %s", aggregate.Job.Status))
 		}
@@ -422,7 +486,7 @@ func (service *Service) transitionControl(ctx context.Context, jobID string, tar
 		}
 		aggregate.Job.Status, aggregate.Job.UpdatedAt = target, now
 		aggregate.Run.Status, aggregate.Run.UpdatedAt = target, now
-		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: string(target), Message: "training job " + string(target), CreatedAt: now})
+		aggregate.Events = append(aggregate.Events, AuditEvent{EventType: string(target), Message: "training job " + string(target), Payload: payload, CreatedAt: now})
 		return nil
 	})
 }

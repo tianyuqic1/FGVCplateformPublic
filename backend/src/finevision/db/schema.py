@@ -10,6 +10,21 @@ register_annotation(metadata)
 from .auth_schema import register as register_auth
 register_auth(metadata)
 
+# Platform-owned external operation ledger, not the independent Agent database.
+agent_tool_operations = sa.Table(
+    "agent_tool_operations", metadata,
+    sa.Column("actor_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("app_users.id"), primary_key=True),
+    sa.Column("operation_id", postgresql.UUID(as_uuid=True), primary_key=True),
+    sa.Column("tool", sa.Text(), nullable=False),
+    sa.Column("arguments_sha256", sa.Text(), nullable=False),
+    sa.Column("status", sa.Text(), nullable=False),
+    sa.Column("http_status", sa.Integer(), nullable=False, server_default="0"),
+    sa.Column("response", postgresql.JSONB()),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.CheckConstraint("status IN ('running','completed')", name="agent_tool_operations_status_check"),
+)
+sa.Index("agent_tool_operations_updated", agent_tool_operations.c.updated_at)
+
 worker_instances = sa.Table(
     "worker_instances", metadata,
     sa.Column("id", sa.Text(), primary_key=True),
@@ -690,3 +705,11 @@ deployment_outbox = sa.Table(
     sa.Column("published_at", sa.DateTime(timezone=True)),
     sa.UniqueConstraint("deployment_id", "build_token"),
 )
+
+# Recovery keys are written only by the authenticated platform tool bridge.
+sa.Index("jobs_agent_operation", jobs.c.payload["agent_operation_key"].astext,
+         unique=True, postgresql_where=jobs.c.payload["agent_operation_key"].astext.is_not(None))
+sa.Index("inference_events_agent_operation", inference_events.c.request_payload["agent_operation_key"].astext,
+         unique=True, postgresql_where=inference_events.c.request_payload["agent_operation_key"].astext.is_not(None))
+sa.Index("job_events_agent_operation", job_events.c.payload["agent_operation_key"].astext,
+         postgresql_where=job_events.c.payload["agent_operation_key"].astext.is_not(None))

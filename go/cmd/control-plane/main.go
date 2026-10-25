@@ -84,6 +84,7 @@ func main() {
 	})
 	artifactVerifier := s3artifact.New(s3Client, configuration.ArtifactBucket, "")
 	authService := auth.New(&auth.PostgresStore{Pool: pool})
+	authService.AgentKey = []byte(os.Getenv("FINEVISION_AGENT_DELEGATION_KEY"))
 	authService.CookieSecure = os.Getenv("FINEVISION_ENVIRONMENT") != "local"
 	lifecycle := training.NewServiceWithVerifier(repository, artifactVerifier, time.Now, configuration.LeaseTTL)
 	llmGateway := llmgatewayclient.New(configuration.LLMGatewayURL, configuration.LLMInternalToken, &http.Client{Timeout: 90 * time.Second, Transport: observability.TraceHTTPTransport(nil)})
@@ -150,6 +151,8 @@ func main() {
 	server := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: observability.TracePublicHTTPHandler(httpapi.NewRouter(httpapi.Dependencies{
+			AgentURL:    os.Getenv("FINEVISION_AGENT_URL"),
+			AgentTools:  httpapi.AgentToolOptions{TestErrors: postgresadapter.NewTrainingTestErrors(pool, artifactVerifier), SigningKey: []byte(os.Getenv("FINEVISION_AGENT_TOOLS_SIGNING_KEY")), Operations: &postgresadapter.AgentToolOperations{Pool: pool}},
 			Auth:        authService,
 			Annotation:  &annotation.Handler{Repo: annotationRepo, Store: artifactVerifier, Token: configuration.LLMInternalToken, Publisher: annotationPublisher},
 			Deployments: deployments, DeploymentToken: os.Getenv("FINEVISION_DEPLOYMENT_TOKEN"),

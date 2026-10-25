@@ -1,0 +1,90 @@
+{
+  "run_id": "11111111-1111-4111-8111-111111111111",
+  "dataset_version_id": "22222222-2222-4222-8222-222222222222",
+  "evaluation": {
+    "error_analysis": {
+      "schema_version": 1,
+      "evaluation_split": "test",
+      "selection_basis": "final_checkpoint_argmax",
+      "sample_count": 3,
+      "error_count": 2,
+      "accuracy": 0.3333333333333333,
+      "confidence_basis": "uncalibrated_softmax",
+      "high_confidence_threshold": 0.8,
+      "high_confidence_error_count": 1,
+      "low_margin_threshold": 0.1,
+      "low_margin_error_count": 1,
+      "class_statistics": [
+        {
+          "label": "a",
+          "test_count": 1,
+          "error_count": 1,
+          "error_rate": 1.0,
+          "train_count": 1
+        },
+        {
+          "label": "b",
+          "test_count": 2,
+          "error_count": 1,
+          "error_rate": 0.5,
+          "train_count": 0
+        }
+      ],
+      "confusion_pairs": [
+        {
+          "true_label": "a",
+          "predicted_label": "b",
+          "count": 1,
+          "rate_within_true_class": 1.0
+        },
+        {
+          "true_label": "b",
+          "predicted_label": "a",
+          "count": 1,
+          "rate_within_true_class": 0.5
+        }
+      ],
+      "confusion_pairs_total": 2,
+      "examples": [
+        {
+          "sample_id": "wrong",
+          "true_label": "a",
+          "predicted_label": "b",
+          "predicted_probability": 0.9999546021312976,
+          "true_probability": 4.5397868702434395e-05,
+          "margin": 0.9999092042625952,
+          "top_predictions": [
+            {
+              "label": "b",
+              "probability": 0.9999546021312976
+            },
+            {
+              "label": "a",
+              "probability": 4.5397868702434395e-05
+            }
+          ]
+        },
+        {
+          "sample_id": "close",
+          "true_label": "b",
+          "predicted_label": "a",
+          "predicted_probability": 0.52497918747894,
+          "true_probability": 0.47502081252106,
+          "margin": 0.049958374957880025,
+          "top_predictions": [
+            {
+              "label": "a",
+              "probability": 0.52497918747894
+            },
+            {
+              "label": "b",
+              "probability": 0.47502081252106
+            }
+          ]
+        }
+      ],
+      "examples_retained": 2,
+      "examples_policy": "highest_wrong_probability_then_sample_id"
+    }
+  }
+}

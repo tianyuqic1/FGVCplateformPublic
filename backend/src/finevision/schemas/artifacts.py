@@ -75,6 +75,7 @@ class EvaluationReport:
     per_class: dict[str, dict[str, float]]
     confusion_matrix: list[list[int]]
     run_config: dict[str, Any]
+    error_analysis: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

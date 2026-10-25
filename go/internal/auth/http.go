@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,10 +19,27 @@ import (
 
 type contextKey struct{}
 type sessionContextKey struct{}
+type toolDispatchKey struct{}
+
+// ToolDispatch marks an in-process resource request from an authenticated tool bridge.
+func ToolDispatch(ctx context.Context) context.Context {
+	return context.WithValue(ctx, toolDispatchKey{}, true)
+}
 
 func UserFromContext(ctx context.Context) (User, bool) {
 	user, ok := ctx.Value(contextKey{}).(User)
 	return user, ok
+}
+
+// SessionBinding identifies a live session for action receipts without exposing
+// its login secret or CSRF value. Protect must have authenticated the request.
+func SessionBinding(ctx context.Context) string {
+	session, ok := ctx.Value(sessionContextKey{}).(Session)
+	if !ok || session.CSRFToken == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(session.CSRFToken))
+	return hex.EncodeToString(sum[:])
 }
 
 func Actor(ctx context.Context, fallback string) string {
@@ -221,6 +240,24 @@ func allowed(role Role, method, path string) bool {
 	if path == "/api/auth/me" || path == "/api/auth/logout" {
 		return true
 	}
+	if strings.HasPrefix(path, "/api/agent/") {
+		return role == Business
+	}
+	if strings.HasPrefix(path, "/api/agent-tools/") {
+		if method == http.MethodGet && path == "/api/agent-tools/catalog" {
+			return role == Business || role == Annotator
+		}
+		if method == http.MethodGet && strings.HasPrefix(path, "/api/agent-tools/operations/") {
+			return role == Business
+		}
+		if method == http.MethodPost && strings.HasPrefix(path, "/api/agent-tools/invoke/") {
+			return AgentToolAllowed(role, strings.TrimPrefix(path, "/api/agent-tools/invoke/"))
+		}
+		if method == http.MethodPost && strings.HasPrefix(path, "/api/agent-tools/approvals/") {
+			return role == Business
+		}
+		return false
+	}
 	if strings.HasPrefix(path, "/api/auth/") || strings.HasPrefix(path, "/swagger") || strings.HasPrefix(path, "/openapi/") {
 		return false
 	}
@@ -263,12 +300,23 @@ func (s *Service) Protect(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		secret := s.secret(r)
-		if secret == "" {
-			respond(w, 401, map[string]string{"detail": "请先登录"})
+		if internal, _ := r.Context().Value(toolDispatchKey{}).(bool); internal {
+			session, ok := r.Context().Value(sessionContextKey{}).(Session)
+			if !ok || !allowed(session.User.Role, r.Method, path) {
+				respond(w, 403, map[string]string{"detail": "当前账号无权访问"})
+				return
+			}
+			next.ServeHTTP(w, r)
 			return
 		}
-		session, err := s.Session(r.Context(), secret)
+		var session Session
+		var err error
+		delegated := r.Header.Get("X-Agent-Delegation") != ""
+		if delegated {
+			session, err = s.agentSession(r)
+		} else {
+			session, err = s.Session(r.Context(), s.secret(r))
+		}
 		if err != nil {
 			if !errors.Is(err, ErrCredentials) {
 				respond(w, 503, map[string]string{"detail": "会话服务暂不可用"})
@@ -281,7 +329,7 @@ func (s *Service) Protect(next http.Handler) http.Handler {
 			respond(w, 403, map[string]string{"detail": "当前账号无权访问"})
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		if !delegated && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			provided := r.Header.Get("X-CSRF-Token")
 			if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(session.CSRFToken)) != 1 {
 				respond(w, 403, map[string]string{"detail": "CSRF 校验失败，请刷新页面"})

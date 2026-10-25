@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -8,12 +9,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/swaggest/swgui"
 	"github.com/swaggest/swgui/v5emb"
+	"github.com/tianyuqic1/FGVCplateformPublic/agent/api/toolcontract"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/api/openapi"
 )
 
 const swaggerBasePath = "/swagger/"
 
 func registerSwagger(router chi.Router) {
+	router.Get("/openapi/agent-tools.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(toolcontract.OpenAPI())
+	})
 	registerSpecification(router, "/openapi/finevision.yaml", "finevision.yaml")
 	registerSpecification(router, "/openapi/hardware.yaml", "hardware.yaml")
 	registerSpecification(router, "/openapi/auth.yaml", "auth.yaml")
@@ -39,7 +45,8 @@ func registerSwagger(router chi.Router) {
 				{url: "/openapi/finevision.yaml", name: "FineVision Control Plane"},
 				{url: "/openapi/hardware.yaml", name: "Hardware Monitoring"},
 				{url: "/openapi/auth.yaml", name: "用户与权限"},
-				{url: "/openapi/workers.yaml", name: "Worker 状态"}
+				{url: "/openapi/workers.yaml", name: "Worker 状态"},
+				{url: "/openapi/agent-tools.json", name: "Agent 工具"}
 			]`,
 		},
 	})

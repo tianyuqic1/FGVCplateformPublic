@@ -3,6 +3,7 @@ module github.com/tianyuqic1/FGVCplateformPublic/go
 go 1.26.0
 
 require (
+	github.com/tianyuqic1/FGVCplateformPublic/agent v0.0.0
 	github.com/aws/aws-sdk-go-v2 v1.46.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
@@ -29,6 +30,8 @@ require (
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.1
 	google.golang.org/protobuf v1.36.12
 )
+
+replace github.com/tianyuqic1/FGVCplateformPublic/agent => ../agent
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect

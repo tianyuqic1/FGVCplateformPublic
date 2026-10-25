@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	computev1 "github.com/tianyuqic1/FGVCplateformPublic/go/api/proto/finevision/compute/v1"
+	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/agenttools"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/artifact"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/dataset"
 	"github.com/tianyuqic1/FGVCplateformPublic/go/internal/deployment"
@@ -46,6 +47,12 @@ func protoArtifact(a artifact.Descriptor) *computev1.ArtifactDescriptor {
 	return &computev1.ArtifactDescriptor{ArtifactId: a.ArtifactID, ArtifactType: a.ArtifactType, Uri: a.URI, Sha256: a.SHA256, SizeBytes: a.SizeBytes, ContentType: a.ContentType, DatasetVersionId: a.DatasetVersionID, TrainingRunId: a.TrainingRunID, SchemaVersion: int32(a.SchemaVersion)}
 }
 func (s *InferenceService) Predict(ctx context.Context, input map[string]any, data []byte) (map[string]any, error) {
+	// Only the authenticated tool bridge can attach a recoverable operation tag.
+	// Ordinary public inference JSON cannot choose another operation's identity.
+	delete(input, "agent_operation_key")
+	if key := agenttools.OperationKey(ctx); key != "" {
+		input["agent_operation_key"] = key
+	}
 	model, err := NewModelRegistryRepository(s.Pool).Get(ctx, textInput(input, "model_version_id"))
 	if err != nil {
 		return nil, err

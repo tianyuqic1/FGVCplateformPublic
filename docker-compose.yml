@@ -6,6 +6,9 @@ x-control-plane-environment: &control-plane-environment
   FINEVISION_DATABASE_URL: postgres://finevision:finevision@postgres:5432/finevision
   FINEVISION_LLM_GATEWAY_URL: http://go-llm-gateway:8080
   FINEVISION_LLM_INTERNAL_TOKEN: ${FINEVISION_LLM_INTERNAL_TOKEN:-finevision-dev-internal-only}
+  FINEVISION_AGENT_TOOLS_SIGNING_KEY: ${FINEVISION_AGENT_TOOLS_SIGNING_KEY:-}
+  FINEVISION_AGENT_DELEGATION_KEY: ${FINEVISION_AGENT_DELEGATION_KEY:-}
+  FINEVISION_AGENT_URL: http://agent-service:8091
 
 x-object-store-environment: &object-store-environment
   FINEVISION_S3_ENDPOINT: http://object-store:9000
@@ -33,6 +36,48 @@ x-default-logging: &default-logging
     max-file: "5"
 
 services:
+  agent-postgres:
+    image: postgres:16.10-alpine
+    logging: *default-logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finevision_agent
+      POSTGRES_USER: finevision_agent
+      POSTGRES_PASSWORD: ${FINEVISION_AGENT_DB_PASSWORD:-finevision-agent-local-only}
+    volumes:
+      - finevision-agent-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finevision_agent -d finevision_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  agent-service:
+    logging: *default-logging
+    build:
+      context: .
+      dockerfile: agent/deploy/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      FINEVISION_AGENT_DATABASE_URL: postgres://finevision_agent:${FINEVISION_AGENT_DB_PASSWORD:-finevision-agent-local-only}@agent-postgres:5432/finevision_agent
+      FINEVISION_AGENT_DELEGATION_KEY: ${FINEVISION_AGENT_DELEGATION_KEY:-}
+      FINEVISION_CONTROL_PLANE_HTTP: http://go-control-plane:8000
+      FINEVISION_LLM_GATEWAY_URL: http://go-llm-gateway:8080
+      FINEVISION_LLM_INTERNAL_TOKEN: ${FINEVISION_LLM_INTERNAL_TOKEN:-finevision-dev-internal-only}
+    expose: ["8091"]
+    depends_on:
+      agent-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8091/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
   frontend:
     logging: *default-logging
     build:
@@ -425,6 +470,7 @@ services:
         condition: service_healthy
 
 volumes:
+  finevision-agent-db:
   finevision-uploads:
   finevision-export-cache:
   finevision-postgres:

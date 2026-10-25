@@ -41,6 +41,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+python3 agent/deploy/init_local.py
+
 echo "Validating compose configuration..."
 "${compose[@]}" config >/dev/null
 
@@ -57,7 +59,7 @@ fi
 
 echo "Starting FineVision demo stack..."
 "${compose[@]}" up -d "${build_flag[@]}" \
-  frontend go-control-plane outbox-relay go-llm-gateway \
+  frontend go-control-plane outbox-relay go-llm-gateway agent-service \
   python-training-worker python-inference-runtime hardware-collector
 
 if [[ "$run_smoke" -eq 1 ]]; then

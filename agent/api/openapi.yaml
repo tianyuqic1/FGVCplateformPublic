@@ -1,0 +1,189 @@
+openapi: 3.1.0
+info:
+  title: FineVision Agent API
+  version: 1.0.0
+  description: 浏览器经平台 Cookie / CSRF 认证代理访问；Agent 只接受平台签名身份。
+servers:
+  - url: /api/agent
+security:
+  - platformSession: []
+paths:
+  /conversations:
+    get:
+      summary: 当前用户最近 100 个对话
+      responses:
+        '200': { description: items 对话列表 }
+    post:
+      summary: 新建对话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: { type: string, maxLength: 80 }
+      responses:
+        '201': { description: 新会话 }
+  /conversations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      summary: 最近 100 个 Run，按创建时间升序
+      responses:
+        '200': { description: items Run 列表 }
+        '404': { description: 不存在或不属于当前用户 }
+  /runs:
+    post:
+      summary: 登记问题；相同请求键和内容返回同一 Run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [conversation_id, request_key, input]
+              properties:
+                conversation_id: { type: string, format: uuid }
+                request_key: { type: string, format: uuid }
+                input: { type: string, description: 非空、合法 UTF-8，最多 16000 字节 }
+      responses:
+        '202': { description: Run 快照 }
+        '409': { description: 会话仍有任务，或请求键内容冲突 }
+        '429': { description: 用户或全局队列已满 }
+  /runs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      summary: 任务状态、回答、用量、待确认方案
+      responses:
+        '200':
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '404': { description: 不存在或不属于当前用户 }
+  /runs/{id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: 用户显式确认当前规范方案；不能传入替换参数
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [operation_id]
+              properties:
+                operation_id: { type: string, format: uuid }
+      responses:
+        '200': { description: 已排队或已确认请求的稳定状态 }
+        '409': { description: 预览已过期、参数变化或任务不再等待确认 }
+  /runs/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: 停止助手后续执行或拒绝方案；不回滚业务任务
+      responses:
+        '200': { description: 已登记停止请求 }
+  /runs/{id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: 对 waiting_auth 的任务恢复当前登录授权
+      responses:
+        '200': { description: queued }
+        '409': { description: 无需恢复或已取消 }
+  /runs/{id}/operation:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      summary: 查询当前待核对写操作的真实平台状态
+      responses:
+        '200': { description: operation_id、outcome、response }
+        '404': { description: 没有相关操作或操作尚未登记 }
+  /runs/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    get:
+      summary: 持久 SSE，每 50 秒正常重连；最多每页 100 个事件
+      parameters:
+        - { name: Last-Event-ID, in: header, schema: { type: integer, minimum: 0 } }
+        - { name: after, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: format, in: query, schema: { type: string, enum: [json] } }
+      responses:
+        '200':
+          description: SSE update 事件，或 format=json 时的 items
+          content:
+            text/event-stream: { schema: { type: string } }
+            application/json: { schema: { type: object } }
+  /tools:
+    get:
+      summary: 15 个工具的闭合参数契约
+      responses:
+        '200': { description: items 工具定义 }
+  /watches:
+    get:
+      summary: 当前用户在指定对话中的最近 50 个训练跟踪
+      parameters:
+        - { name: conversation_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: items 跟踪列表 }
+    post:
+      summary: 显式登记 30 秒轮询、最长 24 小时的训练跟踪
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [conversation_id, run_id]
+              properties:
+                conversation_id: { type: string, format: uuid }
+                run_id: { type: string, format: uuid }
+      responses:
+        '201': { description: 新的或已存在的同资源活动跟踪 }
+        '429': { description: 当前用户已达到 8 个活动跟踪 }
+  /watches/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: 停止训练跟踪
+      responses:
+        '200': { description: cancelled }
+  /watches/{id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/id'
+    post:
+      summary: 恢复训练跟踪的当前登录授权
+      responses:
+        '200': { description: active }
+components:
+  securitySchemes:
+    platformSession: { type: apiKey, in: cookie, name: fv_session, description: 变更请求另需 X-CSRF-Token，生产使用 __Host-fv_session }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    Run:
+      type: object
+      required: [id, conversation_id, input, status, output, rounds, tools, input_tokens, output_tokens]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        input: { type: string }
+        status: { type: string, enum: [queued, running, waiting_confirmation, waiting_auth, unknown, succeeded, failed, cancelled] }
+        error: { type: string }
+        cancel_requested: { type: boolean }
+        output: { type: string }
+        rounds: { type: integer }
+        tools: { type: integer }
+        input_tokens: { type: integer }
+        output_tokens: { type: integer }
+        proposal: { type: object, description: call、arguments、operation_id、confirmed；不包含确认回执 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }

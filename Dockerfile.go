@@ -1,6 +1,8 @@
 FROM golang:1.26-alpine AS build
 
 WORKDIR /src/go
+COPY agent/go.mod /src/agent/go.mod
+COPY agent/api /src/agent/api
 COPY go/go.mod go/go.sum ./
 RUN go mod download
 COPY go ./
