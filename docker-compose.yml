@@ -53,6 +53,7 @@ services:
       retries: 10
 
   agent-service:
+    image: finevision-agent-service:local
     logging: *default-logging
     build:
       context: .
@@ -79,6 +80,7 @@ services:
       start_period: 15s
 
   frontend:
+    image: finevision-frontend:local
     logging: *default-logging
     build:
       context: .
@@ -87,7 +89,7 @@ services:
       VITE_API_BASE_URL: ""
       VITE_PROXY_TARGET: http://go-control-plane:8000
     ports:
-      - "5173:5173"
+      - "${FINEVISION_FRONTEND_PORT:-5173}:5173"
     depends_on:
       go-control-plane:
         condition: service_started
@@ -120,6 +122,8 @@ services:
       FINEVISION_S3_SECRET_KEY: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
       FINEVISION_ARTIFACT_BUCKET: finevision-artifacts
       FINEVISION_HTTP_ADDRESS: :8000
+      FINEVISION_DATASET_GRPC: ${FINEVISION_DATASET_GRPC:-python-artifact-runtime:9200}
+      FINEVISION_INFERENCE_GRPC: ${FINEVISION_INFERENCE_GRPC:-python-inference-runtime:9100}
       FINEVISION_UPLOAD_DIR: /data/uploads
       FINEVISION_GRPC_ADDRESS: :9000
       FINEVISION_LEASE_TTL: 150s
@@ -129,7 +133,7 @@ services:
       FINEVISION_ASCEND_GRPC: ${FINEVISION_ASCEND_GRPC:-}
       FINEVISION_ASCEND_TARGET: ${FINEVISION_ASCEND_TARGET:-}
     ports:
-      - "8001:8000"
+      - "${FINEVISION_API_PORT:-8001}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -194,6 +198,8 @@ services:
     expose: ["8080"]
 
   hardware-collector:
+    image: finevision-hardware-collector:local
+    profiles: ["local-worker"]
     logging: *default-logging
     build:
       context: .
@@ -222,6 +228,7 @@ services:
     expose: ["9304"]
 
   python-training-worker:
+    profiles: ["local-worker"]
     logging: *default-logging
     image: finevision-python-compute:local
     build:
@@ -257,6 +264,7 @@ services:
     expose: ["9301"]
 
   python-inference-runtime:
+    profiles: ["local-worker"]
     logging: *default-logging
     image: finevision-python-inference:multi-runtime
     build:
@@ -306,6 +314,7 @@ services:
     expose: ["9303"]
 
   migrate:
+    image: finevision-migrate:local
     logging: *default-logging
     build:
       context: .
@@ -325,7 +334,7 @@ services:
       POSTGRES_USER: finevision
       POSTGRES_PASSWORD: finevision
     ports:
-      - "5432:5432"
+      - "${FINEVISION_POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U finevision -d finevision"]
       interval: 5s
@@ -342,8 +351,8 @@ services:
       RABBITMQ_DEFAULT_USER: finevision
       RABBITMQ_DEFAULT_PASS: finevision
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${FINEVISION_RABBITMQ_PORT:-5672}:5672"
+      - "${FINEVISION_RABBITMQ_CONSOLE_PORT:-15672}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -361,8 +370,8 @@ services:
       MINIO_ROOT_PASSWORD: ${FINEVISION_S3_SECRET_KEY:-finevision-dev-object-secret}
       MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${FINEVISION_MINIO_PORT:-9000}:9000"
+      - "${FINEVISION_MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
@@ -450,7 +459,7 @@ services:
         promote /weights/pretrained/imagenet/vit_small_patch16_224.augreg_in21k_ft_in1k.safetensors pretrained/imagenet/vit-small/79/79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 79c03c635cdfd798a364a9d8c4e5c0b7255b975ea2c9616046d4f77ab01435aa 88216496
         promote /weights/pretrained/imagenet/resnet50.a1_in1k.safetensors pretrained/imagenet/resnet-50/77/773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 773525d5821de224f8f30c33377b7a795d7863e08522698200d3217d3f2a41bb 102469840
         if [ "$${skipped}" -gt 0 ]; then
-          echo "WARN $${skipped}/3 个预训练权重未登记；使用对应骨干时将回退到 timm 自带预训练下载。" >&2
+          echo "WARN $${skipped}/3 个预训练权重未登记；使用对应骨干的任务会明确失败。" >&2
         fi
         exit 0
     environment:

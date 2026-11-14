@@ -16,3 +16,9 @@ data/downloads
 data/test
 weights/pretrained
 annotation/runtime
+
+# Local deployment plans, state and downloaded model cache.
+.deploy/
+
+.deploy-plan.*
+.deploy-health.*

@@ -40,3 +40,9 @@ pretrained/**/*.engine
 
 # ModelScope CLI 上传缓存（本地状态，含 mtime，不入库）
 .ms_upload_cache
+
+# Local deployment plans, state and downloaded model cache.
+.deploy/
+
+.deploy-plan.*
+.deploy-health.*

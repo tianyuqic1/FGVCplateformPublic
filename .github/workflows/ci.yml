@@ -133,6 +133,11 @@ jobs:
         run: |
           python3 showcase/build.py
           python3 showcase/check.py
+      - name: 统一部署入口与模型准备回归
+        run: |
+          bash -n deploy.sh scripts/demo-up.sh
+          python3 -m unittest discover -s deploy/tests -v
+          ./deploy.sh --with-models --device cpu --dry-run
       - name: 检查 Compose 配置
         run: |
           docker compose -f docker-compose.yml config --quiet

@@ -46,134 +46,52 @@ Python Compute Services
 
 ## 快速启动
 
-### 环境要求
-
-- Docker Engine 与 Docker Compose v2
-- Git LFS（安装后还需执行一次 `git lfs install`，见下节）
-- 可选：NVIDIA Container Toolkit（GPU 训练或 TensorRT）
-- 可选：Python 3.11+、uv、Go 1.26、Node.js 22+（宿主机开发）
-
-### 获取代码和权重
+需要 Bash、Docker Engine 与 Docker Compose 2.30+；启用 CUDA 另外需要 NVIDIA 驱动与 Container Toolkit。部署不要求宿主机安装 Node、Go 或 Python。
 
 ~~~bash
-git clone git@github.com:tianyuqic1/FGVCplateformPublic.git
+GIT_LFS_SKIP_SMUDGE=1 git clone git@github.com:tianyuqic1/FGVCplateformPublic.git
 cd FGVCplateformPublic
-git lfs install --local   # 必须先注册 LFS filter，这步不能省
-git lfs pull
-cp .env.example .env
+./deploy.sh --dry-run                    # 预览，不修改配置或服务
+./deploy.sh                             # 平台 + Agent，不启动本机训练/推理
 ~~~
 
-> ⚠️ **`git lfs install --local` 不能省。** 用 conda 安装的 git-lfs 不会自动注册 filter（Homebrew、官方安装器与 apt 会）。缺少该配置时 `git lfs pull` 会**下载完整对象却跳过检出、且退出码为 0** —— 看似成功，工作区里留下的仍是 133 字节的指针文件，直到训练或 `docker compose up` 才暴露。
+首次自动创建 `.env` 并补齐 Agent 空白密钥，已有值保留。默认工作台 <http://localhost:5173>、API <http://localhost:8001>；Agent 在侧边栏「实验助手」，真实模型回答需先配置 `.env` 中的供应商信息。
 
-仓库托管权重缺失不影响启动，但选择该骨干的任务会明确报错。用 `scripts/check-weights.sh` 自查（`scripts/demo-up.sh` 启动前会自动跑一次，`--strict` 可作发布前门禁；CI 中的权重完整性由 `backend/tests/test_pretrained_weights_manifest.py` 覆盖）。外部发布的 iNat 蒸馏权重在首次使用时单独下载并验证。
-
-.env.example 提供本地开发默认值；首次启动先执行 `python3 agent/deploy/init_local.py` 生成 Agent 所需的随机签名密钥与独立数据库密码，`scripts/demo-up.sh` 会自动执行这一步。接入外部视觉大模型时，只在被 Git 忽略的 .env 中填写 FINEVISION_LLM_API_KEY，不要把密钥写入前端、日志、测试快照或提交记录。
-
-### 启动 CPU 开发栈
+按需增加功能：
 
 ~~~bash
-scripts/demo-up.sh
+./deploy.sh --with-worker                         # 本机 CPU 训练与推理
+./deploy.sh --with-models                         # 下载校验预训练权重，并启用本机计算
+./deploy.sh --with-worker --with-models --device cuda
+./deploy.sh --with-models --models dinov3-vits,inat-mobilenetv3
+./deploy.sh --with-worker --with-observability
 ~~~
 
-常用入口：
-
-| 服务 | 地址 |
-|---|---|
-| Web 工作台 | <http://localhost:5173> |
-| 实验助手（需登录） | <http://localhost:5173/agent> |
-| Worker 状态（管理员 / 业务人员） | <http://localhost:5173/workers> |
-| Go API | <http://localhost:8001/api/health> |
-| Swagger API 文档 | <http://localhost:8001/swagger/> |
-| OpenAPI YAML | <http://localhost:8001/openapi/finevision.yaml> |
-| 用户与权限 API | <http://localhost:8001/openapi/auth.yaml> |
-| Worker 状态 API | <http://localhost:8001/openapi/workers.yaml> |
-| MinIO Console | <http://localhost:9001> |
-| RabbitMQ Console | <http://localhost:15672> |
-| 展示文档 | <http://localhost:5180> |
-| 独立日志与观测控制台 | <http://localhost:9400> |
-| 观测服务健康检查 | <http://localhost:9400/health> |
-
-Swagger 与 OpenAPI 契约现在仅管理员登录后可查看；匿名访问返回 401。工作台与 API 应经同源反向代理提供服务，便于会话 Cookie 与 CSRF 校验正常工作。
-
-启用 NVIDIA GPU：
+所选权重准备失败不会报告部署成功。已有成功部署会保存功能组合，后续省略开关不会自动关闭 Worker 或切回 CPU。
 
 ~~~bash
-scripts/demo-up.sh --gpu
+./deploy.sh status
+./deploy.sh logs agent-service --tail 100
+./deploy.sh doctor
+./deploy.sh restart
+./deploy.sh stop                                  # 保留数据库和模型缓存
 ~~~
 
-仅启动训练 Worker 的 CDI GPU 覆盖：
+首次管理员初始化命令在部署成功时输出，密码安全交互输入。账号角色与注册审核见 [用户认证](docs/auth.md)。旧 `scripts/demo-up.sh` 保留兼容并转发为本机 Worker 部署。
 
-~~~bash
-docker compose -f docker-compose.yml -f compose.training-gpu.yml up -d python-training-worker
-~~~
+完整 [部署指南](docs/deployment/README.md) 包含参数、配置、模型准备、远程 Worker、升级与排障。AI 标注、TensorRT/Ascend 仍使用各自专题入口，尚未并入统一脚本。当前前端是 Vite 开发容器，统一入口不代表生产 HTTPS 或多节点编排已经完成。
 
-多后端推理与硬件要求见 [推理部署文档](docs/inference-deployments.md)。
+## 实验助手 Agent
 
-### 实验助手 Agent
+对话查询数据与训练、比较模型、生成规范实验方案，确认后提交或取消训练、执行单样本推理；工作区和页面抽屉共用持久历史，支持 SSE、停止分析、授权恢复与训练跟踪。
 
-登录后打开侧边栏「实验助手」，可查询数据与训练、比较模型、生成实验方案，并在确认后提交或取消训练、执行单样本推理。页面抽屉与完整工作区共用会话历史，支持停止分析、断线恢复与训练跟踪。
+已完成训练详情提供「分析测试集错分」，可分析独立测试指标、易混类别和有限错分样本，区分事实与原因假设。工具不读取原图，缺乏独立测试证据的旧训练明确不可用，不自动重训。详见 [错分分析](agent/docs/test-error-analysis.md)。
 
-已完成训练的详情页提供「分析测试集错分」：带入训练 ID 并新建对话，发送后分析独立测试集的易混类别、错分样本和指标，区分统计事实与待验证的原因假设。该工具不读取原图；缺乏独立测试证据的旧训练会明确提示不可用，不自动重训。[工具与证据范围](agent/docs/test-error-analysis.md)。
+Agent 拥有独立 Docker 服务、数据库、账号与 volume。默认 4 个 Runner，数据库限制全局 8 个运行任务、每用户 2 个、同会话串行；每轮最多 4 个只读工具并发，写动作逐项确认。[运行与组件说明](agent/README.md)。
 
-Agent 单独运行在 `agent-service` 容器，拥有独立 PostgreSQL 容器、数据库、账号与 volume，经平台 API 使用现有业务服务。默认 4 个 Runner，数据库约束全局最多 8 个运行任务、每用户 2 个、同会话串行；每轮最多并行 4 个只读工具，写动作逐项确认。
+## 配置
 
-已有部署升级需先应用平台迁移 `20261024_0025`，再更新控制面、Gateway、Agent 和前端。Agent 自己的两份迁移在启动时执行；更新实际训练 Worker 后，新训练才会保存完整测试错分证据。启动步骤、身份委托、故障恢复与当前边界见 [Agent 运行说明](agent/docs/runtime.md)，组件设计见 [Agent 文档目录](agent/README.md)。
-
-### Worker 状态与升级
-
-已有部署升级时须执行数据库迁移（新增 `20260926_0024`），再更新控制面与各 Worker；运行中的长任务应先完成，避免直接重启。首次启动由现有启动脚本执行迁移。
-
-Worker 使用专用令牌向控制面登记并约每 10 秒发送心跳。页面超过 30 秒标记延迟、超过 90 秒标记失联；状态展示不负责调度、重试或停止任务。远程部署需要显式配置 Worker 可达的控制面 HTTP 地址，不能沿用另一台机器的 `localhost`。
-
-业务视图只展示数据库能核实为本人的训练任务，历史无归属任务不猜测归属；共享负载仍包含全部任务。这是 Worker 视图的数据最小化，不代表训练、数据集等全部接口已实现用户级资源隔离。升级步骤、角色边界和独立部署配置见 [Worker 文档](docs/worker-status.md)。
-
-### 首次登录与用户管理
-
-数据库迁移完成后，先创建首位管理员。管理员密码从终端安全读取，不放在命令行或 `.env` 中。使用 Docker Compose 时，先启动服务，再执行：
-
-~~~bash
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/finevision-admin go-control-plane --email admin@example.com --name 平台管理员
-~~~
-
-也可在宿主机配置 `FINEVISION_DATABASE_URL` 后，于 `go/` 目录执行 `go run ./cmd/finevision-admin --email admin@example.com --name 平台管理员`。此命令可重置指定管理员密码并撤销该账号旧会话，应限制为运维人员执行。随后访问工作台登录页。普通用户可自行申请注册，但在管理员审核前不能登录；管理员在**用户管理**页分配角色并启用。权限矩阵、会话机制和操作说明见[用户认证与权限文档](docs/auth.md)。
-
-可选启用集中日志、指标与 Trace：
-
-~~~bash
-FINEVISION_OBSERVABILITY_ENABLED=true \
-docker compose -f docker-compose.yml -f compose.observability.yml \
-  --profile observability up -d
-~~~
-
-运行日志不出现在业务工作台中，日常排障使用独立的日志与观测控制台，无需分别登录 Loki、Prometheus、Tempo 或 Grafana。设置 `FINEVISION_OBSERVABILITY_TOKEN` 后，控制台页面和查询 API 必须通过 Token 验证；Grafana 仅作为容器网络内的高级运维工具保留。字段、查询、告警、保留和生产安全边界见 [可观测性操作手册](docs/observability.md)。
-
-## 配置清单
-
-| 配置 | 是否必需 | 用途 |
-|---|---|---|
-| DATABASE_URL / FINEVISION_DATABASE_URL | 是 | Alembic 与 Go 控制面数据库连接 |
-| FINEVISION_ENVIRONMENT | 本地开发建议设置 `local` | `local` 允许 HTTP 本地会话 Cookie；其他值要求 HTTPS Secure Cookie |
-| FINEVISION_S3_* | 是 | MinIO/S3 endpoint、区域和访问凭据 |
-| FINEVISION_ARTIFACT_BUCKET | 是 | 模型与报告对象桶 |
-| FINEVISION_RABBITMQ_URL | 是 | 训练、发布和部署消息 |
-| FINEVISION_LLM_INTERNAL_TOKEN | 使用 LLM 时 | 控制面到 LLM Gateway 的内部鉴权 |
-| FINEVISION_LLM_API_KEY | 使用远程 VLM 时 | 仅注入 Go LLM Gateway |
-| FINEVISION_AGENT_DELEGATION_KEY | 使用 Agent 时 | 控制面与 Agent 共享的随机身份签名密钥，至少 32 字节 |
-| FINEVISION_AGENT_TOOLS_SIGNING_KEY | Agent 写操作时 | 仅控制面持有的写操作确认密钥，至少 32 字节 |
-| FINEVISION_AGENT_DB_PASSWORD | 使用 Agent 时 | Agent 独立 PostgreSQL 密码；以上三项由初始化脚本补齐 |
-| FINEVISION_*_DEVICE | 否 | CPU/CUDA 计算设备选择 |
-| FINEVISION_DEPLOYMENT_TOKEN | 硬件 Worker 时 | 部署 Worker 与控制面的内部鉴权 |
-| FINEVISION_CONTROL_PLANE_HTTP | Worker 状态上报时 | Worker 可访问的控制面 HTTP 地址；Compose 默认使用容器服务名 |
-| FINEVISION_WORKER_TOKEN | Worker 状态上报时 | 与控制面一致的专用上报令牌；生产必须替换开发默认值 |
-| FINEVISION_WORKER_ID / FINEVISION_NODE_ID | 独立部署建议设置 | 稳定唯一的进程实例 ID / 所属计算节点 ID；同节点的实例共享节点 ID，不共享实例 ID |
-| FINEVISION_TENSORRT_* / FINEVISION_ASCEND_* | 对应后端时 | 硬件目标地址与 profile |
-| FINEVISION_LOG_LEVEL / FINEVISION_LOG_FORMAT | 否 | 结构化日志级别与格式 |
-| FINEVISION_OBSERVABILITY_ENABLED | 否 | 启用 OTLP Trace 导出；默认关闭 |
-| FINEVISION_OBSERVABILITY_TOKEN | 否 | 独立日志控制台访问令牌；本地默认关闭门禁 |
-| OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_TRACES_SAMPLER_ARG | 否 | Alloy 地址与成功链路采样率 |
-| FINEVISION_GRAFANA_USER / PASSWORD | 高级运维时 | 内部 Grafana 管理账号；普通用户不需要 |
-
-完整示例见 [.env.example](.env.example)。
+配置模板为 [.env.example](.env.example)，本地实际值只写入被忽略的 `.env` 或自定义配置文件。`--env-file`、功能开关、端口与配置优先级统一见 [部署配置](docs/deployment/configuration.md)。供应商凭据仅提供给 Gateway，不写入前端、日志或提交记录。
 
 ## 数据集格式
 
@@ -204,7 +122,7 @@ dataset/
 - ImageNet ViT-S
 - ImageNet ResNet-50
 
-权重来源、revision、许可证、SHA-256 和大小统一登记在
+部署可用 `./deploy.sh models list` 查看，`./deploy.sh models pull` 按需准备；Git LFS 仍可手动使用。权重来源、revision、许可证、SHA-256 和大小统一登记在
 [权重清单](weights/manifest.json)。训练产物、数据集、特征缓存和测评原图不进入 Git，统一写入 MinIO。
 
 `pretrained/` 是独立的对外发布包，内含上述权重的发布副本、DINOv3 ViT-B/L 家族，以及蒸馏产物的 model card 与许可证。该目录的权重二进制同样被 Git 忽略，只把文本纳入版本管理；平台运行时不读取它。详见
@@ -290,6 +208,20 @@ python3 showcase/check.py
 python3 -m http.server 5180 --directory showcase/site
 ~~~
 
+部署入口回归（隔离目录与 Docker 替身，不修改业务服务）：
+
+~~~bash
+python3 -m unittest discover -s deploy/tests -v
+~~~
+
+真实部署验收使用独立项目、随机端口和临时数据卷，结束后只清理该测试项目；应用镜像已构建时运行：
+
+~~~bash
+python3 deploy/tests/smoke_live.py --no-build --models all
+~~~
+
+去掉 `--no-build` 会执行镜像构建；测试会准备所选模型，不提交训练或调用付费模型。验收范围见 [部署验证记录](docs/deployment/validation.md)。
+
 GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约测试和展示文档完整性检查；其中 Python 测试包含权重清单的存在性、大小与 SHA-256 校验。
 
 ## 目录结构
@@ -304,13 +236,18 @@ GitHub Actions 会分别执行 Go 测试、Python 测试、前端构建/契约�
 ├── docs/           专题设计与操作说明
 ├── reports/        选择性推理的离线评估产物
 ├── showcase/       单页项目展示文档
-├── scripts/        启动、契约检查与维护脚本
+├── deploy.sh       统一部署命令入口
+├── deploy/         配置/模型辅助程序与部署测试
+├── scripts/        兼容入口、契约检查与维护脚本
 ├── pretrained/     对外发布的模型包（权重、许可证与 model card）
 └── weights/        Git LFS 预训练权重及身份清单
 ~~~
 
 ## 文档导航
 
+- [文档总目录](docs/README.md)
+- [统一部署、模型准备与升级](docs/deployment/README.md)
+- [Agent 服务与工具](agent/README.md)
 - [AI 标注平台](docs/annotation-platform.md)
 - [标注发布与推理回流](docs/annotation-dataset-publication.md)
 - [数据集后台导入](docs/dataset-import.md)

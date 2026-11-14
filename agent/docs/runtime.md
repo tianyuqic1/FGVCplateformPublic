@@ -31,13 +31,14 @@ Agent 是独立 Go 模块和镜像，使用独立 PostgreSQL 容器、database�
 
 Agent 自有表为 conversations、runs、events、watches 和 agent_schema_migrations。启动时使用事务与 advisory lock 执行内嵌、可重复的两份 SQL 迁移。Compose 本地版本使用本库账号管理本库 schema，尚未拆分生产迁移账号与运行账号。
 
-本地启动：
+统一启动（在仓库根目录）：
 
 ```sh
-python3 agent/deploy/init_local.py
-docker compose build go-control-plane agent-service migrate frontend
-docker compose up -d --no-build frontend go-control-plane go-llm-gateway agent-service outbox-relay python-training-worker python-inference-runtime
+./deploy.sh                         # 基础平台与 Agent
+./deploy.sh --with-worker --with-models
 ```
+
+参数、升级和端口统一见 [部署指南](../../docs/deployment/README.md)。
 
 使用现有的 `.env` LLM 配置，额外需要：
 
